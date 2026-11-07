@@ -39,6 +39,9 @@ class TestClient:
     def post(self, url, **kwargs):
         return self.request("POST", url, **kwargs)
 
+    def put(self, url, **kwargs):
+        return self.request("PUT", url, **kwargs)
+
 
 def configured(env):
     # Test-only tokens. Production supplies private random credentials, never these fixtures.

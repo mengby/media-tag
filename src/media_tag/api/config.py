@@ -10,6 +10,9 @@ from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
 from media_tag.router.service import Router
 from media_tag.storage.filesystem import FilesystemBackend, require_local_path
 from media_tag.workers.probe import Toolchain
+from media_tag.upload.models import UploadOptions
+from media_tag.upload.service import UploadService
+from media_tag.variants.service import VariantService
 from .app import create_app
 
 
@@ -23,6 +26,7 @@ class LocalConfig(ContractModel):
     workers: tuple[Identifier, ...]
     options: RouterOptions = RouterOptions()
     tool_dir: str | None = None
+    upload_options: UploadOptions = UploadOptions()
 
 
 def load_application(path: Path):
@@ -50,7 +54,9 @@ def load_application(path: Path):
             connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
                 DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, '["probe","evidence"]'))
     router.recover(principal=bootstrap)
-    app = create_app(router, config.credentials)
+    uploads = UploadService(router, tools, options=config.upload_options)
+    uploads.dispatch_pending(principal=bootstrap)
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools))
     return app, router, tools
 
 

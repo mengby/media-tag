@@ -4,7 +4,7 @@
 
 ## 状态与事务
 
-数据库迁移到版本 2，版本 1 的 SQL/摘要保持原样；已有登记、权限、修订在原事务内升级，失败回滚。`router_jobs/tasks/dependencies/attempts/workers/holds/receipts/events/control` 保存 DAG、尝试、租约、持有资源、接收摘要及审计。SQLite 是唯一状态源，任务目录只存私有文件。
+D03迁移到版本 2，D09追加[版本3](upload-variants.md)，版本 1/2 的 SQL/摘要保持原样；已有登记、权限、修订在原事务内升级，失败回滚。`router_jobs/tasks/dependencies/attempts/workers/holds/receipts/events/control` 保存 DAG、尝试、租约、持有资源、接收摘要及审计。SQLite 是唯一状态源，任务目录只存私有文件。
 
 阶段状态：`queued → leased → running → succeeded/retry_wait/failed/needs_attention/cancelled`。纯音频抽帧的 `not_applicable` 带真实说明产物，调度依赖视为已完成；`partial` 进入 `needs_attention`，不自动采用部分建议或解锁子阶段。失败分支不阻塞无依赖的独立视频处理分支。
 
@@ -44,7 +44,7 @@ pause 只停止新派发，已开始任务可以完成；取消通过心跳告�
 | `POST /admin/dispatch` | admin，`{paused: true/false}`，全局派发开关 |
 | `POST /admin/recover` | admin，扫描过期租约，保留资源隔离 |
 
-401 表示缺少/错误凭证，403 权限不足，404 不可用，409 操作冲突，422 输入错误，413 主体超限。没有审核、发布、上传、检索、预览或下载路由；这些分别按 D06/D09/D17 完成，不能通过静态 jobs 目录替代授权下载。
+401 表示缺少/错误凭证，403 权限不足，404 不可用，409 操作冲突，422 输入错误，413 主体超限。D09已增加[上传和衍生计划路由](upload-variants.md)；没有审核、发布、检索、预览或下载路由，按 D06/D17 完成，不能通过静态 jobs 目录替代授权下载。
 
 ## 本地运行方式（已实测）
 
@@ -79,6 +79,6 @@ serve 仅绑定 `127.0.0.1`，关闭访问日志；不自动对局域网开放�
 
 真实六模板的私有验证批次为 `jobs/d03-validation-20261107-ddd75bf6/validation.json`：真实 loopback HTTP 提交、两次 CLI work-once、3 张原生 PTS 帧、结果去重、成功复用、输入和 metadata revision 不变。配置摘要、SQLite、媒体和报告均忽略 Git；临时 token 只在验证进程内存，不写入报告。普通 wheel 安装环境另跑全量测试，27 包依赖锁含版本/wheel SHA256，pip check 通过。
 
-剩余：D09 上传和自动入队触发、D04 真实模型 Worker、D06 审核/导出、D17 文件/API 能力、D07 常驻部署及 GPU/容量/恢复实测。当前没有正式 taxonomy/lexicon 发布，也没有许可或医学确认，不据工程测试签收 A08 整项或其他业务验收。
+D09上传/自动入队和衍生契约已完成，当前全量239项测试。剩余：D04 真实模型 Worker、D06 审核/导出、D17 文件/API 能力、D07 常驻部署及 GPU/容量/恢复实测。当前没有正式 taxonomy/lexicon 发布，也没有许可或医学确认，不据工程测试签收 A08 整项或其他业务验收。
 
 实现参考：[FastAPI 依赖注入](https://fastapi.tiangolo.com/tutorial/dependencies/)、[FastAPI 测试](https://fastapi.tiangolo.com/tutorial/testing/)。测试实际通过 HTTPX ASGITransport 和真实 loopback 执行，不依赖旧 TestClient 的兼容层。

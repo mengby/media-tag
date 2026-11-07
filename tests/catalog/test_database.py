@@ -12,10 +12,10 @@ def test_migration_is_repeatable_enforces_foreign_keys_and_checksum(tmp_path):
     database.initialize()
     database.initialize()
     with database.transaction() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
     with pytest.raises(sqlite3.IntegrityError):
         with database.transaction(write=True) as connection:
             connection.execute("INSERT INTO storage_locations VALUES(?,?,?)", ("a" * 64, "synthetic", "synthetic.bin"))

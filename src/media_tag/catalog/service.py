@@ -115,40 +115,47 @@ class Catalog:
             after = os.fstat(stream.fileno())
             if (before.st_size, before.st_mtime_ns, before.st_ino, before.st_dev) != (after.st_size, after.st_mtime_ns, after.st_ino, after.st_dev) or blob.size_bytes != before.st_size:
                 raise IntegrityError("source changed during registration; no catalogue record was published")
+        with self.database.transaction(write=True) as connection:
+            return self._register_blob_tx(connection, blob, source_key=source_key, source_backend_id=source_backend_id,
+                                          principal=principal, request_id=request_id, name=name, source=source, aliases=aliases)
+
+    def _register_blob_tx(self, connection, blob, *, source_key, source_backend_id, principal, request_id, name,
+                          source, aliases=()):
+        """Trusted publication after immutable ingest; caller owns the surrounding transaction."""
+        alias_data = [alias.model_dump() for alias in aliases]
         fingerprint = sha256(encode({"sha256": blob.sha256, "size": blob.size_bytes, "name": name,
                                      "source_backend_id": source_backend_id, "source": source.model_dump(), "aliases": alias_data}).encode()).hexdigest()
-        with self.database.transaction(write=True) as connection:
-            previous = connection.execute("SELECT fingerprint,asset_id FROM registrations WHERE owner_id=? AND request_id=?",
-                                          (principal.actor_id, request_id)).fetchone()
-            if previous:
-                if previous[0] != fingerprint:
-                    raise RevisionConflict("registration request ID was reused with different input")
-                return self._snapshot(connection, self._authorize(connection, previous[1], principal))
-            for alias in aliases:
-                if connection.execute("SELECT 1 FROM asset_aliases WHERE owner_id=? AND namespace=? AND alias=?",
-                                      (principal.actor_id, alias.namespace, alias.alias)).fetchone():
-                    raise RevisionConflict("legacy alias is already assigned")
-            now, asset_id, source_id = utc_now(), f"asset-{uuid4().hex}", f"source-{uuid4().hex}"
-            connection.execute("INSERT OR IGNORE INTO blobs VALUES(?,?,?)", (blob.sha256, blob.size_bytes, now))
-            size = connection.execute("SELECT size_bytes FROM blobs WHERE sha256=?", (blob.sha256,)).fetchone()[0]
-            if size != blob.size_bytes:
-                raise IntegrityError("existing blob size differs from its registered hash")
-            connection.execute("INSERT OR IGNORE INTO storage_locations VALUES(?,?,?)", (blob.sha256, self.backend_id, blob.object_key))
-            location = connection.execute("SELECT object_key FROM storage_locations WHERE blob_sha256=? AND backend_id=?",
-                                          (blob.sha256, self.backend_id)).fetchone()
-            if location is None or location[0] != blob.object_key:
-                raise IntegrityError("storage location conflicts with registered blob")
-            connection.execute("""INSERT INTO assets(asset_id,blob_sha256,owner_id,name,revision,kind,root_asset_id,parent_asset_id,created_at,deleted_at)
-                VALUES(?,?,?,?,1,'original',?,NULL,?,NULL)""",
-                               (asset_id, blob.sha256, principal.actor_id, name, asset_id, now))
-            connection.execute("INSERT INTO asset_sources VALUES(?,?,?,?,?,'unverified',?,?,?,?)",
-                               (source_id, asset_id, source.label, source.reference, source.attribution,
-                                source_backend_id, source_key, principal.actor_id, now))
-            for alias in aliases:
-                connection.execute("INSERT INTO asset_aliases VALUES(?,?,?,?)", (principal.actor_id, alias.namespace, alias.alias, asset_id))
-            connection.execute("INSERT INTO registrations VALUES(?,?,?,?)", (principal.actor_id, request_id, fingerprint, asset_id))
-            self._event(connection, asset_id, 1, principal, "register", {}, {"name": name, "source_id": source_id, "aliases": alias_data})
-            return self._snapshot(connection, self._authorize(connection, asset_id, principal))
+        previous = connection.execute("SELECT fingerprint,asset_id FROM registrations WHERE owner_id=? AND request_id=?",
+                                      (principal.actor_id, request_id)).fetchone()
+        if previous:
+            if previous[0] != fingerprint:
+                raise RevisionConflict("registration request ID was reused with different input")
+            return self._snapshot(connection, self._authorize(connection, previous[1], principal))
+        for alias in aliases:
+            if connection.execute("SELECT 1 FROM asset_aliases WHERE owner_id=? AND namespace=? AND alias=?",
+                                  (principal.actor_id, alias.namespace, alias.alias)).fetchone():
+                raise RevisionConflict("legacy alias is already assigned")
+        now, asset_id, source_id = utc_now(), f"asset-{uuid4().hex}", f"source-{uuid4().hex}"
+        connection.execute("INSERT OR IGNORE INTO blobs VALUES(?,?,?)", (blob.sha256, blob.size_bytes, now))
+        size = connection.execute("SELECT size_bytes FROM blobs WHERE sha256=?", (blob.sha256,)).fetchone()[0]
+        if size != blob.size_bytes:
+            raise IntegrityError("existing blob size differs from its registered hash")
+        connection.execute("INSERT OR IGNORE INTO storage_locations VALUES(?,?,?)", (blob.sha256, self.backend_id, blob.object_key))
+        location = connection.execute("SELECT object_key FROM storage_locations WHERE blob_sha256=? AND backend_id=?",
+                                      (blob.sha256, self.backend_id)).fetchone()
+        if location is None or location[0] != blob.object_key:
+            raise IntegrityError("storage location conflicts with registered blob")
+        connection.execute("""INSERT INTO assets(asset_id,blob_sha256,owner_id,name,revision,kind,root_asset_id,parent_asset_id,created_at,deleted_at)
+            VALUES(?,?,?,?,1,'original',?,NULL,?,NULL)""",
+                           (asset_id, blob.sha256, principal.actor_id, name, asset_id, now))
+        connection.execute("INSERT INTO asset_sources VALUES(?,?,?,?,?,'unverified',?,?,?,?)",
+                           (source_id, asset_id, source.label, source.reference, source.attribution,
+                            source_backend_id, source_key, principal.actor_id, now))
+        for alias in aliases:
+            connection.execute("INSERT INTO asset_aliases VALUES(?,?,?,?)", (principal.actor_id, alias.namespace, alias.alias, asset_id))
+        connection.execute("INSERT INTO registrations VALUES(?,?,?,?)", (principal.actor_id, request_id, fingerprint, asset_id))
+        self._event(connection, asset_id, 1, principal, "register", {}, {"name": name, "source_id": source_id, "aliases": alias_data})
+        return self._snapshot(connection, self._authorize(connection, asset_id, principal))
 
     def get_asset(self, asset_id: str, *, principal: Principal) -> AssetSnapshot:
         with self.database.transaction() as connection:

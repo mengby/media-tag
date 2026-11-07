@@ -2,11 +2,11 @@
 
 ## 当前范围
 
-本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D03已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`。已有持久化Router/队列、受认证HTTP控制接口及本地CPU执行命令；目前没有前端、常驻服务部署或真实模型/GPU Worker。本机六份原始模板已齐并绑定摘要，完整医学分类词表仍待D13审核发布；服务器和存储部署位置仍按用户选定方案执行。
+本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D03及D09已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、受认证HTTP上传/控制接口、衍生契约及本地CPU执行命令；目前没有前端、常驻服务部署或真实模型/GPU Worker。本机六份原始模板已齐并绑定摘要，完整医学分类词表仍待D13审核发布；服务器和存储部署位置仍按用户选定方案执行。
 
 2026-11-07起总控入口为 `docs/REQUIREMENTS.md`、`docs/ARCHITECTURE.md`、`docs/IMPLEMENTATION_PLAN.md`、`docs/PROGRESS.md`，分别维护范围、设计、当前任务顺序和实际状态。保留D00～D20及A/T/I编号；专题中的早期阶段/工期不替代当前实施计划。候选表、模拟交互和任务卡不算对应功能已完成。
 
-用户新增核心需求：上传素材、人脸打码、视频变速及衍生素材入库。当前设计见 `docs/UPLOAD_AND_MEDIA_VARIANTS.md`，尚未实现。
+用户新增核心需求：上传素材、人脸打码、视频变速及衍生素材入库。设计见 `docs/UPLOAD_AND_MEDIA_VARIANTS.md`；D09上传/衍生契约已实现，D10打码、D11产品变速及D12操作页尚未实现。
 
 用户已选定极简界面：素材库默认画廊、可切换列表；打码与变速属于独立“视频处理”功能；AI 打标后台自动执行。处理不依赖语义打标成功，医学标签人工确认与处理输出复核仍分别保留。
 
