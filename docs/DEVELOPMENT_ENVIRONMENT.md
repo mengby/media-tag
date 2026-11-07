@@ -1,6 +1,6 @@
 # 本机开发环境与开工步骤
 
-核实日期：2026-11-07（Asia/Shanghai）。项目`.venv`用于D00和D01工程，见 [契约说明](contracts.md)、[索引与存储说明](catalog-storage.md)；HTTP服务、模型与部署尚未验收。D01使用标准库sqlite3，无新增第三方依赖。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
+核实日期：2026-11-07（Asia/Shanghai）。项目`.venv`用于D00～D02工程，见 [契约说明](contracts.md)、[索引与存储](catalog-storage.md)、[技术提取与证据](media-evidence.md)；HTTP/队列、模型与部署尚未验收。D01使用标准库sqlite3，D02新增Pillow及独立便携FFmpeg工具。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
 
 ## 已建立的环境
 
@@ -10,10 +10,10 @@
 | 虚拟环境 | 根目录 `.venv`，Python 3.12.14；不继承系统 site-packages |
 | 项目解释器 | `D:\ai\media-tag\.venv\Scripts\python.exe` |
 | 基础解释器 | `C:\Users\EDY\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe` |
-| pip | 25.0.1；`pip check`通过；D00依赖已安装，14个包按版本及wheel哈希锁定，未安装业务服务/模型依赖 |
+| pip | 25.0.1；`pip check`通过；当前15个包按版本及wheel哈希锁定，含Pillow 13.0.0；未安装HTTP/模型依赖 |
 | SQLite | Python 标准库可用，SQLite 3.53.1；未创建业务数据库 |
 | 本机 GPU | `nvidia-smi` 返回 RTX 5060 Ti、8151 MiB、驱动 580.97；不是模型兼容性验收 |
-| 外部命令 | 当前 PATH 未找到 python、py、uv、ffmpeg、ffprobe、node、npm；基础 Python 通过绝对路径调用 |
+| 外部命令 | 初始PATH无python/py/uv/ffmpeg/ffprobe/node/npm；Python用项目`.venv`，FFmpeg/ffprobe 9.0.2用项目cache中的固定路径，不依赖系统PATH |
 
 本机显卡读数与需求中用户提供的 RTX 5060 记录不同；本机检查不能证明最终常驻服务器就是这台机器，也不据此改写目标硬件要求。尚未执行 CUDA 运算、模型推理或编码检查。
 
@@ -28,6 +28,7 @@ Set-Location D:\ai\media-tag
 & .\.venv\Scripts\python.exe --version
 & .\.venv\Scripts\python.exe -m pip --version
 & .\.venv\Scripts\python.exe -m pip check
+& .\.venv\Scripts\python.exe -m media_tag check-media-tools
 ```
 
 也可以按需运行 `& .\.venv\Scripts\Activate.ps1`，再调用 `python`；此激活方式尚未实测。遇执行策略限制时使用上面的解释器绝对/相对路径方式即可。编辑器选择 `.venv\Scripts\python.exe`。
@@ -57,9 +58,9 @@ Set-Location D:\ai\media-tag
 
 ## 拟定实施落点
 
-以下为实施落点；D00和D01已完成工程验收，其他任务仍按依赖推进。选型用于当前工程实施，不代表目标部署已完成。
+以下为实施落点；D00～D02已完成各自工程验收，其他任务按依赖推进。选型用于当前工程实施，不代表目标部署已完成。
 
-1. **M0：D00＋D07 环境准备。** D00的原始契约、Python工程、依赖锁与合成测试已验收。后续核实最终服务器、数据/备份目录与网络，配置FFmpeg/ffprobe并实测；不将D00完成等同于M0全部完成。
+1. **M0：D00＋D07 环境准备。** D00契约/工程已验收，本机FFmpeg/ffprobe与CPU合成解码已在D02核实。最终服务器、数据/备份目录、网络、模型/GPU与恢复仍待实测；不将本机检查等同于M0全部完成。
 2. **M1：D01/D02/D03/D09，D17 基础接口。** 先做一条真实素材的上传→完整性校验→SHA256 去重→来源登记→技术探测→授权预览/固定版本下载。最早的可演示交付是这条闭环，带失败记录与恢复；不是先堆模型或做模拟页面。
 3. **M2：D04 人脸子交付、D10/D11/D12。** 先打通独立视频处理页：单独变速、单独打码及组合。保留原件，处理结果另存并登记配方、时间映射和哈希；输出复核绑定实际文件。
 4. **M3：D04/D06/D13/D14/D15，完成 D12。** 接入真实 OCR/CLIP 与后台任务、人工有效值保护、契约导出、词表审核发布、小模型召回及画廊/列表检索。医学标签确认与打码输出复核分别记录。
@@ -67,4 +68,4 @@ Set-Location D:\ai\media-tag
 
 核心 API/调度/存储依赖进入 `.venv`。视觉/文本推理依赖先验证冲突与 GPU 兼容性；需要隔离时再建立单独 Worker 环境并登记锁文件，不直接把全部模型包装进核心环境。FFmpeg 是外部程序，前端工具链也不由 Python 虚拟环境提供。
 
-D00真实契约与D01本地索引/存储工程验收已完成。下一步D02技术探测，D07准备继续；完整分类/术语词表按D13发布，真实媒体与业务验收仍按各任务要求执行。
+D00～D02工程已验收，下一步D03 Router/队列，D07准备继续。本机FFmpeg CPU合成解码已验证，最终服务器/GPU/容量与恢复未验；完整分类/术语词表按D13发布，真实素材与业务验收仍按各任务要求执行。

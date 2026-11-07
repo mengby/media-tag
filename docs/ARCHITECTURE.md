@@ -1,6 +1,6 @@
 # 素材库设计总览
 
-整理日期：2026-11-07。状态：设计基线，D00公共契约与D01索引/存储Python核心已完成工程验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP服务、模型和部署仍未实现，不能把设计图视为运行事实。
+整理日期：2026-11-07。状态：设计基线，D00/D01/D02工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP/队列、模型和部署仍未实现，不能把设计图视为运行事实。
 
 ## 设计决策
 

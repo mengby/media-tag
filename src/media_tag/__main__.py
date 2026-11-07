@@ -1,3 +1,3 @@
-from media_tag.contracts.cli import main
+from media_tag.cli import main
 
 raise SystemExit(main())

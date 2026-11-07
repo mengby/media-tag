@@ -7,7 +7,7 @@
 采用 Python src 布局、setuptools 构建、Pydantic 运行时校验及 pytest。当前支持范围为 Python 3.12，实际使用项目根目录 `.venv`；未测试其他 Python 次版本。包版本为 `0.1.0`，包版本、内部 schema、原始契约版本、taxonomy 和 lexicon 版本分别管理。
 
 - [pyproject.toml](../pyproject.toml)：直接依赖及构建工具版本；目前不包含 FastAPI、FFmpeg、OCR、CUDA 等后续依赖。
-- [requirements-dev.lock](../requirements-dev.lock)：Windows x86_64 / CPython 3.12 的完整开发依赖锁，包含14个包的确切版本与实际下载 wheel 的 SHA256，含pip/构建/测试工具；不含本项目 editable 路径。
+- [requirements-dev.lock](../requirements-dev.lock)：Windows x86_64 / CPython 3.12完整开发依赖锁，含确切版本与wheel的SHA256；D00初版14个包，D02新增Pillow后为15个；不含本项目editable路径。
 - [源码](../src/media_tag/contracts/README.md)、[测试说明](../tests/contracts/README.md)。
 
 在已有 `.venv` 中复现安装与测试（仓库根目录执行）：
