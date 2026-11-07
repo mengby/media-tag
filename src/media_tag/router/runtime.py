@@ -118,7 +118,8 @@ class LocalExecutor:
                 if stopped.is_set():
                     raise MediaError("cancelled", "executor stopped at stage boundary")
             except Exception as exc:
-                code = exc.code if isinstance(exc, MediaError) else "executor_error"
+                from media_tag.models.contracts import ModelFailure
+                code = exc.code if isinstance(exc, (MediaError, ModelFailure)) else "executor_error"
                 payload = {"status": "failed", "errors": (ErrorDetail(code=code, message="stage execution failed",
                            retryable=code in {"tool_timeout", "tool_unavailable"}),)}
             result = WorkerResult(task_id=task.task_id, attempt=task.attempt, lease_epoch=task.lease_epoch,

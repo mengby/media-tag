@@ -45,6 +45,14 @@ class Router:
             if definition is None:
                 raise ValueError("stage is not registered on the server")
             definition.config_model.model_validate_json(encode(step.config))
+            if definition.required_model_revision is not None and step.versions.model_revision != definition.required_model_revision:
+                raise ValueError('model revision does not match the server registry')
+            if definition.required_preprocess_version is not None and step.versions.preprocess_version != definition.required_preprocess_version:
+                raise ValueError('preprocess version does not match the registered stage')
+            if definition.required_gpu_slots is not None and step.limits.gpu_slots != definition.required_gpu_slots:
+                raise ValueError('resource request does not match the deployed model device')
+            if definition.allowed_target_fields is not None and not set(step.target_fields) <= set(definition.allowed_target_fields):
+                raise ValueError('model evidence stage cannot write the requested catalogue fields')
             if step.limits.max_attempts > self.options.max_attempts or step.limits.timeout_seconds > self.options.max_timeout_seconds:
                 raise ValueError("task limits exceed server policy")
             if type(step.limits.gpu_slots) is not int or (step.limits.gpu_slots and not definition.gpu_allowed):
@@ -254,6 +262,11 @@ class Router:
                 definition = self.stages.get(step.stage)
                 if definition is None:
                     connection.execute("UPDATE router_tasks SET state='needs_attention',error_code='stage_unavailable' WHERE task_id=?", (task["task_id"],))
+                    continue
+                try:
+                    self._validate_steps((step,))
+                except ValueError:
+                    connection.execute("UPDATE router_tasks SET state='needs_attention',error_code='stage_version_unavailable' WHERE task_id=?", (task['task_id'],))
                     continue
                 effective = {row["field"]: json.loads(row["payload"]) for row in connection.execute("SELECT * FROM effective_values WHERE asset_id=?", (job["asset_id"],)) if row["field"] in step.target_fields}
                 fingerprint = _digest({"source": source["blob_sha256"], "asset_id": job["asset_id"], "owner": job["owner_id"],

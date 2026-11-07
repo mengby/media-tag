@@ -13,6 +13,10 @@ from media_tag.workers.probe import Toolchain
 from media_tag.upload.models import UploadOptions
 from media_tag.upload.service import UploadService
 from media_tag.variants.service import VariantService
+from media_tag.models.contracts import ModelDeployment
+from media_tag.models.registry import ModelRegistry
+from media_tag.models.runtime import ModelHandlers, model_stages
+import json
 from .app import create_app
 
 
@@ -27,6 +31,7 @@ class LocalConfig(ContractModel):
     options: RouterOptions = RouterOptions()
     tool_dir: str | None = None
     upload_options: UploadOptions = UploadOptions()
+    models: ModelDeployment = ModelDeployment()
 
 
 def load_application(path: Path):
@@ -46,13 +51,19 @@ def load_application(path: Path):
     contract = load_template_bundle(templates, expected_fingerprint=config.template_fingerprint)
     catalog = Catalog(Database(database), FilesystemBackend(objects, writable=True), contract=contract)
     router = Router(catalog, workspace, cpu_stages(tools), options=config.options)
+    if config.models.enabled:
+        model_root = Path(config.models.model_root)
+        if not model_root.is_absolute():
+            raise ValueError('enabled model root must be an absolute local path')
+        require_local_path(model_root)
+        router.stages.update(model_stages(ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device))
     # This capability exists only inside trusted bootstrap, not a caller-controlled role body.
     bootstrap = Principal(actor_id="local-bootstrap", role="admin")
     with router.database.transaction(write=True) as connection:
         connection.execute("UPDATE router_workers SET enabled=0")
         for worker in config.workers:
             connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
-                DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, '["probe","evidence"]'))
+                DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, json.dumps(sorted(router.stages))))
     router.recover(principal=bootstrap)
     uploads = UploadService(router, tools, options=config.upload_options)
     uploads.dispatch_pending(principal=bootstrap)
@@ -67,4 +78,7 @@ def executor_from_config(path: Path, worker_id: str):
         if worker is None or not worker[0]:
             raise ValueError("worker must be enabled in the local configuration")
     principal = Principal(actor_id=worker_id, role="worker")
-    return LocalExecutor(router, principal, CPUHandlers(router, principal, tools))
+    config = LocalConfig.model_validate_json(path.read_bytes())
+    cpu = CPUHandlers(router, principal, tools)
+    models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device)
+    return LocalExecutor(router, principal, lambda lease, stopped: cpu(lease, stopped) if lease.task.stage in ('probe', 'evidence') else models(lease, stopped))

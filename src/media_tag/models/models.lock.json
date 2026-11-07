@@ -1,0 +1,103 @@
+{
+  "schema_version": "d04-models-v1",
+  "models": {
+    "ocr": {
+      "name": "PP-OCRv5-mobile",
+      "provider": "RapidAI converted PaddleOCR",
+      "revision": "v3.9.2",
+      "runtime": "onnxruntime-cpu"
+    },
+    "face": {
+      "name": "YuNet-2023mar",
+      "provider": "opencv/opencv_zoo",
+      "revision": "d4938dfc9d4ec5d098bfa33e98b3f3345a236586",
+      "runtime": "opencv-cpu"
+    },
+    "clip": {
+      "name": "Chinese-CLIP-ViT-B16",
+      "provider": "OFA-Sys",
+      "revision": "36e679e65c2a2fead755ae21162091293ad37834",
+      "runtime": "torch-cuda-or-explicit-cpu",
+      "weights_format": "pytorch-weights-only"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "clip/README.md",
+      "sha256": "c2a74a9831e9620d829678ca4e25c9c309c91945b635f95d77393ed7c634abbd",
+      "size_bytes": 7700,
+      "url": "https://huggingface.co/OFA-Sys/chinese-clip-vit-base-patch16/resolve/36e679e65c2a2fead755ae21162091293ad37834/README.md",
+      "revision": "36e679e65c2a2fead755ae21162091293ad37834"
+    },
+    {
+      "path": "clip/config.json",
+      "sha256": "97850313ab34f4fdeed3a7886b4db8b209a842a48d1cbda079abd071d12c7a2f",
+      "size_bytes": 3008,
+      "url": "https://huggingface.co/OFA-Sys/chinese-clip-vit-base-patch16/resolve/36e679e65c2a2fead755ae21162091293ad37834/config.json",
+      "revision": "36e679e65c2a2fead755ae21162091293ad37834"
+    },
+    {
+      "path": "clip/preprocessor_config.json",
+      "sha256": "0e00af244b402c34f92898e2ba68359762ad3788e087b2a0e4d575512f388ea9",
+      "size_bytes": 342,
+      "url": "https://huggingface.co/OFA-Sys/chinese-clip-vit-base-patch16/resolve/36e679e65c2a2fead755ae21162091293ad37834/preprocessor_config.json",
+      "revision": "36e679e65c2a2fead755ae21162091293ad37834"
+    },
+    {
+      "path": "clip/pytorch_model.bin",
+      "sha256": "7b7b583c210c867410bc6bdb8a55fe14eec62999e0a9ea31ff222dc501f9cfbe",
+      "size_bytes": 753177983,
+      "url": "https://huggingface.co/OFA-Sys/chinese-clip-vit-base-patch16/resolve/36e679e65c2a2fead755ae21162091293ad37834/pytorch_model.bin",
+      "revision": "36e679e65c2a2fead755ae21162091293ad37834"
+    },
+    {
+      "path": "clip/vocab.txt",
+      "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c",
+      "size_bytes": 109540,
+      "url": "https://huggingface.co/OFA-Sys/chinese-clip-vit-base-patch16/resolve/36e679e65c2a2fead755ae21162091293ad37834/vocab.txt",
+      "revision": "36e679e65c2a2fead755ae21162091293ad37834"
+    },
+    {
+      "path": "face/LICENSE",
+      "sha256": "c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958",
+      "size_bytes": 1085,
+      "url": "https://huggingface.co/opencv/opencv_zoo/resolve/d4938dfc9d4ec5d098bfa33e98b3f3345a236586/models/face_detection_yunet/LICENSE",
+      "revision": "d4938dfc9d4ec5d098bfa33e98b3f3345a236586"
+    },
+    {
+      "path": "face/yunet.onnx",
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+      "size_bytes": 232589,
+      "url": "https://huggingface.co/opencv/opencv_zoo/resolve/d4938dfc9d4ec5d098bfa33e98b3f3345a236586/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+      "revision": "d4938dfc9d4ec5d098bfa33e98b3f3345a236586"
+    },
+    {
+      "path": "ocr/LICENSE",
+      "sha256": "3e0af25fdd06aa9586ae97adb00ea927ebe5a3805ac77d2d3a81ce5f55693333",
+      "size_bytes": 11422,
+      "url": "https://raw.githubusercontent.com/RapidAI/RapidOCR/v3.9.2/LICENSE",
+      "revision": "v3.9.2"
+    },
+    {
+      "path": "ocr/ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx",
+      "sha256": "54379ae5174d026780215fc748a7f31910dee36818e63d49e17dc598ecc82df7",
+      "size_bytes": 1018508,
+      "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/cls/ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx",
+      "revision": "v3.9.2"
+    },
+    {
+      "path": "ocr/ch_PP-OCRv5_det_mobile.onnx",
+      "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+      "size_bytes": 4819576,
+      "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx",
+      "revision": "v3.9.2"
+    },
+    {
+      "path": "ocr/ch_PP-OCRv5_rec_mobile.onnx",
+      "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+      "size_bytes": 16631306,
+      "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx",
+      "revision": "v3.9.2"
+    }
+  ]
+}

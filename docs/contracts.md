@@ -6,7 +6,7 @@
 
 采用 Python src 布局、setuptools 构建、Pydantic 运行时校验及 pytest。当前支持范围为 Python 3.12，实际使用项目根目录 `.venv`；未测试其他 Python 次版本。包版本为 `0.1.0`，包版本、内部 schema、原始契约版本、taxonomy 和 lexicon 版本分别管理。
 
-- [pyproject.toml](../pyproject.toml)：直接依赖及构建工具版本；目前不包含 FastAPI、FFmpeg、OCR、CUDA 等后续依赖。
+- [pyproject.toml](../pyproject.toml)：直接依赖及构建工具版本；核心已包含FastAPI；D04视觉可选依赖见`vision`与[模型说明](model-workers.md)，FFmpeg仍为外部工具。
 - [requirements-dev.lock](../requirements-dev.lock)：Windows x86_64 / CPython 3.12完整开发依赖锁，含确切版本与wheel的SHA256；D00初版14个包，D02新增Pillow后为15个，D03扩展为27个；不含本项目editable路径。
 - [源码](../src/media_tag/contracts/README.md)、[测试说明](../tests/contracts/README.md)。
 
@@ -16,12 +16,12 @@
 & .\.venv\Scripts\python.exe -m pip install --index-url https://pypi.org/simple --require-hashes --only-binary=:all: -r requirements-dev.lock
 & .\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
 & .\.venv\Scripts\python.exe -m pip check
-& .\.venv\Scripts\python.exe -m pytest -q
+& .\.venv\Scripts\python.exe -m pytest -q --ignore=tests/models # 此处仅安装核心依赖
 ```
 
 本次实际从 PyPI 获取 wheel，按文件摘要生成锁；另在忽略目录 `cache/d00-check-env/` 创建干净环境，从 `cache/d00-wheels/` 离线按锁安装，并用构建的普通 wheel 验证。依赖缓存和验证环境不提交 Git，也不是正式部署环境。
 
-以后变更依赖：先在独立环境解析所需版本并运行测试，用 `pip freeze --all --exclude-editable` 获取全部包的精确版本，用 `pip download --only-binary=:all:` 下载该平台的全部 wheel；用 `pip hash` 或 SHA256 为每个锁定项登记对应文件哈希，再在干净环境按 `--require-hashes` 重装验证。同步直接依赖与构建工具版本，不把带本机路径的 editable 记录写进锁。其他平台需单独解析、锁定及验证，不能直接放宽当前哈希。模型环境由后续任务单独评估。
+以后变更依赖：先在独立环境解析所需版本并运行测试，用 `pip freeze --all --exclude-editable` 获取全部包的精确版本，用 `pip download --only-binary=:all:` 下载该平台的全部 wheel；用 `pip hash` 或 SHA256 为每个锁定项登记对应文件哈希，再在干净环境按 `--require-hashes` 重装验证。同步直接依赖与构建工具版本，不把带本机路径的 editable 记录写进锁。其他平台需单独解析、锁定及验证，不能直接放宽当前哈希。D04视觉环境已按61包完整哈希锁验证，核心锁保持独立；见`requirements-vision.lock`。
 
 项目继续采用现有 Python/FastAPI/SQLite/FFmpeg 工程方向；D00 只落地 Python 契约。人员页面拟定由 API 服务提供 HTML/CSS 与原生 JavaScript，按 `web/library`、`web/process` 等业务模块组织，轨迹编辑可使用浏览器 canvas；本轮不建立空 web 目录或安装 Node 工具链。实际页面与服务在对应任务实现，目标服务器及 AI 宿主仍须核实。
 

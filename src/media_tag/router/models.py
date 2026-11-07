@@ -63,6 +63,10 @@ class StageDefinition:
     require_artifact: bool = True
     reduce_config: Callable[[dict], dict] | None = None
     synthetic: bool = False
+    required_model_revision: str | None = None
+    required_preprocess_version: str | None = None
+    required_gpu_slots: int | None = None
+    allowed_target_fields: tuple[str, ...] | None = None
 
 
 class RouterOptions(ContractModel):

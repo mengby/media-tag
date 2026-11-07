@@ -1,6 +1,6 @@
 # 本机开发环境与开工步骤
 
-核实日期：2026-11-07（Asia/Shanghai）。项目`.venv`用于D00～D03、D09及D17文件基础工程，见 [契约说明](contracts.md)、[索引与存储](catalog-storage.md)、[技术提取与证据](media-evidence.md)、[Router与队列](router-queue.md)、[上传与衍生契约](upload-variants.md)、[D17文件基础](file-access.md)；HTTP上传/调度、衍生契约、授权文件/预览/Range已通过工程验证，模型与部署尚未验收。D01使用标准库sqlite3，D02新增Pillow及独立便携FFmpeg工具，D03新增FastAPI/Uvicorn与HTTPX测试依赖。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
+核实日期：2026-11-07（Asia/Shanghai）。项目`.venv`用于D00～D04、D09及D17文件基础工程，见 [契约说明](contracts.md)、[索引与存储](catalog-storage.md)、[技术提取与证据](media-evidence.md)、[Router与队列](router-queue.md)、[上传与衍生契约](upload-variants.md)、[D17文件基础](file-access.md)；HTTP上传/调度、衍生契约、授权文件/预览/Range已通过工程验证，D04真实模型与本机CUDA已验证，详见[模型说明](model-workers.md)；正式业务及部署尚未验收。D01使用标准库sqlite3，D02新增Pillow及独立便携FFmpeg工具，D03新增FastAPI/Uvicorn与HTTPX测试依赖。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
 
 ## 已建立的环境
 
@@ -10,12 +10,12 @@
 | 虚拟环境 | 根目录 `.venv`，Python 3.12.14；不继承系统 site-packages |
 | 项目解释器 | `D:\ai\media-tag\.venv\Scripts\python.exe` |
 | 基础解释器 | `C:\Users\EDY\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe` |
-| pip | 25.0.1；`pip check`通过；当前27个包按版本及wheel哈希锁定，含Pillow 13.0.0、FastAPI 0.162.0、Uvicorn 0.54.0、HTTPX 0.28.1；未安装模型依赖 |
+| pip | 25.0.1；`pip check`通过；核心27包锁不变；D04完整视觉锁61包已装入项目`.venv`并离线复现，含torch 2.9.1+cu128、Transformers 4.57.6、RapidOCR 3.9.2、ORT 1.23.2 |
 | SQLite | Python 标准库可用，SQLite 3.53.1；未创建业务数据库 |
-| 本机 GPU | `nvidia-smi` 返回 RTX 5060 Ti、8151 MiB、驱动 580.97；不是模型兼容性验收 |
+| 本机 GPU | `nvidia-smi` 返回 RTX 5060 Ti、8151 MiB、驱动 580.97；已实际运行sm_120 CUDA矩阵及中文CLIP；不是最终部署验收 |
 | 外部命令 | 初始PATH无python/py/uv/ffmpeg/ffprobe/node/npm；Python用项目`.venv`，FFmpeg/ffprobe 9.0.2用项目cache中的固定路径，不依赖系统PATH |
 
-本机显卡读数与需求中用户提供的 RTX 5060 记录不同；本机检查不能证明最终常驻服务器就是这台机器，也不据此改写目标硬件要求。尚未执行 CUDA 运算、模型推理或编码检查。
+本机显卡读数与需求中用户提供的 RTX 5060 记录不同；本机检查不能证明最终常驻服务器就是这台机器，也不据此改写目标硬件要求。已执行CUDA矩阵、OCR/YuNet及Chinese-CLIP CPU/CUDA图文编码；未执行最终服务器部署验收。系统旧MSVC不兼容ORT，通过`.venv`内msvc-runtime解决，未改系统库或驱动。
 
 `.venv` 依赖上述基础解释器；Codex 缓存清理、解释器迁移后应重建。它是本机开发环境，不作为正式部署运行时。目标机器需使用独立维护的 Python 安装，在目标项目目录重新创建 `.venv`，不能复制当前虚拟环境过去。Python 3.12.14 是本次可用环境记录，业务及 GPU 依赖支持范围仍须在 D00/D07 实测并锁定。
 
@@ -58,14 +58,14 @@ Set-Location D:\ai\media-tag
 
 ## 拟定实施落点
 
-以下为实施落点；D00～D03及D09已完成各自工程验收，其他任务按依赖推进。选型用于当前工程实施，不代表目标部署已完成。
+以下为实施落点；D00～D04及D09已完成各自工程验收，其他任务按依赖推进。选型用于当前工程实施，不代表目标部署已完成。
 
-1. **M0：D00＋D07 环境准备。** D00契约/工程已验收，本机FFmpeg/ffprobe与CPU合成解码已在D02核实。最终服务器、数据/备份目录、网络、模型/GPU与恢复仍待实测；不将本机检查等同于M0全部完成。
+1. **M0：D00＋D07 环境准备。** D00契约/工程已验收，本机FFmpeg/ffprobe与CPU合成解码已在D02核实。本机模型/GPU已实测；最终服务器、数据/备份目录、网络与恢复仍待实测；不将本机检查等同于M0全部完成。
 2. **M1：D01/D02/D03/D09，D17 基础接口。** 先做一条真实素材的上传→完整性校验→SHA256 去重→来源登记→技术探测→授权预览/固定版本下载。最早的可演示交付是这条闭环，带失败记录与恢复；不是先堆模型或做模拟页面。
 3. **M2：D04 人脸子交付、D10/D11/D12。** 先打通独立视频处理页：单独变速、单独打码及组合。保留原件，处理结果另存并登记配方、时间映射和哈希；输出复核绑定实际文件。
 4. **M3：D04/D06/D13/D14/D15，完成 D12。** 接入真实 OCR/CLIP 与后台任务、人工有效值保护、契约导出、词表审核发布、小模型召回及画廊/列表检索。医学标签确认与打码输出复核分别记录。
 5. **M4/M5：完成 D17，D18～D20、D16/D07。** 明确真实 AI 宿主及跨仓库范围后接 API/MCP 和剪辑下载适配，完成独立评测、部署、权限、故障恢复与备份还原。飞书/OSS 真接入及可选 VLM 留在 M6。
 
-核心 API/调度/存储依赖进入 `.venv`。视觉/文本推理依赖先验证冲突与 GPU 兼容性；需要隔离时再建立单独 Worker 环境并登记锁文件，不直接把全部模型包装进核心环境。FFmpeg 是外部程序，前端工具链也不由 Python 虚拟环境提供。
+核心 API/调度/存储依赖进入 `.venv`。D04视觉依赖已验证冲突及GPU兼容性，按用户要求使用项目`.venv`，完整视觉锁与核心锁分开维护；文本模型依赖尚未安装。模型按租约隔离为子进程，不在API启动时加载。FFmpeg 是外部程序，前端工具链也不由 Python 虚拟环境提供。
 
-D00～D03及D09工程已验收，D17文件基础已完成工程验证，后续D04真实模型及D17语义前置，D07准备继续。本机FFmpeg CPU合成解码已验证，最终服务器/GPU/容量与恢复未验；完整分类/术语词表按D13发布，真实素材与业务验收仍按各任务要求执行。
+D00～D04及D09工程已验收，D17文件基础已完成工程验证，后续视频处理、复核/词表及D17语义前置，D07准备继续。本机FFmpeg CPU合成解码已验证，最终服务器/GPU/容量与恢复未验；完整分类/术语词表按D13发布，真实素材与业务验收仍按各任务要求执行。

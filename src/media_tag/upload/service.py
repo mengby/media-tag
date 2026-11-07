@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from media_tag.catalog import AccessDenied, CatalogError, NotFound, Principal, RevisionConflict
 from media_tag.catalog.service import encode, _human
-from media_tag.contracts.models import Versions
+from media_tag.contracts.models import Versions, TaskLimits
 from media_tag.router.models import JobSpec, StepSpec
 from media_tag.storage import IntegrityError, StorageError, UnsafePath
 from media_tag.storage.filesystem import FilesystemBackend
@@ -217,6 +217,14 @@ class UploadService:
                 steps = (StepSpec(key='probe', stage='probe', versions=versions),)
                 if event['purpose'] == 'library':
                     steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)
+                    for kind in ('ocr', 'face', 'clip'):
+                        definition = self.router.stages.get(kind)
+                        if definition and definition.required_model_revision:
+                            model_versions = Versions(rules_version=versions.rules_version,
+                                preprocess_version=definition.required_preprocess_version,
+                                model_revision=definition.required_model_revision)
+                            steps += (StepSpec(key=kind, stage=kind, depends_on=('evidence',), versions=model_versions,
+                                               limits=TaskLimits(gpu_slots=definition.required_gpu_slots)),)
                 job = self.router.submit(JobSpec(asset_id=event['asset_id'], steps=steps), request_id=event['event_id'], principal=Principal(actor_id=event['owner_id']))
                 job_id = job['job_id']
             except (CatalogError, ValueError):

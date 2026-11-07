@@ -1,6 +1,6 @@
 # 素材库设计总览
 
-整理日期：2026-11-07。状态：设计基线，D00～D03及D09工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，整项仍实施中。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，模型/处理渲染、完整语义检索和部署仍未实现，不能把设计图视为运行事实。
+整理日期：2026-11-07。状态：设计基线，D00～D04及D09工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，整项仍实施中。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，[D04模型Worker](model-workers.md)已实现并完成本机推理验证；处理渲染、完整语义检索和部署仍未实现，不能把设计图视为运行事实。
 
 ## 设计决策
 
@@ -12,7 +12,7 @@
 | 团队部署 | 常开 Windows 承载 API、任务状态、数据库和文件服务；开发机仅做开发/测试 | 当前推荐，取代早期开发机长期承载主库的团队部署建议；Q01/Q02 |
 | 存储访问 | Filesystem 首期，OSS 后续；稳定入口和对象映射隔离物理路径 | D01本地后端与统一接口已实现；OSS明确未配置，真接入留D08 |
 | AI 接入 | HTTP API 为公共能力，MCP 为薄适配层，剪辑端负责下载和当前用途检查 | 推荐方案，Q04/Q05 |
-| 模型运行 | 确定性工具＋专用小模型；可选 VLM；GPU 重任务全局串行 | 推荐方案，须 Windows 真机验证 |
+| 模型运行 | 确定性工具＋专用小模型；可选 VLM；GPU 重任务全局串行 | D04本机CPU/CUDA实测及队列适配已实现；正式词表/代表性校准、最终主机与可选VLM仍待后续 |
 | 人工管理 | 词表、医学标签审核、来源修订和导出放管理入口 | 为满足现有规则拟定；角色由 Q03 指定 |
 
 ## 总体结构
