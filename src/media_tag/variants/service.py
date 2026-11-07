@@ -15,6 +15,7 @@ from media_tag.storage import IntegrityError
 from media_tag.upload.media import validate_media
 from media_tag.workers.probe import finite_number
 from .models import FixedTimeMap, PlanSpec, SourceClock
+from media_tag.transforms.policy import reviewed,review_state
 
 
 def _stream_clock(probe, selected_audio):
@@ -40,7 +41,7 @@ class VariantService:
             row = self.catalog._authorize(connection, asset_id, principal)
             if row['kind'] == 'derived':
                 variant = connection.execute('SELECT * FROM variants WHERE asset_id=?', (asset_id,)).fetchone()
-                if variant is None or variant['privacy_status'] == 'pending' and row['owner_id'] != principal.actor_id and principal.role != 'admin':
+                if variant is None or variant['privacy_status'] == 'pending' and not reviewed(connection,variant) and row['owner_id'] != principal.actor_id and principal.role != 'admin':
                     raise AccessDenied('unreviewed output is private to its owner')
             size = connection.execute('SELECT size_bytes FROM blobs WHERE sha256=?', (row['blob_sha256'],)).fetchone()[0]
             location = connection.execute('SELECT object_key FROM storage_locations WHERE blob_sha256=? AND backend_id=?', (row['blob_sha256'], self.catalog.backend_id)).fetchone()
@@ -221,12 +222,16 @@ class VariantService:
         with self.database.transaction() as connection:
             selected = self.catalog._authorize(connection, asset_id, principal)
             versions = []
+            from media_tag.files.service import FileService
+            files=FileService(self.router)
             for row in connection.execute('SELECT a.*,v.privacy_status,v.recipe_hash FROM assets a LEFT JOIN variants v USING(asset_id) WHERE root_asset_id=? AND deleted_at IS NULL ORDER BY created_at,asset_id', (selected['root_asset_id'],)):
                 try:
                     self.catalog._authorize(connection, row['asset_id'], principal)
                 except AccessDenied:
                     continue
+                variant=connection.execute('SELECT * FROM variants WHERE asset_id=?',(row['asset_id'],)).fetchone()
+                status=review_state(connection,variant) if variant else row['privacy_status']
                 versions.append(dict(asset_id=row['asset_id'], parent_asset_id=row['parent_asset_id'], sha256=row['blob_sha256'],
-                                     kind=row['kind'], privacy_status=row['privacy_status'], recipe_hash=row['recipe_hash'],
-                                     index_status=row['index_status'], download_available=False))
+                                     kind=row['kind'], privacy_status=status, recipe_hash=row['recipe_hash'],
+                                     index_status=row['index_status'], download_available=bool(variant and status=='approved' and files._gate(connection,row) is None)))
             return versions

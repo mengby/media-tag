@@ -22,6 +22,7 @@ from media_tag.variants.models import PlanSpec
 from media_tag.workers.probe import MediaError
 from media_tag.files.service import FileError, FileService
 from media_tag.files.http import transfer
+from media_tag.transforms.models import ScanSubmission,RevisionSubmission,RenderSubmission,ReviewSubmission
 
 
 class Submission(ContractModel):
@@ -48,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -58,7 +59,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     @app.middleware('http')
     async def private_file_responses(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith('/v1/'):
+        if request.url.path.startswith(('/v1/','/redaction/')):
             response.headers.update({'Cache-Control': 'private, no-store', 'Vary': 'Authorization',
                                      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer'})
         return response
@@ -202,6 +203,47 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         @app.get('/assets/{asset_id}/variants')
         def variant_list(asset_id: str, principal=Depends(identity)):
             return variants.list_versions(asset_id, principal=principal)
+
+    if redactions is not None:
+        @app.post('/redaction/scans')
+        async def redaction_scan(request:Request,principal=Depends(identity)):
+            data=await body(request,ScanSubmission)
+            return await run_in_threadpool(redactions.start_scan,data,principal=principal)
+
+        @app.get('/redaction/scans/{job_id}')
+        def redaction_scan_status(job_id:Identifier,principal=Depends(identity)):
+            return redactions.get_scan(job_id,principal=principal)
+
+        @app.post('/redaction/revisions')
+        async def redaction_revision(request:Request,principal=Depends(identity)):
+            data=await body(request,RevisionSubmission)
+            return await run_in_threadpool(redactions.create_revision,data,principal=principal)
+
+        @app.get('/redaction/revisions/{revision_hash}')
+        def mask_revision(revision_hash:Sha256,principal=Depends(identity)):
+            row,payload=redactions.revision(revision_hash,principal=principal)
+            return {'revision_hash':revision_hash,'data':payload}
+
+        @app.post('/redaction/renders')
+        async def render_redaction(request:Request,principal=Depends(identity)):
+            data=await body(request,RenderSubmission)
+            return await run_in_threadpool(redactions.start_render,data,principal=principal)
+
+        @app.get('/redaction/renders/{run_id}')
+        def redaction_status(run_id:Identifier,principal=Depends(identity)):
+            return redactions.get_run(run_id,principal=principal)
+
+        @app.api_route('/redaction/outputs/{asset_id}/preview-content',methods=['GET','HEAD'])
+        async def review_preview(asset_id:Identifier,sha256:Sha256,request:Request,principal=Depends(identity)):
+            opened=await run_in_threadpool(redactions.review_files().open,asset_id,sha256,principal=principal)
+            response=transfer(opened,request,inline=True)
+            response.headers.update({'Cache-Control':'private, no-store','Vary':'Authorization','X-Content-Type-Options':'nosniff'})
+            return response
+
+        @app.post('/redaction/outputs/{asset_id}/review')
+        async def review_redaction(asset_id:Identifier,request:Request,principal=Depends(identity)):
+            data=await body(request,ReviewSubmission)
+            return await run_in_threadpool(redactions.review,asset_id,data,principal=principal)
 
     @app.post("/jobs")
     async def submit(request: Request, principal=Depends(identity)):

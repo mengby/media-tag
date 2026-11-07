@@ -91,8 +91,9 @@ class LocalExecutor:
     resource holds until a trusted process probe confirms exit; heartbeat loss never frees GPU.
     """
 
-    def __init__(self, router: Router, principal: Principal, handler):
+    def __init__(self, router: Router, principal: Principal, handler, *, after_release=None):
         self.router, self.principal, self.handler = router, principal, handler
+        self.after_release = after_release
 
     def run_once(self) -> dict | None:
         lease = self.router.claim(principal=self.principal)
@@ -130,3 +131,5 @@ class LocalExecutor:
             finished.set()
             thread.join()
             self.router.release(task.task_id, task.lease_epoch, principal=self.principal)
+            if self.after_release:
+                self.after_release()

@@ -9,6 +9,7 @@ class MaskSpec(ContractModel):
     revision: Identifier
     mode: Literal['mosaic', 'solid'] = 'mosaic'
     strength: Annotated[int, Field(ge=1, le=100)] = 20
+    padding: Annotated[float, Field(ge=0, le=1)] = .25
 
 
 class Recipe(ContractModel):

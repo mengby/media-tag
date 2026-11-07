@@ -11,6 +11,7 @@ from media_tag.contracts.models import TaskEnvelope, WorkerResult, validate_resu
 from media_tag.storage import StorageError
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.workers.probe import finite_number
+from media_tag.transforms.policy import review_state
 
 SCHEMA = 'd17-files-v1'
 
@@ -73,9 +74,10 @@ class OpenedFile:
 
 
 class FileService:
-    def __init__(self, router):
+    def __init__(self, router, *, review_authorizer=None):
         self.router, self.catalog, self.database = router, router.catalog, router.database
         self.files = FilesystemBackend(router.workspace)
+        self.review_authorizer = review_authorizer
 
     @staticmethod
     def _role(principal):
@@ -94,7 +96,7 @@ class FileService:
             raise FileError(412, 'source_hash_mismatch')
         return asset
 
-    def _gate(self, connection, asset):
+    def _gate(self, connection, asset, *, review_asset_id=None):
         visited = set()
         current = asset
         while current['kind'] == 'derived':
@@ -104,8 +106,9 @@ class FileService:
             variant = connection.execute('SELECT * FROM variants WHERE asset_id=?', (current['asset_id'],)).fetchone()
             if variant is None or variant['output_sha256'] != current['blob_sha256']:
                 return 'lineage_unavailable'
-            if variant['privacy_status'] != 'not_applicable':
-                return 'privacy_review_pending'
+            privacy=review_state(connection,variant)
+            if privacy not in ('not_applicable','approved') and current['asset_id'] != review_asset_id:
+                return 'privacy_review_revoked' if privacy=='revoked' else 'privacy_review_pending'
             execution = connection.execute('''SELECT t.active,t.state,t.lease_epoch,j.cancelled,a.released_at
                 FROM router_tasks t JOIN router_jobs j USING(job_id) JOIN router_attempts a USING(task_id)
                 WHERE t.task_id=? AND a.lease_epoch=?''', (variant['task_id'], variant['lease_epoch'])).fetchone()
@@ -120,7 +123,11 @@ class FileService:
     def authorize(self, asset_id, expected_sha, *, principal, for_bytes=False):
         with self.database.transaction() as connection:
             asset = self._asset(connection, asset_id, expected_sha, principal)
-            blocked = self._gate(connection, asset)
+            review_asset_id=None
+            if self.review_authorizer:
+                self.review_authorizer(connection, asset, principal)
+                review_asset_id=asset_id
+            blocked = self._gate(connection, asset, review_asset_id=review_asset_id)
             if for_bytes and blocked:
                 raise FileError(409, blocked)
             return dict(asset), blocked

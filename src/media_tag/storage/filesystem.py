@@ -14,6 +14,19 @@ from . import IntegrityError, StorageError, StoredBlob, UnsafePath
 CHUNK_SIZE = 1024 * 1024
 
 
+def _canonical(path: Path) -> Path:
+    resolved = Path(path).resolve()
+    # During concurrent creation Windows realpath can retain its extended prefix.
+    # These are equivalent spellings, not different roots. Keep reparse and handle checks below.
+    if os.name == 'nt':
+        value = str(resolved)
+        if value.startswith('\\\\?\\UNC\\'):
+            return Path('\\\\' + value[8:])
+        if value.startswith('\\\\?\\') and len(value) >= 7 and value[4].isalpha() and value[5:7] == ':\\':
+            return Path(value[4:])
+    return resolved
+
+
 def require_local_path(path: Path) -> None:
     if str(path).startswith(("\\\\", "//")):
         raise UnsafePath("a local filesystem path is required")
@@ -46,13 +59,13 @@ def _opened_path(stream: BinaryIO, candidate: Path) -> Path:
             value = "\\\\" + value[8:]
         elif value.startswith("\\\\?\\"):
             value = value[4:]
-        return Path(value).resolve()
+        return _canonical(Path(value))
     handle = Path(f"/proc/self/fd/{stream.fileno()}")
     if handle.exists():
-        return handle.resolve()
+        return _canonical(handle)
     if not os.path.samestat(os.fstat(stream.fileno()), candidate.stat()):
         raise UnsafePath("file identity changed while opening")
-    return candidate.resolve()
+    return _canonical(candidate)
 
 
 class FilesystemBackend:
@@ -60,7 +73,7 @@ class FilesystemBackend:
         root = Path(root)
         if not root.is_dir() or _linked(root):
             raise UnsafePath("backend root must be an existing, non-linked directory")
-        self.root = root.resolve()
+        self.root = _canonical(root)
         self.writable = writable
         if writable:
             require_local_path(self.root)
@@ -76,7 +89,7 @@ class FilesystemBackend:
             if candidate.exists() or candidate.is_symlink():
                 if _linked(candidate):
                     raise UnsafePath("linked/reparse path components are not allowed")
-        resolved = candidate.resolve()
+        resolved = _canonical(candidate)
         if not resolved.is_relative_to(self.root):
             raise UnsafePath("storage key escapes backend root")
         if not allow_missing and not resolved.is_file():

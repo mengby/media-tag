@@ -1,6 +1,6 @@
 # D09 上传与衍生契约
 
-日期：2026-11-07。状态：断点上传、实际文件校验、私有登记/分析 outbox、衍生配方/时间映射、受信输出登记与授权版本列表已实现。使用项目 `.venv`，无新增第三方依赖，沿用 27 包哈希锁。对应 D09、R01/R04/R09/R10、N01/N02/N03/N05，覆盖 A02/A03/A09 的工程前置；未实现 D10 打码、D11 产品变速渲染、D12 页面；D17[授权预览/下载基础](file-access.md)已实现，整项语义验收仍未完成。
+日期：2026-11-07。状态：断点上传、实际文件校验、私有登记/分析 outbox、衍生配方/时间映射、受信输出登记与授权版本列表已实现。使用项目 `.venv`，无新增第三方依赖，沿用 27 包哈希锁。对应 D09、R01/R04/R09/R10、N01/N02/N03/N05，覆盖 A02/A03/A09 的工程前置；D10已实现[打码核心与复核接口](face-redaction.md)，D11 产品变速渲染、D12 页面未实现；D17[授权预览/下载基础](file-access.md)已实现，整项语义验收仍未完成。
 
 ## 上传协议与恢复
 
@@ -47,13 +47,13 @@ PlanSpec 固定 `parent_asset_id`、`expected_revision`、Recipe，可显式 `ch
 
 ## 受信输出登记与权限
 
-`VariantService.register_output` 是服务侧受信采用接口，不是 HTTP Worker 发布接口。默认 output_stages 为空，D10/D11 真实适配器接入前不能登记产品渲染结果。测试显式注册 `synthetic-render`，验证协议而不冒充产品渲染器。
+`VariantService.register_output` 是服务侧受信采用接口，不是 HTTP Worker 发布接口。基础服务默认output_stages为空；D10独立受信服务显式绑定redaction_render，成功且已停止后采用真实打码结果。D11尚未接入。测试显式注册 `synthetic-render`，验证协议而不冒充产品渲染器。
 
 登记必须由 admin 服务能力调用，绑定计划 owner/parent/source_sha256、已注册生产阶段、包含 plan_id/recipe_hash 的固定任务配置，以及 Router 已采用、当前 generation/epoch、成功且已真实释放资源的结果。任务取消、旧 generation、未采用或不属于结果的 artifact 均拒绝。实际校验输出路径/哈希、MP4 族/H.264、单视频及所选音频布局、完整解码、尺寸、规范化起点、各流时长/偏移与倍速映射。夹带额外视频流不能登记。
 
 在重新检查源可读和执行状态后，单事务写新 asset/blob 位置、root/parent、source/output SHA256、recipe_hash、time_map、验证记录和真实登记操作者审计。来源通过 variant_source_links 引用原记录，不编造新许可/署名；标签不自动继承或确认。失败回滚新记录，不损坏既有版本；同计划/同输出重复登记复用，不同输出冲突。
 
-每个衍生输出默认私有、独立授权；版本列表逐条过滤，不因拥有一个版本而看到原件或其他账号版本。mask 输出 privacy_status 为 pending，其余为 not_applicable；D09 没有“隐私通过”操作。pending 内容仅允许 owner 的内部规划读取，不因授予普通 read 就公开预览。通用 Catalog.open_content 仍拒绝衍生文件，D09旧关系列表仍保留 download_available=false，实际文件能力查D17的 /v1 清单；正式隐私复核仍待D10；失败不会回退原件。
+每个衍生输出默认私有、独立授权；版本列表逐条过滤，不因拥有一个版本而看到原件或其他账号版本。mask 输出 privacy_status 为 pending，其余为 not_applicable；D09 没有“隐私通过”操作。pending 内容仅允许 owner 的内部规划读取，不因授予普通 read 就公开预览。通用 Catalog.open_content 仍拒绝衍生文件，实际文件能力查D17的 /v1 清单；D10新增不可变复核事件，已批准的具体输出在版本列表可标download_available=true，批准/撤回绑定实际输出哈希及配方；失败不会回退原件。
 
 ## 实际验证与待办
 
@@ -61,4 +61,4 @@ PlanSpec 固定 `parent_asset_id`、`expected_revision`、Recipe，可显式 `ch
 
 真实模板验证批次：`jobs/d09-validation-20261107-5370b243/validation.json`。实际 loopback 服务关闭/重建后继续上传，完成后自动入队，两个 CLI work-once 跑通真实 probe/evidence，创建 2 倍速计划；实际文件和 metadata revision 不变。没有渲染、模型、隐私/医学确认，所有媒体/数据库/凭证配置/报告均忽略 Git。项目环境与普通 wheel 安装环境分别全量测试，pip check 通过，继续使用 27 包离线哈希锁。
 
-D17授权文件/预览/下载基础已实现，见对应说明；下一步：完整语义API及D04 的真实人脸模型，再按 D10/D11 实现轨迹/渲染与复核，D12 接页面和主动共享入库。D07 负责常驻部署、容量/保留期、受限账户和恢复演练。当前不能以“已有配方/测试输出”宣称打码或产品变速功能已完成。
+D17授权文件/预览/下载基础已实现，见对应说明；D04模型及D10打码核心/复核接口已完成工程验证；下一步D11产品变速、D12页面/主动共享及完整语义API。D07 负责常驻部署、容量/保留期、受限账户和恢复演练。D10已有真实打码核心输出，但业务独立集与人员全片复查仍未验收；产品变速未实现。

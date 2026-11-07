@@ -18,6 +18,9 @@ from media_tag.models.registry import ModelRegistry
 from media_tag.models.runtime import ModelHandlers, model_stages
 import json
 from .app import create_app
+from media_tag.transforms.models import RedactionDeployment
+from media_tag.transforms.runtime import RedactionHandlers, redaction_stages
+from media_tag.transforms.service import RedactionService
 
 
 class LocalConfig(ContractModel):
@@ -32,6 +35,7 @@ class LocalConfig(ContractModel):
     tool_dir: str | None = None
     upload_options: UploadOptions = UploadOptions()
     models: ModelDeployment = ModelDeployment()
+    redaction: RedactionDeployment = RedactionDeployment()
 
 
 def load_application(path: Path):
@@ -51,12 +55,15 @@ def load_application(path: Path):
     contract = load_template_bundle(templates, expected_fingerprint=config.template_fingerprint)
     catalog = Catalog(Database(database), FilesystemBackend(objects, writable=True), contract=contract)
     router = Router(catalog, workspace, cpu_stages(tools), options=config.options)
-    if config.models.enabled:
+    if config.models.enabled or config.redaction.enabled:
         model_root = Path(config.models.model_root)
         if not model_root.is_absolute():
             raise ValueError('enabled model root must be an absolute local path')
         require_local_path(model_root)
-        router.stages.update(model_stages(ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device))
+        if config.models.enabled:
+            router.stages.update(model_stages(ModelRegistry(model_root), clip_device=config.models.clip_device))
+        if config.redaction.enabled:
+            router.stages.update(redaction_stages(ModelRegistry(model_root),tools))
     # This capability exists only inside trusted bootstrap, not a caller-controlled role body.
     bootstrap = Principal(actor_id="local-bootstrap", role="admin")
     with router.database.transaction(write=True) as connection:
@@ -67,7 +74,10 @@ def load_application(path: Path):
     router.recover(principal=bootstrap)
     uploads = UploadService(router, tools, options=config.upload_options)
     uploads.dispatch_pending(principal=bootstrap)
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools))
+    redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
+    if redactions:
+        redactions.adopt_ready()
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions)
     return app, router, tools
 
 
@@ -81,4 +91,10 @@ def executor_from_config(path: Path, worker_id: str):
     config = LocalConfig.model_validate_json(path.read_bytes())
     cpu = CPUHandlers(router, principal, tools)
     models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device)
-    return LocalExecutor(router, principal, lambda lease, stopped: cpu(lease, stopped) if lease.task.stage in ('probe', 'evidence') else models(lease, stopped))
+    redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
+    transform=RedactionHandlers(redactions) if redactions else None
+    def handle(lease,stopped):
+        if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
+        if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
+        return models(lease,stopped)
+    return LocalExecutor(router,principal,handle,after_release=redactions.adopt_ready if redactions else None)

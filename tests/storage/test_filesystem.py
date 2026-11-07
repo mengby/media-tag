@@ -38,6 +38,30 @@ def test_empty_blob_and_read_only_backend(tmp_path):
     assert blob.sha256 == sha256(b"").hexdigest() and blob.size_bytes == 0
 
 
+@pytest.mark.parametrize('outside', [False, True])
+def test_windows_extended_path_alias_keeps_real_containment_checks(tmp_path, monkeypatch, outside):
+    root = tmp_path / 'objects'; root.mkdir()
+    store = FilesystemBackend(root, writable=True)
+    blob = store.ingest(BytesIO(b'synthetic extended-prefix race'))
+    target = root / blob.object_key
+    external = tmp_path / 'outside.bin'; external.write_bytes(b'synthetic outside')
+    original = type(target).resolve
+    def extended(path, *args, **kwargs):
+        result = original(path, *args, **kwargs)
+        if os.name == 'nt' and path == target:
+            return type(path)('\\\\?\\' + str(external if outside else result))
+        return result
+    monkeypatch.setattr(type(target), 'resolve', extended)
+    if outside and os.name == 'nt':
+        with pytest.raises(UnsafePath):
+            with store.open_verified(blob.object_key, blob.sha256, blob.size_bytes):
+                pytest.fail('an outside object must not be opened')
+    else:
+        with store.open_verified(blob.object_key, blob.sha256, blob.size_bytes) as stream:
+            assert stream.read() == b'synthetic extended-prefix race'
+    assert external.read_bytes() == b'synthetic outside'
+
+
 @pytest.mark.parametrize("key", ["../secret", "/secret", "C:/secret", "a/../secret", "a//b", "a\\b", "a/CON.txt", "a/thing.", "https://example.test/file"])
 def test_unsafe_keys_rejected(tmp_path, key):
     store = FilesystemBackend(tmp_path)
