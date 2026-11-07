@@ -1,4 +1,5 @@
 .DS_Store
+/asset-index-template/
 .env
 .env.*
 !.env.example
