@@ -28,7 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     contracts = commands.add_parser("contracts").add_subparsers(dest="action", required=True)
     template = contracts.add_parser("check-template")
     template.add_argument("--template-dir", type=Path, default=Path("asset-index-template"))
-    template.add_argument("--contract-version", required=True)
+    template.add_argument("--contract-version", help="optional label; defaults to the bundle SHA256 identity")
+    template.add_argument("--expected-fingerprint", help="reject input bytes that differ from the accepted baseline")
     vocabulary = contracts.add_parser("check-vocabulary")
     vocabulary.add_argument("--manifest", type=Path, required=True)
     vocabulary.add_argument("--kind", choices=("taxonomy", "lexicon"), required=True)
@@ -39,7 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.action == "check-template":
-            output = load_template_bundle(args.template_dir, contract_version=args.contract_version).summary()
+            output = load_template_bundle(args.template_dir, contract_version=args.contract_version,
+                                          expected_fingerprint=args.expected_fingerprint).summary()
         elif args.action == "check-vocabulary":
             manifest = load_published_vocabulary(
                 args.manifest, expected_kind=args.kind, expected_version=args.version,
