@@ -4,11 +4,14 @@
 
 新增核心需求：剪辑师上传素材，支持人脸打码和视频变速，将可追溯的衍生版本扩充入素材库。
 
+已选定口语词与专业术语对应路线：发布词表＋文本小模型，支持口语检索和术语候选，尚未实现。
+
 当前阶段：**Git 与项目工作约定已初始化，实施方案待用户选择，尚未开发或部署服务。**
 
 - [设计与实施方案](docs/DESIGN_AND_IMPLEMENTATION.md)：Windows 文件服务、OSS 切换、打标流程、字段归属、实施阶段及决策项。
 - [小模型与 Router/Worker 实施方案](docs/MODEL_ROUTER_WORKER_PLAN.md)：针对 i5-14400F / 32GB / RTX 5060 8GB 的模型分工、运行协议与可下发开发任务。
 - [上传、人脸打码与变速](docs/UPLOAD_AND_MEDIA_VARIANTS.md)：处理流程、衍生版本入库、时间映射与新增开发任务。
+- [口语词与专业术语对应](docs/TERMINOLOGY_MAPPING_PLAN.md)：词表＋文本小模型、Router/Worker 协议与 D13～D16 任务卡。
 - [项目工作约定](AGENTS.md)：任务隔离、原素材只读、标签与证据管理、检查和交付标准。
 - [原始表头与规则](asset-index-template/README.md)：素材表、缺口表及字段说明，保留原样。
 - [文档目录](docs/README.md)：设计及决策记录。
