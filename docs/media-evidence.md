@@ -1,6 +1,6 @@
 # D02 技术提取与证据
 
-日期：2026-11-07。状态：技术分析Python接口和环境检查命令已实现，已用真实工具解码合成素材。无常驻Worker、HTTP接口、模型、医学审核或全量素材处理。对应D02、R01/R04/R07/R08/R10、N01/N03/N04/N05；A02/A06仅技术工程前置，内容与业务验收仍未执行。
+日期：2026-11-07。状态：技术分析Python接口和环境检查命令已实现，已用真实工具解码合成素材。D03已增加[调度HTTP、队列和CPU执行适配](router-queue.md)，无常驻部署、模型、医学审核或全量素材处理。对应D02、R01/R04/R07/R08/R10、N01/N03/N04/N05；A02/A06仅技术工程前置，内容与业务验收仍未执行。
 
 ## 本机环境：实际检查
 
@@ -10,7 +10,7 @@
 | --- | --- |
 | FFmpeg | `9.0.2-essentials_build-www.gyan.dev`；SHA256 `3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec` |
 | ffprobe | `9.0.2-essentials_build-www.gyan.dev`；SHA256 `f0d36ecbbdd3bcfac3efa078c96c7271c2e68b3810595552ac3b7f17e9a65c52` |
-| Pillow | `13.0.0`，安装在项目`.venv`；当前完整Windows/Python 3.12开发锁共15个包 |
+| Pillow | `13.0.0`，安装在项目`.venv`；D02时开发锁共15个包，D03扩展为27个包 |
 
 固定下载来源：[Gyan 9.0.2 essentials zip](https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip)，发布方[摘要](https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip.sha256)为 `60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba`。本轮下载后核对archive及两个exe摘要，缓存保留包内LICENSE/README，二进制不进Git。[工具锁](../src/media_tag/workers/media-tools.lock.json)只保存来源、版本和摘要。
 
@@ -91,4 +91,4 @@ ffprobe在包读取预算内取得实际帧PTS；在采样窗口内选择已有�
 & .\.venv\Scripts\python.exe -m pip check
 ```
 
-依据：[FFmpeg主项目命令文档](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/doc/ffmpeg.texi)、[ffprobe主项目文档](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/doc/ffprobe.texi)、[Pillow Image文档](https://pillow.readthedocs.io/en/stable/reference/Image.html)。当前仅Windows本机工程验证；实际队列/租约、格式容量冻结、真实样本、服务器部署与最终业务验收留后续任务。
+依据：[FFmpeg主项目命令文档](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/doc/ffmpeg.texi)、[ffprobe主项目文档](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/doc/ffprobe.texi)、[Pillow Image文档](https://pillow.readthedocs.io/en/stable/reference/Image.html)。当前仅Windows本机工程验证；队列/租约的工程验证见D03，格式容量冻结、真实样本、服务器部署与最终业务验收留后续任务。

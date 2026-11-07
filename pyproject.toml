@@ -8,10 +8,10 @@ version = "0.1.0"
 description = "Local media catalogue, immutable storage and contracts"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["pydantic==2.14.3", "Pillow==13.0.0"]
+dependencies = ["pydantic==2.14.3", "Pillow==13.0.0", "fastapi==0.162.0", "uvicorn==0.54.0"]
 
 [project.optional-dependencies]
-dev = ["pytest==9.2.0"]
+dev = ["pytest==9.2.0", "httpx==0.28.1"]
 
 [project.scripts]
 media-tag = "media_tag.cli:main"

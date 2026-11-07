@@ -8,6 +8,7 @@ import sqlite3
 from typing import Iterator
 
 from media_tag.storage.filesystem import require_local_path
+from media_tag.router.schema import ROUTER_SCHEMA
 
 
 class CatalogError(Exception):
@@ -121,10 +122,11 @@ class Database:
             connection.close()
 
     def initialize(self) -> None:
+        migrations = ((1, SCHEMA, SCHEMA_CHECKSUM), (2, ROUTER_SCHEMA, sha256("\n".join(ROUTER_SCHEMA).encode()).hexdigest()))
         connection = self._connect()
         try:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise CatalogError("unsupported database schema version")
             if version == 0 and connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone():
                 raise CatalogError("refusing to initialize an unversioned, nonempty database")
@@ -141,9 +143,15 @@ class Database:
                     connection.execute(statement)
                 connection.execute("INSERT INTO schema_migrations VALUES(1,?,?)", (SCHEMA_CHECKSUM, utc_now()))
                 connection.execute("PRAGMA user_version=1")
-            elif version != 1:
+                version = 1
+            if version not in (1, 2):
                 raise CatalogError("unsupported database schema version")
-            else:
-                row = connection.execute("SELECT checksum FROM schema_migrations WHERE version=1").fetchone()
-                if row is None or row[0] != SCHEMA_CHECKSUM:
+            for number, statements, checksum in migrations:
+                if number > version:
+                    for statement in statements:
+                        connection.execute(statement)
+                    connection.execute("INSERT INTO schema_migrations VALUES(?,?,?)", (number, checksum, utc_now()))
+                    connection.execute(f"PRAGMA user_version={number}")
+                row = connection.execute("SELECT checksum FROM schema_migrations WHERE version=?", (number,)).fetchone()
+                if row is None or row[0] != checksum:
                     raise CatalogError("database migration checksum mismatch")

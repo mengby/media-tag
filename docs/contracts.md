@@ -7,7 +7,7 @@
 采用 Python src 布局、setuptools 构建、Pydantic 运行时校验及 pytest。当前支持范围为 Python 3.12，实际使用项目根目录 `.venv`；未测试其他 Python 次版本。包版本为 `0.1.0`，包版本、内部 schema、原始契约版本、taxonomy 和 lexicon 版本分别管理。
 
 - [pyproject.toml](../pyproject.toml)：直接依赖及构建工具版本；目前不包含 FastAPI、FFmpeg、OCR、CUDA 等后续依赖。
-- [requirements-dev.lock](../requirements-dev.lock)：Windows x86_64 / CPython 3.12完整开发依赖锁，含确切版本与wheel的SHA256；D00初版14个包，D02新增Pillow后为15个；不含本项目editable路径。
+- [requirements-dev.lock](../requirements-dev.lock)：Windows x86_64 / CPython 3.12完整开发依赖锁，含确切版本与wheel的SHA256；D00初版14个包，D02新增Pillow后为15个，D03扩展为27个；不含本项目editable路径。
 - [源码](../src/media_tag/contracts/README.md)、[测试说明](../tests/contracts/README.md)。
 
 在已有 `.venv` 中复现安装与测试（仓库根目录执行）：
@@ -68,7 +68,7 @@
 | `Evidence` | 绑定源SHA256、证据对象/摘要；视频/音频片段要求有效时间区间，抽帧要求源时间戳 |
 | `ArtifactRef` | 相对引用及SHA256；拒绝盘符、URL、路径穿越、Windows设备名等。真实根目录解析及文件哈希校验属于后续存储任务 |
 
-这是结构和引用检查，不能证明真实推理已发生、人工身份真实、许可通过或医学标签准确。`WorkerResult`不能携带 `effective_values`；D01已实现对象级授权、非医学文本人工修订与建议隔离，见 [索引与存储](catalog-storage.md)；任务租约及完整审核采用仍由D03/D06实现。尚未发布的taxonomy不能从通用字符串字段绕过正式标签验证。
+这是结构和引用检查，不能证明真实推理已发生、人工身份真实、许可通过或医学标签准确。`WorkerResult`不能携带 `effective_values`；D01已实现对象级授权、非医学文本人工修订与建议隔离，见 [索引与存储](catalog-storage.md)；任务租约已由[D03](router-queue.md)实现，完整审核采用仍待D06。尚未发布的taxonomy不能从通用字符串字段绕过正式标签验证。
 
 静态图片或文件名证据不自动成为动态方向或医学依据。D00保留证据类型与区间，未实现连续视频观察、医学审核或面向特定字段的证据充分性判断。
 
@@ -78,7 +78,7 @@
 
 `WorkerResult`区分 `succeeded/partial/failed/not_applicable`，保留耗时、可选峰值内存、产物、证据、建议及错误；失败/部分结果必须带错误，不适用必须说明原因，失败/不适用不能返回标签建议。证据ID不可重复，建议不得引用缺失证据。
 
-`validate_result_for_task`检查结果的task/attempt/lease_epoch/输入指纹/版本一致、仅包含请求字段、产物位于输出前缀或完全匹配已登记输入。**它不提供运行时队列**，也不验证当前租约是否仍有效、输入文件真实哈希、取消状态、可见范围或素材revision是否已变化；这些由D01/D03等任务实现。输入指纹由后续调度者按内容/证据/规则/模型/词表等完整输入计算，D00不把不完整字段的摘要当成正式缓存键。
+`validate_result_for_task`检查结果的task/attempt/lease_epoch/输入指纹/版本一致、仅包含请求字段、产物位于输出前缀或完全匹配已登记输入。**它不提供运行时队列**，也不验证当前租约是否仍有效、输入文件真实哈希、取消状态、可见范围或素材revision是否已变化；这些由D01/D03等任务实现。输入指纹由D03调度者按内容/证据/规则/模型/词表等完整输入计算，D00不把不完整字段的摘要当成正式缓存键。
 
 可输出 JSON Schema，例如：
 

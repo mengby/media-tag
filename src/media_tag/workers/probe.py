@@ -81,6 +81,11 @@ def run_bounded(program: Path, args: list[str], *, timeout: float, stdout_limit:
         timed_out = True
         process.kill()
         process.wait()
+    except BaseException:
+        # A local executor may release its quota only after all launched tools have stopped.
+        process.kill()
+        process.wait()
+        raise
     finally:
         for thread in threads:
             thread.join()

@@ -227,43 +227,47 @@ class Catalog:
             return self._snapshot(connection, self._authorize(connection, asset_id, principal))
 
     def record_suggestions(self, task: TaskEnvelope, result: WorkerResult, *, principal: Principal) -> None:
+        with self.database.transaction(write=True) as connection:
+            self._record_suggestions_tx(connection, task, result, principal=principal)
+
+    def _record_suggestions_tx(self, connection: sqlite3.Connection, task: TaskEnvelope, result: WorkerResult, *,
+                               principal: Principal, delegate: Principal | None = None) -> None:
         if principal.role != "worker":
             raise AccessDenied("worker identity required for suggestion records")
         validate_result_for_task(task, result)
         if result.status not in ("succeeded", "partial"):
             raise ValueError("only completed suggestion evidence can be recorded")
-        with self.database.transaction(write=True) as connection:
-            row = self._authorize(connection, task.asset_id, principal, "suggest")
-            self._expected(row, task.asset_revision)
-            if any(item.source_sha256 != row["blob_sha256"] for item in result.evidence):
-                raise RevisionConflict("suggestion evidence does not reference the registered file version")
-            task_json, result_json = task.model_dump_json(), result.model_dump_json()
-            previous = connection.execute("""SELECT task_json,result_json FROM suggestion_runs
-                WHERE asset_id=? AND task_id=? AND attempt=? AND lease_epoch=?""",
-                (task.asset_id, task.task_id, task.attempt, task.lease_epoch)).fetchone()
-            if previous is not None:
-                if tuple(previous) != (task_json, result_json):
-                    raise RevisionConflict("suggestion run was replayed with a different task or result")
-                return None
-            run_id = f"run-{uuid4().hex}"
-            connection.execute("INSERT INTO suggestion_runs VALUES(?,?,?,?,?,?,?,?,?)",
-                               (run_id, task.asset_id, task.task_id, task.attempt, task.lease_epoch,
-                                task_json, result_json, principal.actor_id, utc_now()))
-            for suggestion in result.suggestions:
-                definition = self.fields.get(suggestion.field)
-                if definition is None:
-                    raise UnsupportedRevision("suggestion field is outside the bound template")
-                if definition.fill_policy in ("human_only", "human_or_script") or (suggestion.origin == "ai" and definition.fill_policy == "script"):
-                    raise UnsupportedRevision("worker suggestions cannot infer human-only or script-owned fields")
-                if suggestion.value.state == "observed" and (definition.field_type in ("单选", "多选") or definition.fill_policy == "ai_candidate_per_field_human_review"):
-                    raise UnsupportedRevision("observed medical/selection suggestions require D06/D13 vocabulary and evidence validation")
-                payload = suggestion.model_dump_json()
-                existing = connection.execute("SELECT 1 FROM tag_suggestions WHERE asset_id=? AND suggestion_id=?",
-                                              (task.asset_id, suggestion.suggestion_id)).fetchone()
-                if existing is not None:
-                    raise RevisionConflict("suggestion ID was already recorded by another run; use a new ID")
-                connection.execute("INSERT INTO tag_suggestions VALUES(?,?,?,?,?,?,?)",
-                                   (task.asset_id, suggestion.suggestion_id, task.asset_revision, principal.actor_id, payload, run_id, utc_now()))
+        row = self._authorize(connection, task.asset_id, delegate or principal, "edit" if delegate else "suggest")
+        self._expected(row, task.asset_revision)
+        if any(item.source_sha256 != row["blob_sha256"] for item in result.evidence):
+            raise RevisionConflict("suggestion evidence does not reference the registered file version")
+        task_json, result_json = task.model_dump_json(), result.model_dump_json()
+        previous = connection.execute("""SELECT task_json,result_json FROM suggestion_runs
+            WHERE asset_id=? AND task_id=? AND attempt=? AND lease_epoch=?""",
+            (task.asset_id, task.task_id, task.attempt, task.lease_epoch)).fetchone()
+        if previous is not None:
+            if tuple(previous) != (task_json, result_json):
+                raise RevisionConflict("suggestion run was replayed with a different task or result")
+            return None
+        run_id = f"run-{uuid4().hex}"
+        connection.execute("INSERT INTO suggestion_runs VALUES(?,?,?,?,?,?,?,?,?)",
+                           (run_id, task.asset_id, task.task_id, task.attempt, task.lease_epoch,
+                            task_json, result_json, principal.actor_id, utc_now()))
+        for suggestion in result.suggestions:
+            definition = self.fields.get(suggestion.field)
+            if definition is None:
+                raise UnsupportedRevision("suggestion field is outside the bound template")
+            if definition.fill_policy in ("human_only", "human_or_script") or (suggestion.origin == "ai" and definition.fill_policy == "script"):
+                raise UnsupportedRevision("worker suggestions cannot infer human-only or script-owned fields")
+            if suggestion.value.state == "observed" and (definition.field_type in ("单选", "多选") or definition.fill_policy == "ai_candidate_per_field_human_review"):
+                raise UnsupportedRevision("observed medical/selection suggestions require D06/D13 vocabulary and evidence validation")
+            payload = suggestion.model_dump_json()
+            existing = connection.execute("SELECT 1 FROM tag_suggestions WHERE asset_id=? AND suggestion_id=?",
+                                          (task.asset_id, suggestion.suggestion_id)).fetchone()
+            if existing is not None:
+                raise RevisionConflict("suggestion ID was already recorded by another run; use a new ID")
+            connection.execute("INSERT INTO tag_suggestions VALUES(?,?,?,?,?,?,?)",
+                               (task.asset_id, suggestion.suggestion_id, task.asset_revision, principal.actor_id, payload, run_id, utc_now()))
         # A suggest-only grant deliberately does not expose the asset's metadata or human values.
         return None
 
