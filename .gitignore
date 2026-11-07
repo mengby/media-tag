@@ -21,6 +21,7 @@ __pycache__/
 !/jobs/README.md
 /config/*.local.*
 *.sqlite
+*.sqlite-*
 *.sqlite3
 *.sqlite3-*
 *.db
