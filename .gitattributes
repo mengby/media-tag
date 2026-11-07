@@ -1,0 +1,2 @@
+# Preserve the supplied CSV templates byte for byte, including BOM and CRLF.
+asset-index-template/*.csv -text
