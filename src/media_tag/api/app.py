@@ -2,21 +2,26 @@
 
 from hashlib import sha256
 import re
+import sqlite3
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from media_tag.catalog import AccessDenied, CatalogError, NotFound, Principal
-from media_tag.contracts.models import ContractModel, Identifier, PositiveInt, WorkerResult
+from media_tag.contracts.models import ContractModel, Identifier, PositiveInt, Sha256, WorkerResult
 from media_tag.router.models import JobSpec, StepSpec
 from media_tag.router.service import Router
 from media_tag.storage import IntegrityError, StorageError
 from media_tag.upload.models import UploadSpec
 from media_tag.variants.models import PlanSpec
 from media_tag.workers.probe import MediaError
+from media_tag.files.service import FileError, FileService
+from media_tag.files.http import transfer
 
 
 class Submission(ContractModel):
@@ -48,6 +53,26 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    files = FileService(router)
+
+    @app.middleware('http')
+    async def private_file_responses(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith('/v1/'):
+            response.headers.update({'Cache-Control': 'private, no-store', 'Vary': 'Authorization',
+                                     'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer'})
+        return response
+
+    @app.exception_handler(FileError)
+    async def file_error(request, exc):
+        return JSONResponse(exc.payload(), status_code=exc.status)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request, exc):
+        if request.url.path.startswith('/v1/'):
+            code = 'authentication_required' if exc.status_code == 401 else 'route_unavailable'
+            return JSONResponse(FileError(exc.status_code, code).payload(), status_code=exc.status_code, headers=exc.headers)
+        return await http_exception_handler(request, exc)
 
     def identity(request: Request) -> Principal:
         auth = request.headers.get("authorization", "")
@@ -77,10 +102,20 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
 
     @app.exception_handler(ValueError)
     async def value_error(request, exc):
+        if request.url.path.startswith('/v1/'):
+            return JSONResponse(FileError(503, 'file_metadata_unavailable').payload(), status_code=503)
         return JSONResponse({"detail": "invalid operation or configuration"}, status_code=422)
+
+    @app.exception_handler(sqlite3.Error)
+    async def database_error(request, exc):
+        if request.url.path.startswith('/v1/'):
+            return JSONResponse(FileError(503, 'database_unavailable', retryable=True).payload(), status_code=503)
+        return JSONResponse({'detail': 'database unavailable'}, status_code=503)
 
     @app.exception_handler(RequestValidationError)
     async def request_error(request, exc):
+        if request.url.path.startswith('/v1/'):
+            return JSONResponse(FileError(422, 'invalid_request').payload(), status_code=422)
         return JSONResponse({'detail': [{'loc': list(e['loc']), 'type': e['type']} for e in exc.errors()]}, status_code=422)
 
     @app.exception_handler(StorageError)
@@ -92,6 +127,34 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     @app.exception_handler(MediaError)
     async def media_error(request, exc):
         return JSONResponse({'detail': 'media validation failed', 'code': exc.code}, status_code=422)
+
+    @app.get('/v1/assets/{asset_id}')
+    def asset_details(asset_id: Identifier, principal=Depends(identity)):
+        return files.details(asset_id, principal=principal)
+
+    @app.get('/v1/assets/{asset_id}/download-manifest')
+    def download_manifest(asset_id: Identifier, sha256: Sha256, principal=Depends(identity)):
+        return files.download_manifest(asset_id, sha256, principal=principal)
+
+    @app.get('/v1/assets/{asset_id}/preview-manifest')
+    def preview_manifest(asset_id: Identifier, sha256: Sha256, principal=Depends(identity)):
+        return files.preview_manifest(asset_id, sha256, principal=principal)
+
+    @app.api_route('/v1/assets/{asset_id}/content', methods=['GET', 'HEAD'])
+    async def content(asset_id: Identifier, sha256: Sha256, request: Request, principal=Depends(identity)):
+        opened = await run_in_threadpool(files.open, asset_id, sha256, principal=principal)
+        return transfer(opened, request)
+
+    @app.api_route('/v1/assets/{asset_id}/preview-content', methods=['GET', 'HEAD'])
+    async def preview_content(asset_id: Identifier, sha256: Sha256, request: Request, principal=Depends(identity)):
+        opened = await run_in_threadpool(files.open, asset_id, sha256, principal=principal)
+        return transfer(opened, request, inline=True)
+
+    @app.api_route('/v1/assets/{asset_id}/previews/{preview_id}/content', methods=['GET', 'HEAD'])
+    async def thumbnail_content(asset_id: Identifier, preview_id: Identifier, sha256: Sha256, preview_sha256: Sha256,
+                                request: Request, principal=Depends(identity)):
+        opened = await run_in_threadpool(files.open_preview, asset_id, sha256, preview_id, preview_sha256, principal=principal)
+        return transfer(opened, request, inline=True)
 
     if uploads is not None:
         @app.post('/uploads')

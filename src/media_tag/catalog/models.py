@@ -11,7 +11,7 @@ from media_tag.contracts.models import ContractModel, EffectiveValue, Identifier
 
 class Principal(ContractModel):
     actor_id: Identifier
-    role: Literal["editor", "worker", "admin"] = "editor"
+    role: Literal["editor", "worker", "admin", "reader"] = "editor"
 
 
 class LegacyAlias(ContractModel):

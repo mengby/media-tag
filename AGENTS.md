@@ -2,7 +2,7 @@
 
 ## 当前范围
 
-本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D03及D09已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、受认证HTTP上传/控制接口、衍生契约及本地CPU执行命令；目前没有前端、常驻服务部署或真实模型/GPU Worker。本机六份原始模板已齐并绑定摘要，完整医学分类词表仍待D13审核发布；服务器和存储部署位置仍按用户选定方案执行。
+本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D03及D09已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17语义检索/整体验收仍未完成；目前没有前端、常驻服务部署或真实模型/GPU Worker。本机六份原始模板已齐并绑定摘要，完整医学分类词表仍待D13审核发布；服务器和存储部署位置仍按用户选定方案执行。
 
 2026-11-07起总控入口为 `docs/REQUIREMENTS.md`、`docs/ARCHITECTURE.md`、`docs/IMPLEMENTATION_PLAN.md`、`docs/PROGRESS.md`，分别维护范围、设计、当前任务顺序和实际状态。保留D00～D20及A/T/I编号；专题中的早期阶段/工期不替代当前实施计划。候选表、模拟交互和任务卡不算对应功能已完成。
 

@@ -60,7 +60,7 @@ class Router:
         row = connection.execute("SELECT * FROM router_jobs WHERE job_id=?", (job_id,)).fetchone()
         if row is None:
             raise NotFound("job is unavailable")
-        if principal.role == "worker" or (row["owner_id"] != principal.actor_id and principal.role != "admin"):
+        if principal.role not in ("editor", "admin") or (row["owner_id"] != principal.actor_id and principal.role != "admin"):
             raise AccessDenied("job permission denied")
         return row
 
