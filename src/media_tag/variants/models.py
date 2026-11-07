@@ -12,6 +12,18 @@ class MaskSpec(ContractModel):
     padding: Annotated[float, Field(ge=0, le=1)] = .25
 
 
+class SourceSegment(ContractModel):
+    segment_id: Identifier
+    start_seconds: Annotated[float, Field(ge=0)]
+    end_seconds: Annotated[float, Field(gt=0)]
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError('segment end must follow start')
+        return self
+
+
 class Recipe(ContractModel):
     schema_version: Literal['d09-v1'] = 'd09-v1'
     speed: Annotated[float, Field(ge=0.25, le=4)] = 1.0
@@ -24,6 +36,8 @@ class Recipe(ContractModel):
     preset: Literal['veryfast', 'medium'] = 'medium'
     renderer_revision: Identifier | None = None
     model_revision: Identifier | None = None
+    segments: Annotated[tuple[SourceSegment, ...], Field(max_length=100)] = ()
+    privacy_review_required: bool = False
 
     @model_validator(mode='after')
     def check_audio(self):

@@ -1,6 +1,6 @@
 # 本机开发环境与开工步骤
 
-核实日期：2026-11-07（Asia/Shanghai）。项目`.venv`用于D00～D04、D09/D10及D17文件基础工程，见 [契约说明](contracts.md)、[索引与存储](catalog-storage.md)、[技术提取与证据](media-evidence.md)、[Router与队列](router-queue.md)、[上传与衍生契约](upload-variants.md)、[D17文件基础](file-access.md)；HTTP上传/调度、衍生契约、授权文件/预览/Range已通过工程验证，D04真实模型与本机CUDA已验证，详见[模型说明](model-workers.md)；正式业务及部署尚未验收。D01使用标准库sqlite3，D02新增Pillow及独立便携FFmpeg工具，D03新增FastAPI/Uvicorn与HTTPX测试依赖。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
+核实日期：2026-11-07（Asia/Shanghai）。项目`.venv`用于D00～D04、D09～D11及D17文件基础工程，见 [契约说明](contracts.md)、[索引与存储](catalog-storage.md)、[技术提取与证据](media-evidence.md)、[Router与队列](router-queue.md)、[上传与衍生契约](upload-variants.md)、[D17文件基础](file-access.md)；HTTP上传/调度、衍生契约、授权文件/预览/Range已通过工程验证，D04真实模型与本机CUDA已验证，详见[模型说明](model-workers.md)；正式业务及部署尚未验收。D01使用标准库sqlite3，D02新增Pillow及独立便携FFmpeg工具，D03新增FastAPI/Uvicorn与HTTPX测试依赖。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
 
 ## 已建立的环境
 
@@ -68,4 +68,4 @@ Set-Location D:\ai\media-tag
 
 核心 API/调度/存储依赖进入 `.venv`。D04视觉依赖已验证冲突及GPU兼容性，按用户要求使用项目`.venv`，完整视觉锁与核心锁分开维护；文本模型依赖尚未安装。模型按租约隔离为子进程，不在API启动时加载。FFmpeg 是外部程序，前端工具链也不由 Python 虚拟环境提供。
 
-D00～D04及D09工程已验收，D17文件基础已完成工程验证，D10打码核心/复核与Windows进程树已实测；后续D11/D12、复核/词表及D17语义前置，D07准备继续。本机FFmpeg CPU合成解码已验证，最终服务器/GPU/容量与恢复未验；完整分类/术语词表按D13发布，真实素材与业务验收仍按各任务要求执行。
+D00～D04及D09工程已验收，D17文件基础已完成工程验证，D10打码核心/复核与Windows进程树已实测；D11于2026-11-08补验固定变速/组合及27包CPU环境；后续D12、复核/词表及D17语义前置，D07准备继续。本机FFmpeg CPU合成解码已验证，最终服务器/GPU/容量与恢复未验；完整分类/术语词表按D13发布，真实素材与业务验收仍按各任务要求执行。

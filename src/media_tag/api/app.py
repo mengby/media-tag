@@ -22,7 +22,7 @@ from media_tag.variants.models import PlanSpec
 from media_tag.workers.probe import MediaError
 from media_tag.files.service import FileError, FileService
 from media_tag.files.http import transfer
-from media_tag.transforms.models import ScanSubmission,RevisionSubmission,RenderSubmission,ReviewSubmission
+from media_tag.transforms.models import ScanSubmission,RevisionSubmission,RenderSubmission,ReviewSubmission,RetimeSubmission
 
 
 class Submission(ContractModel):
@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -59,7 +59,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     @app.middleware('http')
     async def private_file_responses(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/v1/','/redaction/')):
+        if request.url.path.startswith(('/v1/','/redaction/','/retime/')):
             response.headers.update({'Cache-Control': 'private, no-store', 'Vary': 'Authorization',
                                      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer'})
         return response
@@ -244,6 +244,26 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         async def review_redaction(asset_id:Identifier,request:Request,principal=Depends(identity)):
             data=await body(request,ReviewSubmission)
             return await run_in_threadpool(redactions.review,asset_id,data,principal=principal)
+
+    if retiming is not None:
+        @app.post('/retime/jobs')
+        async def start_retime(request:Request,principal=Depends(identity)):
+            data=await body(request,RetimeSubmission)
+            return await run_in_threadpool(retiming.start,data,principal=principal)
+
+        @app.get('/retime/jobs/{job_id}')
+        def retime_status(job_id:Identifier,principal=Depends(identity)):
+            return retiming.get(job_id,principal=principal)
+
+        @app.api_route('/retime/outputs/{asset_id}/preview-content',methods=['GET','HEAD'])
+        async def retime_review_preview(asset_id:Identifier,sha256:Sha256,request:Request,principal=Depends(identity)):
+            opened=await run_in_threadpool(retiming.review_files().open,asset_id,sha256,principal=principal)
+            return transfer(opened,request,inline=True)
+
+        @app.post('/retime/outputs/{asset_id}/review')
+        async def retime_review(asset_id:Identifier,request:Request,principal=Depends(identity)):
+            data=await body(request,ReviewSubmission)
+            return await run_in_threadpool(retiming.review,asset_id,data,principal=principal)
 
     @app.post("/jobs")
     async def submit(request: Request, principal=Depends(identity)):

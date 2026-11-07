@@ -16,7 +16,7 @@
 & .\.venv\Scripts\python.exe -m pip install --index-url https://pypi.org/simple --require-hashes --only-binary=:all: -r requirements-dev.lock
 & .\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
 & .\.venv\Scripts\python.exe -m pip check
-& .\.venv\Scripts\python.exe -m pytest -q --ignore=tests/models --ignore=tests/redaction # 此处仅安装核心依赖
+& .\.venv\Scripts\python.exe -m pytest -q --ignore=tests/models --ignore=tests/redaction --ignore=tests/retime/test_combined.py # 此处仅安装核心依赖
 ```
 
 本次实际从 PyPI 获取 wheel，按文件摘要生成锁；另在忽略目录 `cache/d00-check-env/` 创建干净环境，从 `cache/d00-wheels/` 离线按锁安装，并用构建的普通 wheel 验证。依赖缓存和验证环境不提交 Git，也不是正式部署环境。

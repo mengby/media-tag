@@ -1,9 +1,11 @@
 from typing import Annotated, Literal
 from pydantic import Field, model_validator
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
+from media_tag.variants.models import SourceSegment
 
-RENDER_VERSION = 'd10-redaction-v1'
+RENDER_VERSION = 'd11-redaction-retime-v1'
 TRACK_VERSION = 'd10-face-track-v1'
+RETIME_VERSION = 'd11-retime-v1'
 
 
 class RedactionDeployment(ContractModel):
@@ -11,11 +13,18 @@ class RedactionDeployment(ContractModel):
     reviewers: tuple[Identifier, ...] = ()
 
 
-class ScanOptions(ContractModel):
+class RetimeDeployment(RedactionDeployment):
+    pass
+
+
+class VideoOptions(ContractModel):
     max_frames: Annotated[int, Field(ge=1, le=7200)] = 1800
     max_seconds: Annotated[float, Field(gt=0, le=600)] = 60.0
     max_pixels: Annotated[int, Field(ge=1, le=4096**2)] = 1920**2
     max_total_pixels: Annotated[int, Field(ge=1, le=8_000_000_000)] = 1_000_000_000
+
+
+class ScanOptions(VideoOptions):
     score_threshold: Annotated[float, Field(gt=0, le=1)] = .6
     cut_threshold: Annotated[float, Field(gt=0, le=1)] = .30
     max_gap_seconds: Annotated[float, Field(ge=0, le=.5)] = .15
@@ -80,6 +89,25 @@ class RenderSubmission(ContractModel):
     audio: Literal['preserve_pitch', 'drop'] = 'preserve_pitch'
     audio_stream_index: Annotated[int, Field(ge=0)] | None = None
     chain_from_derived: bool = False
+    speed: Annotated[float, Field(ge=.25, le=4)] = 1.0
+    segments: Annotated[tuple[SourceSegment, ...], Field(max_length=100)] = ()
+
+
+class RetimeSubmission(ContractModel):
+    request_id: Identifier
+    parent_asset_id: Identifier
+    expected_revision: Annotated[int, Field(ge=1)]
+    speed: Annotated[float, Field(ge=.25, le=4)] = 1.0
+    audio: Literal['preserve_pitch', 'drop'] = 'preserve_pitch'
+    audio_stream_index: Annotated[int, Field(ge=0)] | None = None
+    chain_from_derived: bool = False
+    segments: Annotated[tuple[SourceSegment, ...], Field(max_length=100)] | None = None
+    options: VideoOptions = VideoOptions()
+
+
+class RetimeTask(VideoOptions):
+    variant_plan_id: Identifier
+    variant_plan_hash: Sha256
 
 
 class ReviewSubmission(ContractModel):

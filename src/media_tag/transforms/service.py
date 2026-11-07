@@ -113,7 +113,7 @@ class RedactionService:
                 if old['fingerprint']!=fingerprint: raise RevisionConflict('render request reused with changed recipe')
                 return dict(old)
         asset=self.catalog.get_asset(row['asset_id'],principal=principal)
-        recipe=Recipe(mask=MaskSpec(revision=spec.revision_hash,mode=spec.mode,strength=spec.strength,padding=spec.padding),
+        recipe=Recipe(speed=spec.speed,segments=spec.segments,mask=MaskSpec(revision=spec.revision_hash,mode=spec.mode,strength=spec.strength,padding=spec.padding),
             audio=spec.audio,audio_stream_index=spec.audio_stream_index,renderer_revision=RENDER_VERSION,model_revision=self.registry.revision)
         plan=self.variants.create_plan(PlanSpec(parent_asset_id=asset.asset_id,expected_revision=asset.revision,recipe=recipe,chain_from_derived=spec.chain_from_derived),
             request_id='redact-plan-'+digest({'owner':principal.actor_id,'request':spec.request_id}),principal=principal)

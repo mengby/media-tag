@@ -18,9 +18,10 @@ from media_tag.models.registry import ModelRegistry
 from media_tag.models.runtime import ModelHandlers, model_stages
 import json
 from .app import create_app
-from media_tag.transforms.models import RedactionDeployment
-from media_tag.transforms.runtime import RedactionHandlers, redaction_stages
+from media_tag.transforms.models import RedactionDeployment,RetimeDeployment
+from media_tag.transforms.runtime import RedactionHandlers, redaction_stages,retime_stages
 from media_tag.transforms.service import RedactionService
+from media_tag.transforms.retime_service import RetimeService
 
 
 class LocalConfig(ContractModel):
@@ -36,6 +37,7 @@ class LocalConfig(ContractModel):
     upload_options: UploadOptions = UploadOptions()
     models: ModelDeployment = ModelDeployment()
     redaction: RedactionDeployment = RedactionDeployment()
+    retime: RetimeDeployment = RetimeDeployment()
 
 
 def load_application(path: Path):
@@ -64,6 +66,8 @@ def load_application(path: Path):
             router.stages.update(model_stages(ModelRegistry(model_root), clip_device=config.models.clip_device))
         if config.redaction.enabled:
             router.stages.update(redaction_stages(ModelRegistry(model_root),tools))
+    if config.retime.enabled:
+        router.stages.update(retime_stages(tools))
     # This capability exists only inside trusted bootstrap, not a caller-controlled role body.
     bootstrap = Principal(actor_id="local-bootstrap", role="admin")
     with router.database.transaction(write=True) as connection:
@@ -77,7 +81,9 @@ def load_application(path: Path):
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
     if redactions:
         redactions.adopt_ready()
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions)
+    retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
+    if retiming: retiming.adopt_ready()
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming)
     return app, router, tools
 
 
@@ -93,8 +99,14 @@ def executor_from_config(path: Path, worker_id: str):
     models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device)
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
     transform=RedactionHandlers(redactions) if redactions else None
+    retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
+    retime_handler=RedactionHandlers(retiming) if retiming else None
     def handle(lease,stopped):
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
+        if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
         return models(lease,stopped)
-    return LocalExecutor(router,principal,handle,after_release=redactions.adopt_ready if redactions else None)
+    def adopt():
+        for service in (redactions,retiming):
+            if service: service.adopt_ready()
+    return LocalExecutor(router,principal,handle,after_release=adopt)

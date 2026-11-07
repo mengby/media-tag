@@ -83,7 +83,7 @@ def test_actual_mosaic_http_permissions_ranges_and_preview_are_output_only(scann
         assert response.status_code==206 and len(response.content)==32 and response.headers['cache-control']=='private, no-store'
         assert client.get(f'/v1/assets/{asset.asset_id}/content?sha256={asset.sha256}',headers=auth('owner')).status_code==409
         assert client.post('/redaction/outputs/'+asset.asset_id+'/review',headers=auth('worker'),json=review_spec(env,run,asset).model_dump(mode='json')).status_code==403
-        assert client.post('/redaction/renders',headers=auth('owner'),json={'request_id':'bad','revision_hash':env.revision['revision_hash'],'speed':2}).status_code==422
+        assert client.post('/redaction/renders',headers=auth('owner'),json={'request_id':'bad','revision_hash':env.revision['revision_hash'],'speed':5}).status_code==422
         asset=env.catalog.change_access(asset.asset_id,principal=env.owner,expected_revision=1,subject_id=env.reviewer.actor_id,permission='read',reason='Synthetic reviewer read grant')
         response=client.post('/redaction/outputs/'+asset.asset_id+'/review',headers=auth('reviewer'),json=review_spec(env,run,asset).model_dump(mode='json'))
         assert response.status_code==200

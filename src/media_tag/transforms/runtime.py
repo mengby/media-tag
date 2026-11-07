@@ -14,7 +14,7 @@ from media_tag.router.models import StageDefinition
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.workers.evidence import _directory
 from media_tag.workers.probe import file_sha256
-from .models import ScanTask,ScanOptions,RenderOptions,TRACK_VERSION,RENDER_VERSION
+from .models import ScanTask,ScanOptions,RenderOptions,RetimeTask,TRACK_VERSION,RENDER_VERSION,RETIME_VERSION
 from .processes import ProcessTree
 
 
@@ -23,6 +23,12 @@ def redaction_stages(registry,tools):
     return {kind:StageDefinition(config,f'{version}:{registry.revision}:{tool_id}',metadata_sensitive=False,
         required_model_revision=registry.revision,required_preprocess_version=version,required_gpu_slots=0,allowed_target_fields=())
         for kind,config,version in [('face_track',ScanTask,TRACK_VERSION),('redaction_render',RenderOptions,RENDER_VERSION)]}
+
+
+def retime_stages(tools):
+    identity=sha256(json.dumps(tools.identity,sort_keys=True).encode()).hexdigest()
+    return {'retime_render':StageDefinition(RetimeTask,f'{RETIME_VERSION}:{identity}',metadata_sensitive=False,
+        required_preprocess_version=RETIME_VERSION,required_gpu_slots=0,allowed_target_fields=(),requires_no_model=True)}
 
 
 class RedactionHandlers:
@@ -44,8 +50,10 @@ class RedactionHandlers:
         recipe=plan['contract']['spec']['recipe']
         if task.versions.preprocess_version!=recipe['renderer_revision'] or task.versions.model_revision!=recipe['model_revision']:
             raise ModelFailure('variant_plan_version')
+        if task.stage=='retime_render' and recipe['mask'] is not None:
+            raise ModelFailure('mask_requires_redaction_renderer')
         parent=_directory(router.workspace,task.output_prefix.rstrip('/').rsplit('/',1)[0]); output=parent/f'attempt-{task.attempt}'; output.mkdir()
-        (output/'README.md').write_text('Private D10 complete-video evidence and pending output. No public static serving.\n')
+        (output/'README.md').write_text('Private D10/D11 transform evidence. No public static serving or automatic privacy approval.\n')
         (output/'task.json').write_text(task.model_dump_json(indent=2))
         inputs=_directory(router.workspace,f'jobs/{task.job_id}/inputs'); backend=FilesystemBackend(inputs,writable=True)
         with self.service.variants._content(task.asset_id,delegate) as stream:
@@ -53,9 +61,10 @@ class RedactionHandlers:
         if blob.sha256!=task.input_refs[0].sha256: raise ModelFailure('source_hash_mismatch')
         request={'kind':task.stage,'contract':plan['contract'],'source_root':str(inputs),'source_key':blob.object_key,
             'source_sha256':blob.sha256,'source_bytes':blob.size_bytes,'output':str(output),'executor_pid':os.getpid(),
-            'model_root':str(self.service.registry.root.resolve()),'model_revision':self.service.registry.revision,
+            'model_root':str(self.service.registry.root.resolve()) if self.service.registry else None,
+            'model_revision':self.service.registry.revision if self.service.registry else None,
             'tool_dir':str(self.service.variants.tools.ffmpeg.parent),'start_gate':str(output/'start.ready')}
-        if task.stage=='face_track':
+        if task.stage in ('face_track','retime_render'):
             request['options']={k:v for k,v in config.items() if k in ScanOptions.model_fields}
         else:
             row,revision=self.service.revision(config['revision_hash'],principal=delegate)
@@ -67,6 +76,7 @@ class RedactionHandlers:
         request_path.write_text(json.dumps(request),encoding='utf-8')
         env=os.environ.copy(); env.update(PYTHONUTF8='1',OMP_NUM_THREADS='1',HF_HUB_OFFLINE='1')
         started=time.monotonic(); tree=ProcessTree(); process=None
+        label='retime' if task.stage=='retime_render' else 'redaction'
         try:
             with (output/'native.stdout.log').open('wb') as stdout,(output/'native.stderr.log').open('wb') as stderr:
                 process=subprocess.Popen([sys.executable,'-m','media_tag.transforms.runner',str(request_path),str(result_path)],
@@ -74,7 +84,7 @@ class RedactionHandlers:
                 tree.assign(process); (output/'start.ready').write_text('assigned\n')
                 while process.poll() is None:
                     if stopped.wait(.1): raise ModelFailure('cancelled')
-                    if time.monotonic()-started>=task.limits.timeout_seconds: raise ModelFailure('redaction_timeout')
+                    if time.monotonic()-started>=task.limits.timeout_seconds: raise ModelFailure(f'{label}_timeout')
                     if os.fstat(stdout.fileno()).st_size+os.fstat(stderr.fileno()).st_size>2*1024**2:
                         raise ModelFailure('redaction_log_budget')
         finally:
@@ -91,9 +101,10 @@ class RedactionHandlers:
         target.write_text(json.dumps(data,sort_keys=True,allow_nan=False),encoding='utf-8')
         def artifact(path,kind):
             return ArtifactRef(kind=kind,ref=path.relative_to(router.workspace).as_posix(),sha256=file_sha256(path))
-        artifacts=[artifact(target,'face_tracks' if task.stage=='face_track' else 'redaction_coverage')]
-        if task.stage=='redaction_render':
-            video=artifact(output/'redacted.mp4','redacted_video')
+        artifacts=[artifact(target,{'face_track':'face_tracks','redaction_render':'redaction_coverage','retime_render':'retime_report'}[task.stage])]
+        if task.stage in ('redaction_render','retime_render'):
+            video=artifact(output/('redacted.mp4' if task.stage=='redaction_render' else 'retimed.mp4'),
+                           'redacted_video' if task.stage=='redaction_render' else 'retimed_video')
             if video.sha256!=data['output_sha256']: raise ModelFailure('output_hash_mismatch')
             artifacts.append(video)
         return {'status':'succeeded','artifacts':tuple(artifacts),'peak_memory_bytes':data['peak_process_bytes']}

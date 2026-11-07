@@ -45,6 +45,8 @@ class Router:
             if definition is None:
                 raise ValueError("stage is not registered on the server")
             definition.config_model.model_validate_json(encode(step.config))
+            if definition.requires_no_model and step.versions.model_revision is not None:
+                raise ValueError('this deterministic stage has no model dependency')
             if definition.required_model_revision is not None and step.versions.model_revision != definition.required_model_revision:
                 raise ValueError('model revision does not match the server registry')
             if definition.required_preprocess_version is not None and step.versions.preprocess_version != definition.required_preprocess_version:

@@ -1,6 +1,6 @@
 # 素材库设计总览
 
-整理日期：2026-11-07。状态：设计基线，D00～D04、D09及D10工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，整项仍实施中。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，[D04模型Worker](model-workers.md)已实现并完成本机推理验证；[D10人脸打码](face-redaction.md)已实现核心/接口与本机验证；产品变速、完整语义检索和部署仍未实现，不能把设计图视为运行事实。
+整理日期：2026-11-07。状态：设计基线，D00～D04及D09～D11工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，整项仍实施中。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，[D04模型Worker](model-workers.md)已实现并完成本机推理验证；[D10人脸打码](face-redaction.md)已实现核心/接口与本机验证；[D11固定变速/组合](fixed-retime.md)已实现；完整语义检索和部署仍未实现，不能把设计图视为运行事实。
 
 ## 设计决策
 

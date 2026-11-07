@@ -67,6 +67,7 @@ class StageDefinition:
     required_preprocess_version: str | None = None
     required_gpu_slots: int | None = None
     allowed_target_fields: tuple[str, ...] | None = None
+    requires_no_model: bool = False
 
 
 class RouterOptions(ContractModel):

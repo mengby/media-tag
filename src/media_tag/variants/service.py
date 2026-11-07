@@ -15,7 +15,7 @@ from media_tag.storage import IntegrityError
 from media_tag.upload.media import validate_media
 from media_tag.workers.probe import finite_number
 from .models import FixedTimeMap, PlanSpec, SourceClock
-from media_tag.transforms.policy import reviewed,review_state
+from media_tag.transforms.policy import reviewed,review_state,has_privacy_lineage
 
 
 def _stream_clock(probe, selected_audio):
@@ -43,6 +43,10 @@ class VariantService:
                 variant = connection.execute('SELECT * FROM variants WHERE asset_id=?', (asset_id,)).fetchone()
                 if variant is None or variant['privacy_status'] == 'pending' and not reviewed(connection,variant) and row['owner_id'] != principal.actor_id and principal.role != 'admin':
                     raise AccessDenied('unreviewed output is private to its owner')
+                if row['owner_id']!=principal.actor_id and principal.role!='admin':
+                    from media_tag.files.service import FileService
+                    if FileService(self.router)._gate(connection,row):
+                        raise AccessDenied('processing cannot bypass a blocked privacy lineage')
             size = connection.execute('SELECT size_bytes FROM blobs WHERE sha256=?', (row['blob_sha256'],)).fetchone()[0]
             location = connection.execute('SELECT object_key FROM storage_locations WHERE blob_sha256=? AND backend_id=?', (row['blob_sha256'], self.catalog.backend_id)).fetchone()
             if location is None:
@@ -78,6 +82,8 @@ class VariantService:
             previous = connection.execute('SELECT p.spec_json FROM variants v JOIN variant_plans p USING(plan_id) WHERE v.asset_id=?', (spec.parent_asset_id,)).fetchone()
             if parent['kind'] == 'derived' and (not spec.chain_from_derived or previous is None):
                 raise ValueError('processing a derived input requires explicit lineage chaining')
+            if has_privacy_lineage(connection,parent):
+                spec=spec.model_copy(update={'recipe':spec.recipe.model_copy(update={'privacy_review_required':True})})
             cumulative = json.loads(previous[0])['cumulative_speed'] if previous else 1.0
         with self._content(spec.parent_asset_id, delegate) as stream:
             probe = validate_media(Path(stream.name), self.tools)
@@ -100,6 +106,8 @@ class VariantService:
         clock = SourceClock(origin_seconds=origin, duration_seconds=duration,
                             time_base_numerator=base.numerator, time_base_denominator=base.denominator)
         time_map = FixedTimeMap(clock=clock, speed=spec.recipe.speed)
+        if len({s.segment_id for s in spec.recipe.segments}) != len(spec.recipe.segments) or any(s.end_seconds > duration for s in spec.recipe.segments):
+            raise ValueError('unique segments must be within the registered common source clock')
         data = dict(spec=spec.model_dump(mode='json'), source_sha256=parent['blob_sha256'],
                     root_asset_id=parent['root_asset_id'], time_map=time_map.model_dump(),
                     cumulative_speed=cumulative * spec.recipe.speed, selected_audio_stream=selected,
@@ -209,7 +217,8 @@ class VariantService:
                 raise IntegrityError('registered output location conflict')
             connection.execute("INSERT INTO assets(asset_id,blob_sha256,owner_id,name,revision,kind,root_asset_id,parent_asset_id,created_at) VALUES(?,?,?,?,1,'derived',?,?,?)",
                                (asset_id, blob.sha256, plan['owner_id'], 'Derived output', parent['root_asset_id'], parent['asset_id'], now))
-            connection.execute('INSERT INTO variants VALUES(?,?,?,?,?,?,?,?,?,?,?)', (asset_id, plan_id, plan['source_sha256'], blob.sha256, plan['recipe_hash'], encode(data['time_map']), encode(validation), 'pending' if recipe.mask else 'not_applicable', task_id, lease_epoch, now))
+            privacy_required=bool(recipe.mask or recipe.privacy_review_required or has_privacy_lineage(connection,parent))
+            connection.execute('INSERT INTO variants VALUES(?,?,?,?,?,?,?,?,?,?,?)', (asset_id, plan_id, plan['source_sha256'], blob.sha256, plan['recipe_hash'], encode(data['time_map']), encode(validation), 'pending' if privacy_required else 'not_applicable', task_id, lease_epoch, now))
             source_ids = {row[0] for row in connection.execute('SELECT source_id FROM asset_sources WHERE asset_id=? UNION SELECT source_id FROM variant_source_links WHERE asset_id=?', (parent['asset_id'], parent['asset_id']))}
             for source_id in source_ids:
                 connection.execute('INSERT INTO variant_source_links VALUES(?,?)', (asset_id, source_id))

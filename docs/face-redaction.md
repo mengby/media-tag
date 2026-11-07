@@ -1,6 +1,6 @@
 # D10 完整视频人脸打码
 
-2026-11-07：模型/处理核心、受认证接口、私有预览与输出复核工程实现完成。使用项目`.venv`及D04的61包视觉锁，无新增第三方依赖。源码为`workers/face_track.py`与`transforms/`；D12轨迹编辑页面尚未开发，D11变速及组合处理仍待实施。
+2026-11-07：模型/处理核心、受认证接口、私有预览与输出复核工程实现完成。使用项目`.venv`及D04的61包视觉锁，无新增第三方依赖。源码为`workers/face_track.py`与`transforms/`；D12轨迹编辑页面尚未开发，D11[固定变速及组合核心](fixed-retime.md)已实现。
 
 ## 已实现流程
 
@@ -16,7 +16,7 @@
 
 ## 时钟、资源与失败
 
-扫描/手工关键帧以源视频流首时刻归一为0；保留原始PTS和time_base。渲染按D09选定视音频共同原点映射视频与音轨，保留原始偏移。VFR由每帧真实时间重建；最后一帧的持续时间显式设置，再重新逐帧校验。音频单独复用源时间轴编码，避免视频帧数上限截断更晚结束的音轨。D10速度固定1.0，重复请求不会叠加变速。
+扫描/手工关键帧以源视频流首时刻归一为0；保留原始PTS和time_base。渲染按D09选定视音频共同原点映射视频与音轨，保留原始偏移。VFR由每帧真实时间重建；最后一帧的持续时间显式设置，再重新逐帧校验。音频单独复用源时间轴编码，避免视频帧数上限截断更晚结束的音轨。D10当次固定1.0；D11已扩展0.25～4倍及同一源时钟的组合映射，默认仍1.0，重复请求不叠加。
 
 默认最多60秒、1800帧、单帧1920²像素及累计10亿像素；所有上限同时适用，例如1080p/30fps受累计像素限制约16秒。扫描参数可在严格范围内提高至600秒/7200帧/4096²/80亿像素，但仍受Router默认300秒任务限时和每个工具120秒限制。超过预算明确失败，绝不截取前半段后宣称全片已检测。逐帧PNG会占磁盘，默认累计像素对应约3GB未压缩RGB数据/帧集合，扫描与渲染各自保留私有工作帧；提高预算前应准备相应容量。轨迹/风险报告限制各5万条，结果限制32MiB；日志运行中超过2MiB终止。
 
@@ -54,7 +54,7 @@
 | `GET /redaction/scans/{job_id}` | 返回真实任务状态；成功且已停止时返回scan_task_id、lease_epoch、report_sha256和完整data，含轨迹/风险/源时钟，供修订客户端直接读取 |
 | `POST /redaction/revisions` | RevisionSubmission：上述扫描三元组及edits；返回不可变revision_hash；无edits表示默认处理全部检出轨迹 |
 | `GET /redaction/revisions/{revision_hash}` | 本人读取固定修订及原扫描绑定；扫描失效则拒绝 |
-| `POST /redaction/renders` | RenderSubmission：request_id、revision_hash、mode(mosaic/solid)、strength(1～100)、padding(0～1)、audio、audio_stream_index、chain_from_derived；不接受speed或任意FFmpeg参数 |
+| `POST /redaction/renders` | RenderSubmission：request_id、revision_hash、mode(mosaic/solid)、strength(1～100)、padding(0～1)、audio、audio_stream_index、chain_from_derived；D11允许speed(默认1.0)及内部segments，仍拒绝任意FFmpeg参数 |
 | `GET /redaction/renders/{run_id}` | 真实job状态、固定plan/revision、登记后的asset_id，以及pending/approved/revoked/output_unavailable隐私状态 |
 | `GET/HEAD /redaction/outputs/{asset_id}/preview-content?sha256=…` | 指定输出哈希的私有复核预览，支持Range/ETag；不返回源视频；每次读取重查身份、对象权限、来源及生产租约 |
 | `POST /redaction/outputs/{asset_id}/review` | ReviewSubmission：expected_revision、output_sha256、recipe_hash、decision(approved/revoked)、full_output_viewed、exclusions_checked、risk_intervals_checked、note；批准须三项显式为true |

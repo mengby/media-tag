@@ -97,9 +97,9 @@ def mask_frame(image, observations, *, mode, strength, padding):
 
 
 def render(path, output, tools, revision, contract, render_parameters):
-    if contract['time_map']['speed']!=1.0:
-        raise ModelFailure('d10_requires_identity_speed')
     options=ScanOptions.model_validate_json(__import__('json').dumps(revision['options']))
+    if contract['time_map']['clock']['duration_seconds']>options.max_seconds:
+        raise ModelFailure('duration_budget')
     origin=revision['source_clock']['origin_seconds']; index=contract['source_video_stream']
     end=origin+revision['source_clock']['duration_seconds']
     frames=frame_clock(path,tools,index,origin=origin,video_end=end,options=options)
@@ -116,38 +116,14 @@ def render(path, output, tools, revision, contract, render_parameters):
         masked.save(image_path,'PNG')
         covered.append({'frame':frame['index'],'seconds':frame['seconds'],'duration':frame['duration'],
                         'source_pts':frame['source_pts'],'regions':regions,'masked_frame_sha256':file_sha256(image_path)})
-    concat=output/'frames.ffconcat'; lines=['ffconcat version 1.0']
-    for frame,image_path in zip(frames,paths):
-        lines += [f"file 'frames/{image_path.name}'",'option framerate 1000000',f"duration {frame['duration']:.9f}"]
-    # A final sentinel communicates the final interval to concat. -frames:v excludes it from the output.
-    lines += [f"file 'frames/{paths[-1].name}'",'option framerate 1000000']
-    concat.write_text('\n'.join(lines)+'\n',encoding='utf-8')
-    target=output/'redacted.mp4'; offset=contract['stream_offsets'][str(index)]; recipe=contract['spec']['recipe']
-    # This concat script is generated only from fixed frame basenames; no caller text or paths enter it.
-    args=['-v','error','-xerror','-copyts','-f','concat','-safe','0','-protocol_whitelist','file,pipe','-i',str(concat)]
-    audio=contract['selected_audio_stream']
-    video_target=output/'video-only.mp4' if audio is not None else target
-    args += ['-map','0:v:0','-vf',f'setpts=PTS+{offset:.9f}/TB,setsar=1',
-             '-c:v','libx264','-bf','0','-crf',str(recipe['crf']),'-preset',recipe['preset'],'-pix_fmt','yuv420p',
-             '-fps_mode','passthrough','-enc_time_base','1:1000000','-video_track_timescale','1000000',
-             '-frames:v',str(len(frames)),'-bsf:v',f"setts=duration={max(1,round(frames[-1]['duration']*1000000))}"]
-    args += ['-an','-map_metadata','-1','-metadata:s:v:0','rotate=0','-movflags','+faststart',str(video_target)]
-    tools.ffmpeg_run(args,timeout=120)
-    if audio is not None:
-        # The video frame limit must not truncate an audio stream which ends later.
-        tools.ffmpeg_run(['-v','error','-xerror','-copyts','-protocol_whitelist','file,pipe','-i',str(video_target),
-            '-protocol_whitelist','file,pipe','-i',str(path),
-            '-map','0:v:0','-map',f'1:{audio}','-c:v','copy','-af',
-            f"asetpts=PTS-{contract['time_map']['clock']['origin_seconds']:.9f}/TB",'-c:a','aac',
-            '-map_metadata','-1','-metadata:s:v:0','rotate=0','-movflags','+faststart',str(target)],timeout=120)
-    decoded=tools.probe_run(target,timeout=120,extra=['-select_streams','v:0','-show_frames','-show_entries','frame=best_effort_timestamp_time,duration_time'])['frames']
-    actual=[float(f['best_effort_timestamp_time']) for f in decoded]
-    if len(actual)!=len(frames) or any(abs(t-f['seconds']-offset)>0.0001 for t,f in zip(actual,frames)):
-        raise ModelFailure('output_frame_timing_mismatch')
-    if any(abs(float(row['duration_time'])-frame['duration'])>.0001 for row,frame in zip(decoded,frames)):
-        raise ModelFailure('output_frame_duration_mismatch')
-    tools.ffmpeg_run(['-v','error','-xerror','-i',str(target),'-map','0:v','-map','0:a?','-f','null','-'],timeout=120)
-    return {'schema_version':'d10-coverage-v1','source_sha256':file_sha256(path),'output_sha256':file_sha256(target),
-        'frames':covered,'decoded_frame_count':len(actual),'all_source_frames_rendered':True,'full_output_decode':True,
-        'time_map':contract['time_map'],'parameters':render_parameters,'risks':revision['risks'],
-        'no_automatic_privacy_approval':True,'privacy_confirmation':False,'scope':'face_masks_only_not_names_or_voices'}
+    from .retime import encode_video
+    speed=contract['time_map']['speed']; offset=contract['stream_offsets'][str(index)]
+    mapped=[dict(frame,seconds=frame['seconds']+offset) for frame in frames]
+    encoded=encode_video(path,output,tools,contract,mapped,frame_paths=paths,filename='redacted.mp4')
+    for frame in covered:
+        frame['output_seconds']=(frame['seconds']+offset)/speed
+        frame['output_duration']=frame['duration']/speed
+    risks=[dict(r,output_seconds=(r['seconds']+offset)/speed) for r in revision['risks']]
+    return encoded | {'schema_version':'d11-redaction-coverage-v1','frames':covered,'all_source_frames_rendered':True,
+        'parameters':render_parameters,'risks':risks,'no_automatic_privacy_approval':True,
+        'scope':'face_masks_only_not_names_or_voices'}

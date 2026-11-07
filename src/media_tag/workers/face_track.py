@@ -27,13 +27,17 @@ def frame_clock(path, tools, video_index, *, origin, video_end, options):
             for i,(r,t,duration) in enumerate(zip(rows,times,durations))]
 
 
-def decode_frames(path, folder, tools, video_index, frames, size, options):
+def check_display_budget(path, tools, video_index, frames, size, options):
     width,height=size
     if width*height>options.max_pixels or width*height*len(frames)>options.max_total_pixels:
         raise ModelFailure('pixel_budget')
     metadata=tools.probe_run(path,timeout=20,extra=['-select_streams',str(video_index),'-show_entries','stream=sample_aspect_ratio'])['streams'][0]
     if metadata.get('sample_aspect_ratio') not in (None,'N/A','0:1','1:1'):
         raise ModelFailure('unsupported_pixel_aspect_ratio')
+
+
+def decode_frames(path, folder, tools, video_index, frames, size, options):
+    check_display_budget(path,tools,video_index,frames,size,options)
     folder.mkdir(); (folder/'README.md').write_text('Private unredacted display-oriented frames. Never a public preview.\n')
     tools.ffmpeg_run(['-v','error','-xerror','-protocol_whitelist','file,pipe','-i',str(path),'-map',f'0:{video_index}',
         '-an','-sn','-dn','-fps_mode','passthrough','-frames:v',str(options.max_frames+1),str(folder/'frame-%06d.png')],timeout=120)
