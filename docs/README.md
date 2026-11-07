@@ -15,6 +15,7 @@
 
 | 文档 | 具体职责 |
 | --- | --- |
+| [本机开发环境](DEVELOPMENT_ENVIRONMENT.md) | `.venv` 使用、实测环境、缺失输入与拟定开工步骤；不是部署完成记录 |
 | [设计与实施专题](DESIGN_AND_IMPLEMENTATION.md) | 存储、表格、迁移、A01～A11；第12节AI取材D17～D20/I01～I08 |
 | [模型与Router/Worker](MODEL_ROUTER_WORKER_PLAN.md) | 模型候选、阶段协议、D00～D08；旧基础工期不作为全项目承诺 |
 | [上传、人脸打码与变速](UPLOAD_AND_MEDIA_VARIANTS.md) | 人员界面、视频处理、时间映射、D09～D12 |
