@@ -1,6 +1,6 @@
 # 素材库设计总览
 
-整理日期：2026-11-07。状态：实施前设计基线。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；本文统一旧专题中的部署和模块关系，技术栈、模型版本、接口及目录均为拟定，尚无运行服务。
+整理日期：2026-11-07。状态：设计基线，D00公共契约骨架已开始实现，详见 [D00说明](contracts.md)。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；本文统一旧专题中的部署和模块关系。服务、模型和部署仍未实现，不能把设计图视为运行事实。
 
 ## 设计决策
 
@@ -72,7 +72,7 @@ Router 是确定性调度程序，负责依赖、租约、幂等、取消及资�
 
 ## 技术选型与资源约束
 
-Python、FastAPI、SQLite、FFmpeg/ffprobe 为推荐工程组合；前端框架不在需求中锁定，由 D00 依据极简界面、预览和后续轨迹修订需求选定并记录。各接口先定 JSON Schema/错误/权限契约，不先搭多个框架或服务。
+Python、FastAPI、SQLite、FFmpeg/ffprobe 为当前工程方向；D00已落地Python 3.12、Pydantic结构校验、setuptools及pytest，实际版本/哈希见依赖锁。前端拟定服务端HTML/CSS＋原生JavaScript，轨迹修订使用浏览器canvas，D00不建立占位网页或Node工具链。服务和前端均尚未实现；未来引入框架时先记录需求与影响。各接口先定 JSON Schema/错误/权限契约，不先搭多个框架或服务。
 
 OCR、YuNet、Chinese-CLIP 和 BGE-small 是现有方案候选，具体版本在独立环境实测后锁定；VLM 为后置选项。32GB 内存和 8GB 显存不能据此认定任何模型组合已兼容。GPU 重推理/硬件编码共用配额，不能按不同队列各自占满显存；搜索和文件服务保持可响应。
 

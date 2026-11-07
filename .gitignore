@@ -8,6 +8,9 @@ node_modules/
 __pycache__/
 .pytest_cache/
 *.pyc
+*.egg-info/
+/build/
+/dist/
 *.log
 /data/
 /media/

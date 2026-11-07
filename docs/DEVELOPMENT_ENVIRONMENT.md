@@ -1,6 +1,6 @@
 # 本机开发环境与开工步骤
 
-核实日期：2026-11-07（Asia/Shanghai）。本次仅完成项目查看和本机 Python 虚拟环境准备，业务代码、服务、模型与部署尚未实施。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
+核实日期：2026-11-07（Asia/Shanghai）。已建立本机 Python 虚拟环境并实施D00工程骨架，结构校验和本地命令见 [契约说明](contracts.md)；真实模板、业务服务、模型与部署尚未验收。阶段与任务顺序继续以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
 
 ## 已建立的环境
 
@@ -10,7 +10,7 @@
 | 虚拟环境 | 根目录 `.venv`，Python 3.12.14；不继承系统 site-packages |
 | 项目解释器 | `D:\ai\media-tag\.venv\Scripts\python.exe` |
 | 基础解释器 | `C:\Users\EDY\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe` |
-| pip | 25.0.1；`pip check` 通过；尚未安装业务依赖 |
+| pip | 25.0.1；`pip check`通过；D00依赖已安装，14个包按版本及wheel哈希锁定，未安装业务服务/模型依赖 |
 | SQLite | Python 标准库可用，SQLite 3.53.1；未创建业务数据库 |
 | 本机 GPU | `nvidia-smi` 返回 RTX 5060 Ti、8151 MiB、驱动 580.97；不是模型兼容性验收 |
 | 外部命令 | 当前 PATH 未找到 python、py、uv、ffmpeg、ffprobe、node、npm；基础 Python 通过绝对路径调用 |
@@ -57,7 +57,7 @@ Set-Location D:\ai\media-tag
 
 ## 拟定实施落点
 
-以下是下一轮开发安排，均未实现，也不将推荐技术栈记为用户已确认。
+以下为实施落点；D00骨架已实现的范围单列在契约说明中，其他业务仍待开发。选型用于当前工程实施，不代表目标部署已完成。
 
 1. **M0：D00＋D07 环境准备。** 补齐原始契约；按现有 Python/FastAPI/SQLite 推荐方案记录选型，确定前端方案；建立 `pyproject.toml`、依赖锁定、契约加载器和合成测试。核实最终服务器、数据/备份目录与网络，配置 FFmpeg/ffprobe 并实测。只在实际使用时建立 `src/`、`tests/` 等目录及 README。
 2. **M1：D01/D02/D03/D09，D17 基础接口。** 先做一条真实素材的上传→完整性校验→SHA256 去重→来源登记→技术探测→授权预览/固定版本下载。最早的可演示交付是这条闭环，带失败记录与恢复；不是先堆模型或做模拟页面。
@@ -67,4 +67,4 @@ Set-Location D:\ai\media-tag
 
 核心 API/调度/存储依赖进入 `.venv`。视觉/文本推理依赖先验证冲突与 GPU 兼容性；需要隔离时再建立单独 Worker 环境并登记锁文件，不直接把全部模型包装进核心环境。FFmpeg 是外部程序，前端工具链也不由 Python 虚拟环境提供。
 
-下一条 D00 完成证据应是“真实本地契约解析与顺序一致＋合成边界测试＋依赖可复现”，当前仅创建 `.venv` 不构成 D00 完成。
+本轮D00合成边界测试与依赖重建已验证；下一条整项完成证据仍需“真实本地契约解析与顺序一致＋字段/枚举规则确认”。不能以骨架测试代替正式模板验收。
