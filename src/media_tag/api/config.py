@@ -24,6 +24,8 @@ from media_tag.transforms.service import RedactionService
 from media_tag.transforms.retime_service import RetimeService
 from media_tag.review.models import ReviewDeployment
 from media_tag.review.service import ReviewService
+from media_tag.terminology.contracts import Deployment as TerminologyDeployment
+from media_tag.terminology.lexicon.service import TerminologyService
 
 
 class LocalConfig(ContractModel):
@@ -42,6 +44,7 @@ class LocalConfig(ContractModel):
     retime: RetimeDeployment = RetimeDeployment()
     web_enabled: bool = False
     review: ReviewDeployment = ReviewDeployment()
+    terminology: TerminologyDeployment = TerminologyDeployment()
 
 
 def load_application(path: Path):
@@ -88,7 +91,8 @@ def load_application(path: Path):
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     if retiming: retiming.adopt_ready()
     reviews=ReviewService(router,config.review) if config.review.enabled else None
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews)
+    terminology=TerminologyService(router,config.terminology) if config.terminology.enabled else None
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology)
     return app, router, tools
 
 

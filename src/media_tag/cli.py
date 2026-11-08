@@ -14,6 +14,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="media-tag")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contracts", help="local contract checks and schemas")
+    term_schema = commands.add_parser('terminology-schema', help='print strict D13 contracts; no operational data')
+    term_schema.add_argument('--model', choices=('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'), required=True)
     tools = commands.add_parser("check-media-tools", help="check configured FFmpeg/ffprobe hashes and versions")
     tools.add_argument("--tool-dir", type=Path)
     serve = commands.add_parser("serve", help="start the authenticated loopback Router API")
@@ -26,6 +28,12 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command == 'terminology-schema':
+        from .terminology.contracts import Taxonomy,Lexicon,CandidateSubmission,CandidateRevision,Review,Publish,Rollback,ImportRows
+        models=dict(zip(('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'),
+                        (Taxonomy,Lexicon,CandidateSubmission,CandidateRevision,Review,Publish,Rollback,ImportRows)))
+        print(json.dumps(models[args.model].model_json_schema(), ensure_ascii=True, indent=2))
+        return 0
     if args.command in ('prepare-models', 'check-models'):
         from .models.registry import ModelRegistry
         from .models.contracts import ModelFailure

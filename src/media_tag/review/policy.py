@@ -37,6 +37,14 @@ class ReviewPolicy:
             content_raw=read_local_file(path.parent,manifest.content_file)
             if sha256(content_raw).hexdigest()!=manifest.content_sha256:raise ValueError('taxonomy content changed while loading')
             content = parse_json(content_raw)
+            if isinstance(content,dict) and content.get('schema_version')=='d13-taxonomy-v1':
+                from media_tag.terminology.contracts import Taxonomy
+                from media_tag.terminology.lexicon.validation import issues,option_fields
+                projected=content.get('fields')
+                taxonomy=Taxonomy.model_validate_json(json.dumps({k:v for k,v in content.items() if k!='fields'}))
+                if issues(taxonomy,contract) or projected!=option_fields(taxonomy):
+                    raise ValueError('invalid D13 taxonomy or projection')
+                content={'schema_version':'d06-taxonomy-options-v1','template_fingerprint':taxonomy.template_fingerprint,'fields':projected}
             if set(content)!={'schema_version','template_fingerprint','fields'} or content['schema_version']!='d06-taxonomy-options-v1' or content['template_fingerprint']!=contract.fingerprint:
                 raise ValueError('taxonomy consumer contract mismatch')
             if not isinstance(content['fields'],dict): raise ValueError('taxonomy fields must be explicit')

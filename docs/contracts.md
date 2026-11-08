@@ -98,7 +98,7 @@
 & .\.venv\Scripts\python.exe -m media_tag contracts check-vocabulary --manifest data/terminology/release.json --kind lexicon --version '待提供的词表版本' --taxonomy-version '待提供的分类版本'
 ```
 
-此入口拒绝draft/review/rejected、缺失内容、摘要不符、版本不符、越界引用、坏JSON及重复JSON键。词表内容目前只检查为JSON对象；**未实现D13的逐词条审核、taxonomy引用、概念/映射关系校验、签名/发布者权限、发布事务及回滚**。返回 `semantic_review_verified=false`，通过入口不代表有权发布，也不意味着词条已经医学审核。
+此通用入口拒绝draft/review/rejected、缺失内容、摘要不符、版本不符、越界引用、坏JSON及重复JSON键，内容只检查为JSON对象，继续返回 `semantic_review_verified=false`。D13已另行实现[逐词条审核、taxonomy引用、概念/关系校验、明确发布权限、事务及回滚](terminology-release.md)；通用入口不授予发布权，也不验证人工记录真实性或医学结论。没有密码学签名服务；D06继续使用明确manifest摘要与受信发布者pin。
 
 ## 验证与待补验收
 

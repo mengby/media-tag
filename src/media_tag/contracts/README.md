@@ -6,3 +6,5 @@
 - `cli.py`：校验与 JSON Schema 输出；`python -m media_tag` 或 `media-tag`。
 
 协议说明及尚未实现的语义/权限校验见 [contracts.md](../../../docs/contracts.md)。Pydantic 的 `model_construct` 和 `model_copy(update=...)` 可绕过校验，外部输入不得走这些入口；使用构造器、`model_validate` 或 `model_validate_json`。
+
+D13具体词表实体/语义发布校验位于 `../terminology/`，沿用此处manifest/hash入口，见 [D13说明](../../../docs/terminology-release.md)。
