@@ -197,6 +197,9 @@ class FileService:
         keys = ('kind', 'width', 'height', 'display_width', 'display_height', 'duration_seconds', 'start_seconds', 'has_audio')
         technical = {key: data.get(key) for key in keys}
         technical['report_state'] = report_state
+        technical['audio_streams'] = [{'index':s['index'], 'codec':s.get('codec_name'),
+                                      'language':s.get('tags',{}).get('language')} for s in
+                                     data.get('raw_metadata',{}).get('streams',[]) if s.get('codec_type')=='audio']
         streams = [s for s in data.get('raw_metadata', {}).get('streams', []) if s.get('codec_type') in ('video', 'audio') and not s.get('disposition', {}).get('attached_pic')]
         starts, durations = [finite_number(s.get('start_time')) for s in streams], [finite_number(s.get('duration')) for s in streams]
         known = bool(streams) and all(value is not None for value in (*starts, *durations))

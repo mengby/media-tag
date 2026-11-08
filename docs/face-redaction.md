@@ -1,6 +1,6 @@
 # D10 完整视频人脸打码
 
-2026-11-07：模型/处理核心、受认证接口、私有预览与输出复核工程实现完成。使用项目`.venv`及D04的61包视觉锁，无新增第三方依赖。源码为`workers/face_track.py`与`transforms/`；D12轨迹编辑页面尚未开发，D11[固定变速及组合核心](fixed-retime.md)已实现。
+2026-11-07：模型/处理核心、受认证接口、私有预览与输出复核工程实现完成。使用项目`.venv`及D04的61包视觉锁，无新增第三方依赖。源码为`workers/face_track.py`与`transforms/`；D12[轨迹编辑与入库页面](personnel-ui.md)已实现处理分支，D11[固定变速及组合核心](fixed-retime.md)已实现。
 
 ## 已实现流程
 
@@ -79,7 +79,7 @@ D10新增31项工程测试及2项并发路径回归测试，全量342项。包�
 
 真实六模板验证批次为`jobs/d10-validation-20261107-51e5d9e3/validation.json`（忽略Git）。12帧移动/遮挡/切镜合成视频实际逐帧扫描，记录4条轨迹并输出两种遮罩；loopback状态/报告/复核私有预览/Range和输出哈希通过，普通入口及未指定复核人的批准请求拒绝，原件哈希和revision不变，两个输出仍待复核。扫描报告耗时0.610秒，实心/马赛克渲染0.579/0.531秒（该640×360短样本，不含外层CLI启动，不作为负载/P95指标）。
 
-尚缺A04要求的至少12条不同业务来源授权视频、目标人脸标注、冻结的自动遗漏/人工修正耗时门槛及指定人员全片复查。合成图的移动、镜像和遮挡不能代替真人侧脸/转头等业务风险集；工程通过不表示A04或无人复核使用已获准。页面操作及最终Windows部署验收仍属D12/D07。
+尚缺A04要求的至少12条不同业务来源授权视频、目标人脸标注、冻结的自动遗漏/人工修正耗时门槛及指定人员全片复查。合成图的移动、镜像和遮挡不能代替真人侧脸/转头等业务风险集；工程通过不表示A04或无人复核使用已获准。D12合成人员页面操作已验证，医学管理/语义集成与业务签收仍待后续；最终Windows部署验收留D07。
 
 实现依据：[FFmpeg concat格式](https://www.ffmpeg.org/ffmpeg-formats.html)、[帧时间选项](https://www.ffmpeg.org/ffmpeg-all.html)、[setts位流滤镜](https://ffmpeg.org/ffmpeg-bitstream-filters.html)、[Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)。
 

@@ -1,4 +1,4 @@
-"""Small authenticated control plane. No static files, publishing or role-bearing requests."""
+"""Authenticated control plane and optional personnel UI. No public media serving or role-bearing requests."""
 
 from hashlib import sha256
 import re
@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -79,6 +79,8 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         auth = request.headers.get("authorization", "")
         scheme, _, token = auth.partition(" ")
         principal = identities.get(sha256(token.encode()).hexdigest()) if scheme.lower() == "bearer" and token else None
+        if not auth and hasattr(app.state, 'ui_sessions'):
+            principal = app.state.ui_sessions.principal(request)
         if principal is None:
             raise HTTPException(401, "authentication required", headers={"WWW-Authenticate": "Bearer"})
         return principal
@@ -322,4 +324,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         router.recover(principal=principal)
         return {"recovered": True}
 
+    if web:
+        from media_tag.web.http import install
+        install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming)
     return app

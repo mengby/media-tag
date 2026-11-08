@@ -6,7 +6,7 @@
 
 | 决策 | 当前结论 | 状态 |
 | --- | --- | --- |
-| 人员界面 | 极简、画廊默认、列表可切换；视频处理独立；标签后台运行 | 用户已选定 |
+| 人员界面 | 极简、画廊默认、列表可切换；视频处理独立；标签后台运行 | D12处理页/入库已实现；医学管理与语义检索待D06/D15 |
 | 术语解析 | 已发布词表＋文本小模型；多义、关系和否定独立处理 | 用户已选定路线；具体模型待实测 |
 | 权威数据 | 单服务写入本地 SQLite，网页、Worker、导出共用契约；数据库不放 SMB 共享盘 | D01核心与D03调度/结果事务入口已实现；常驻部署仍待D07/Q01 |
 | 团队部署 | 常开 Windows 承载 API、任务状态、数据库和文件服务；开发机仅做开发/测试 | 当前推荐，取代早期开发机长期承载主库的团队部署建议；Q01/Q02 |
@@ -72,7 +72,7 @@ Router 是确定性调度程序，负责依赖、租约、幂等、取消及资�
 
 ## 技术选型与资源约束
 
-Python、FastAPI、SQLite、FFmpeg/ffprobe 为当前工程方向；D00已落地Python 3.12、Pydantic结构校验、setuptools及pytest，实际版本/哈希见依赖锁。前端拟定服务端HTML/CSS＋原生JavaScript，轨迹修订使用浏览器canvas，D00不建立占位网页或Node工具链。服务和前端均尚未实现；未来引入框架时先记录需求与影响。各接口先定 JSON Schema/错误/权限契约，不先搭多个框架或服务。
+Python、FastAPI、SQLite、FFmpeg/ffprobe 为当前工程方向；D00已落地Python 3.12、Pydantic结构校验、setuptools及pytest，实际版本/哈希见依赖锁。D12已落地FastAPI同源HTML/CSS＋原生JavaScript，轨迹修订使用浏览器canvas，资源随wheel分发，不需要Node生产工具链。HTTP服务与人员处理页/入库已实现，语义检索、医学管理与常驻部署未完成；未来引入框架时先记录需求与影响。各接口先定 JSON Schema/错误/权限契约，不先搭多个框架或服务。
 
 OCR、YuNet、Chinese-CLIP 和 BGE-small 是现有方案候选，具体版本在独立环境实测后锁定；VLM 为后置选项。32GB 内存和 8GB 显存不能据此认定任何模型组合已兼容。GPU 重推理/硬件编码共用配额，不能按不同队列各自占满显存；搜索和文件服务保持可响应。
 
@@ -88,6 +88,7 @@ OCR、YuNet、Chinese-CLIP 和 BGE-small 是现有方案候选，具体版本在
 
 - [存储、字段归属、A01～A11 验收及 AI 接入](DESIGN_AND_IMPLEMENTATION.md)：第 4～6、10、12 节。
 - [模型、任务协议与 D00～D08](MODEL_ROUTER_WORKER_PLAN.md)：模型候选、租约、重试、资源和产物协议。
+- [D12人员页面与入库](personnel-ui.md)：会话、私有处理、指定人输出复核、明确版本入库与共享。
 - [上传、人脸与变速 D09～D12](UPLOAD_AND_MEDIA_VARIANTS.md)：完整视频处理和版本关系。
 - [词表与小模型 D13～D16](TERMINOLOGY_MAPPING_PLAN.md)：发布契约、交互及 T01～T12/业务评测。
 

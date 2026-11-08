@@ -82,3 +82,5 @@ serve 仅绑定 `127.0.0.1`，关闭访问日志；不自动对局域网开放�
 D09上传/自动入队和衍生契约已完成，D17文件基础后当前全量277项测试。剩余：D04 真实模型 Worker、D06 审核/导出、D17 文件/API 能力、D07 常驻部署及 GPU/容量/恢复实测。当前没有正式 taxonomy/lexicon 发布，也没有许可或医学确认，不据工程测试签收 A08 整项或其他业务验收。
 
 实现参考：[FastAPI 依赖注入](https://fastapi.tiangolo.com/tutorial/dependencies/)、[FastAPI 测试](https://fastapi.tiangolo.com/tutorial/testing/)。测试实际通过 HTTPX ASGITransport 和真实 loopback 执行，不依赖旧 TestClient 的兼容层。
+
+D12背景分析支持经D17逐对象/隐私链校验的衍生输出；probe/evidence/OCR/face/CLIP领取、心跳及结果采用都会重查来源生产/复核门槛。CPU读取经固定输出哈希验证，不放开D01原件专用入口。人员任务页通过原有replan只重试失败阶段及依赖，见[人员页说明](personnel-ui.md)。

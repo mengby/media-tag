@@ -44,8 +44,9 @@ class UploadService:
             self.catalog._authorize(connection, row['asset_id'], principal)
         event = connection.execute('SELECT job_id,error_code FROM upload_outbox WHERE upload_id=?', (row['upload_id'],)).fetchone()
         validation = json.loads(row['validation_json']) if row['validation_json'] else {}
+        spec = UploadSpec.model_validate_json(row['spec_json'])
         return dict(upload_id=row['upload_id'], state=row['state'], offset=row['offset'],
-                    size_bytes=UploadSpec.model_validate_json(row['spec_json']).size_bytes,
+                    size_bytes=spec.size_bytes, sha256=spec.sha256, purpose=spec.purpose, filename=spec.filename,
                     chunk_bytes=self.options.chunk_bytes, asset_id=row['asset_id'], error_code=row['error_code'],
                     job_id=event['job_id'] if event else None, dispatch_error=event['error_code'] if event else None,
                     processing_history=validation.get('processing_history'))

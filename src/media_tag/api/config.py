@@ -38,6 +38,7 @@ class LocalConfig(ContractModel):
     models: ModelDeployment = ModelDeployment()
     redaction: RedactionDeployment = RedactionDeployment()
     retime: RetimeDeployment = RetimeDeployment()
+    web_enabled: bool = False
 
 
 def load_application(path: Path):
@@ -83,7 +84,7 @@ def load_application(path: Path):
         redactions.adopt_ready()
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     if retiming: retiming.adopt_ready()
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming)
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled)
     return app, router, tools
 
 

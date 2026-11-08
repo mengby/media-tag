@@ -79,8 +79,13 @@ class Router:
         return self.catalog._authorize(connection, job["asset_id"], Principal(actor_id=job["owner_id"]), "read")
 
     def _task_source(self, connection, job, step):
-        return self.catalog._authorize(connection, job["asset_id"], Principal(actor_id=job["owner_id"]),
-                                       "edit" if step.target_fields else "read")
+        source = self.catalog._authorize(connection, job["asset_id"], Principal(actor_id=job["owner_id"]),
+                                        "edit" if step.target_fields else "read")
+        if source['kind']=='derived' and step.stage in ('probe','evidence','ocr','face','clip'):
+            from media_tag.files.service import FileService
+            if FileService(self)._gate(connection, source):
+                raise AccessDenied('background analysis requires a currently approved, available output')
+        return source
 
     def _event(self, connection, job_id, task_id, actor, action, detail):
         connection.execute("INSERT INTO router_events(job_id,task_id,actor_id,action,detail_json,created_at) VALUES(?,?,?,?,?,?)",
@@ -538,6 +543,17 @@ class Router:
             if task is None:
                 raise RouterConflict("input lease is no longer active")
             job = connection.execute("SELECT * FROM router_jobs WHERE job_id=?", (task["job_id"],)).fetchone()
-            self._source(connection, job)
-        with self.catalog.open_content(job["asset_id"], principal=Principal(actor_id=job["owner_id"])) as stream:
-            yield stream
+            source = self._source(connection, job)
+        delegate = Principal(actor_id=job["owner_id"])
+        if source['kind']=='derived':
+            from media_tag.files.service import FileService
+            files = FileService(self)
+            opened = files.open(source['asset_id'], source['blob_sha256'], principal=delegate)
+            try:
+                yield opened.stream
+                files.authorize(source['asset_id'], source['blob_sha256'], principal=delegate, for_bytes=True)
+            finally:
+                opened.close()
+        else:
+            with self.catalog.open_content(job["asset_id"], principal=delegate) as stream:
+                yield stream

@@ -24,6 +24,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "media_tag.workers" = ["media-tools.lock.json"]
 "media_tag.models" = ["models.lock.json"]
+"media_tag.web" = ["*.html", "*.js", "*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
