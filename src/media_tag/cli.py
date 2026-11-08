@@ -16,6 +16,9 @@ def main(argv=None):
     commands.add_parser("contracts", help="local contract checks and schemas")
     term_schema = commands.add_parser('terminology-schema', help='print strict D13 contracts; no operational data')
     term_schema.add_argument('--model', choices=('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'), required=True)
+    for name in ('prepare-text-model','check-text-model'):
+        text_command=commands.add_parser(name,help='explicit pinned BGE download or real CPU encoding diagnostic')
+        text_command.add_argument('--model-root',type=Path,default=Path('cache/models/d14'))
     tools = commands.add_parser("check-media-tools", help="check configured FFmpeg/ffprobe hashes and versions")
     tools.add_argument("--tool-dir", type=Path)
     serve = commands.add_parser("serve", help="start the authenticated loopback Router API")
@@ -28,6 +31,26 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command in ('prepare-text-model','check-text-model'):
+        from .terminology.embedding.registry import BGERegistry
+        from .terminology.embedding.process import ProcessEncoder
+        from .models.contracts import ModelFailure
+        registry=BGERegistry(args.model_root)
+        encoder=None
+        try:
+            if args.command=='prepare-text-model':result=registry.fetch()
+            else:
+                registry.verify();encoder=ProcessEncoder(registry,Path.cwd())
+                docs=encoder.encode(['红色的圆形','蓝色的方形'],timeout_seconds=30.0)
+                query=encoder.encode(['红色圆圈'],query=True,timeout_seconds=8.0)[0]
+                result={'model_revision':registry.revision,'upstream_revision':registry.manifest['upstream_revision'],'dimension':len(query),
+                    'diagnostic_cosines':[sum(a*b for a,b in zip(query,v)) for v in docs],'stats':encoder.stats,
+                    'medical_validation':False,'device':'cpu'}
+            print(json.dumps(result,ensure_ascii=True,indent=2));return 0
+        except Exception as exc:
+            print(json.dumps({'error':exc.code if isinstance(exc,ModelFailure) else 'text_model_check_failed'}),file=sys.stderr);return 2
+        finally:
+            if encoder:encoder.close()
     if args.command == 'terminology-schema':
         from .terminology.contracts import Taxonomy,Lexicon,CandidateSubmission,CandidateRevision,Review,Publish,Rollback,ImportRows
         models=dict(zip(('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'),

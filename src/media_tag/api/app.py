@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -327,6 +327,9 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     if terminology is not None:
         from media_tag.terminology.lexicon.http import install as install_terminology
         install_terminology(app,terminology,identity,body)
+    if resolver is not None:
+        from media_tag.terminology.resolve.http import install as install_resolver
+        install_resolver(app,resolver,identity,body)
     if reviews is not None:
         from media_tag.review.http import install as install_reviews
         install_reviews(app,reviews,identity,body)

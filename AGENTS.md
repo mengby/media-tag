@@ -2,7 +2,7 @@
 
 ## 当前范围
 
-本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D04、D06、D09～D11及D13已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17语义检索/整体验收仍未完成；D04真实OCR/人脸/CLIP Worker及本机CUDA验证见 `docs/model-workers.md`；D12人员处理页与主动入库已实现（`docs/personnel-ui.md`），D06字段复核/CSV已接入（`docs/review-csv.md`），整项仍待D15及业务验收；目前没有常驻服务部署，正式词表/代表性校准与医学验收未完成。本机六份原始模板已齐并绑定摘要，D13发布机制已实现，完整医学分类词表仍待Q03实际管理人审核发布；服务器和存储部署位置仍按用户选定方案执行。
+本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D04、D06、D09～D11及D13/D14已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17语义检索/整体验收仍未完成；D04真实OCR/人脸/CLIP Worker及本机CUDA验证见 `docs/model-workers.md`；D12人员处理页与主动入库已实现（`docs/personnel-ui.md`），D06字段复核/CSV已接入（`docs/review-csv.md`），整项仍待D15及业务验收；目前没有常驻服务部署，正式词表/代表性校准与医学验收未完成。本机六份原始模板已齐并绑定摘要，D13发布机制已实现，完整医学分类词表仍待Q03实际管理人审核发布；服务器和存储部署位置仍按用户选定方案执行。
 
 2026-11-07起总控入口为 `docs/REQUIREMENTS.md`、`docs/ARCHITECTURE.md`、`docs/IMPLEMENTATION_PLAN.md`、`docs/PROGRESS.md`，分别维护范围、设计、当前任务顺序和实际状态。保留D00～D20及A/T/I编号；专题中的早期阶段/工期不替代当前实施计划。候选表、模拟交互和任务卡不算对应功能已完成。
 
@@ -10,7 +10,7 @@
 
 用户已选定极简界面：素材库默认画廊、可切换列表；打码与变速属于独立“视频处理”功能；AI 打标后台自动执行。处理不依赖语义打标成功，医学标签人工确认与处理输出复核仍分别保留。
 
-用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；正式医学词表、D14文本模型及D15页面尚未完成。
+用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；D14已实现固定BGE/术语Worker/文本索引与降级，见 `docs/terminology-worker.md`；正式医学词表、D15页面及D16业务验收尚未完成。
 
 用户新增核心目标：供 AI 剪辑检索与取材。API/MCP 和剪辑适配器的拟定设计见 `docs/DESIGN_AND_IMPLEMENTATION.md` 第 12 节；未接入相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
 

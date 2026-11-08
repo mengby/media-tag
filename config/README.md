@@ -8,3 +8,5 @@
 通用 token 或自动生成的生产数据库。新环境须提供六份原始模板并核对其正式摘要。
 
 D13新增可选 `terminology`：默认关闭，显式 `managers` / `publishers` 分别控制词条审核和发布/回滚，admin不自动获得这些能力。分类/别名快照独立版本且绑定发布ID；D06可消费D13分类快照但仍需明确pin并重载，见 [D13说明](../docs/terminology-release.md)。无正式医学词表或默认管理账号。
+
+D14新增可选 `text`，须启用terminology；默认关闭模型。CPU BGE的绝对模型目录、拒识配置、解析和文本索引整组激活见 [D14说明](../docs/terminology-worker.md)。没有正式词表时明确降级，启用功能不下载模型，不产生假医学标签。

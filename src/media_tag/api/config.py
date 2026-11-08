@@ -26,6 +26,10 @@ from media_tag.review.models import ReviewDeployment
 from media_tag.review.service import ReviewService
 from media_tag.terminology.contracts import Deployment as TerminologyDeployment
 from media_tag.terminology.lexicon.service import TerminologyService
+from media_tag.terminology.resolve.models import ResolveOptions
+from media_tag.terminology.resolve.service import Resolver
+from media_tag.terminology.embedding.registry import BGERegistry
+from media_tag.workers.terminology import terminology_stages,TerminologyHandlers
 
 
 class LocalConfig(ContractModel):
@@ -45,6 +49,7 @@ class LocalConfig(ContractModel):
     web_enabled: bool = False
     review: ReviewDeployment = ReviewDeployment()
     terminology: TerminologyDeployment = TerminologyDeployment()
+    text: ResolveOptions = ResolveOptions()
 
 
 def load_application(path: Path):
@@ -75,6 +80,13 @@ def load_application(path: Path):
             router.stages.update(redaction_stages(ModelRegistry(model_root),tools))
     if config.retime.enabled:
         router.stages.update(retime_stages(tools))
+    if config.text.enabled:
+        if not config.terminology.enabled:raise ValueError('text resolution requires the terminology service')
+        if config.text.model_enabled:
+            root=Path(config.text.model_root)
+            if not root.is_absolute():raise ValueError('enabled text model root must be absolute')
+            require_local_path(root)
+        router.stages.update(terminology_stages(BGERegistry(config.text.model_root)))
     # This capability exists only inside trusted bootstrap, not a caller-controlled role body.
     bootstrap = Principal(actor_id="local-bootstrap", role="admin")
     with router.database.transaction(write=True) as connection:
@@ -92,12 +104,13 @@ def load_application(path: Path):
     if retiming: retiming.adopt_ready()
     reviews=ReviewService(router,config.review) if config.review.enabled else None
     terminology=TerminologyService(router,config.terminology) if config.terminology.enabled else None
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology)
+    resolver=Resolver(terminology,config.text) if config.text.enabled else None
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver)
     return app, router, tools
 
 
 def executor_from_config(path: Path, worker_id: str):
-    _, router, tools = load_application(path)
+    app, router, tools = load_application(path)
     with router.database.transaction() as connection:
         worker = connection.execute("SELECT enabled FROM router_workers WHERE worker_id=?", (worker_id,)).fetchone()
         if worker is None or not worker[0]:
@@ -110,10 +123,12 @@ def executor_from_config(path: Path, worker_id: str):
     transform=RedactionHandlers(redactions) if redactions else None
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     retime_handler=RedactionHandlers(retiming) if retiming else None
+    terms=TerminologyHandlers(app.state.resolver) if config.text.enabled else None
     def handle(lease,stopped):
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
         if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
+        if lease.task.stage=='terminology_resolve' and terms:return terms(lease,stopped)
         return models(lease,stopped)
     def adopt():
         for service in (redactions,retiming):

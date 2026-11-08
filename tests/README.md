@@ -5,3 +5,5 @@
 D06复核/导出测试只读加载本地六原始模板，不提交契约副本；未提供模板时如实失败。包含合成发布消费/人工决定状态机，不是生产医学审核；真实浏览器输入/原文/非零起点片段与两表工程批次见docs/review-csv.md。
 
 D13新增 `terminology/lexicon/` 的合成分类/概念/别名、逐条审核、导入/来源/引用/关系、发布故障/并发/回滚及D06消费验证。`python tests/terminology/lexicon/validate_http.py` 在私有jobs批次执行真实loopback请求，不发布正式医学词表。
+
+D14新增40项术语/文字工程测试；真实推理在 `terminology/embedding/test_inference.py`，无模型核心环境显式排除此文件。`python tests/terminology/resolve/validate_http.py` 执行真实CPU BGE、40次HTTP、索引恢复/重启/回滚及两次CLI Worker，数据只在私有jobs。

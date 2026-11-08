@@ -1,0 +1,54 @@
+{
+  "schema_version": "d14-bge-lock-v1",
+  "name": "BAAI/bge-small-zh-v1.5",
+  "upstream_revision": "7999e1d3359715c523056ef9478215996d62a620",
+  "dimension": 512,
+  "pooling": "cls",
+  "normalize": true,
+  "max_tokens": 512,
+  "query_instruction": "为这个句子生成表示以用于检索相关文章：",
+  "artifacts": [
+    {
+      "path": "README.md",
+      "size_bytes": 27670,
+      "sha256": "c48a4eeea77f6b1d38b48ec1c5b8d4f86d5550cc43fa345a0db1b2ca1d082369",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/README.md"
+    },
+    {
+      "path": "config.json",
+      "size_bytes": 776,
+      "sha256": "3853a7979202c348751b753e36f579c41d8da7d36af617d3d907e1fc9b441f2a",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/config.json"
+    },
+    {
+      "path": "tokenizer.json",
+      "size_bytes": 439125,
+      "sha256": "48cea5d44424912a6fd1ea647bf4fe50b55ab8b1e5879c3275f80e339e8fae26",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/tokenizer.json"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size_bytes": 367,
+      "sha256": "e6f3b96db926a37d4039995fbf5ad17de158dfb8f6343d607e4dbaad18d75f5a",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/tokenizer_config.json"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "size_bytes": 125,
+      "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/special_tokens_map.json"
+    },
+    {
+      "path": "vocab.txt",
+      "size_bytes": 109540,
+      "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/vocab.txt"
+    },
+    {
+      "path": "model.safetensors",
+      "size_bytes": 95827648,
+      "sha256": "354763b9b1357bc9c44f62c6be2276321081ed2567773608c0d0785b61d5a026",
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5/resolve/7999e1d3359715c523056ef9478215996d62a620/model.safetensors"
+    }
+  ]
+}
