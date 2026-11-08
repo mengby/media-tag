@@ -130,5 +130,5 @@ def test_migration7_failure_rolls_back_and_preserves_old_release_data(tmp_path,m
     with Database(path).transaction() as c:assert c.execute('PRAGMA user_version').fetchone()[0]==7
     monkeypatch.setattr(module,'TEXT_INDEX_SCHEMA',valid);Database(path).initialize()
     with Database(path).transaction() as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0]==8
+        assert c.execute('PRAGMA user_version').fetchone()[0]==9
         assert c.execute('SELECT value FROM catalog_metadata').fetchone()[0]=='retained'

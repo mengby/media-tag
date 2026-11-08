@@ -1,5 +1,6 @@
 """Deterministic publication checks. No model, remote lookup, or vocabulary inference."""
 from collections import defaultdict
+import re
 from media_tag.terminology.contracts import Taxonomy, Lexicon, normalize
 
 
@@ -34,7 +35,13 @@ def issues(payload, contract, taxonomy=None, previous=()):
         options = {o.entry_id:o for o in payload.options}
         for o in payload.options:
             definition = definitions.get(o.field)
-            if not definition or definition.selection_policy != 'external_vocabulary': error('locked_template_field', o.entry_id)
+            closed=None
+            if definition and o.field=='用途大类' and definition.field_type in ('单选','多选'):
+                text=re.sub(r'（[^（）]*用）$','',definition.options_format)
+                if '|' in text and not any(m in text for m in ('…','...','锁定列表')):closed=text.split('|')
+            process_text=bool(definition and o.field=='过程/状态' and definition.field_type=='文本' and definition.selection_policy is None)
+            if not definition or definition.selection_policy!='external_vocabulary' and not process_text and (closed is None or o.value not in closed):
+                error('locked_template_field', o.entry_id)
             if o.value != o.value.strip() or any(m in o.value for m in ('…','...','|',';')): error('placeholder_option', o.entry_id)
             if o.status == 'active':
                 key = (o.field, normalize(o.value))
@@ -136,9 +143,10 @@ def _replacement(entry, objects, error):
         elif hasattr(entry,'field') and objects[target].field != entry.field: error('migration_field_mismatch', entry.entry_id)
 
 
-def option_fields(payload):
+def option_fields(payload,contract=None):
     """D06 projection: only active options, preserving the original field labels."""
     fields = defaultdict(list)
+    external={d.name for d in contract.field_definitions[0][1] if d.selection_policy=='external_vocabulary'} if contract else None
     for option in payload.options:
-        if option.status == 'active': fields[option.field].append(option.value)
+        if option.status == 'active' and (external is None or option.field in external): fields[option.field].append(option.value)
     return dict(fields)

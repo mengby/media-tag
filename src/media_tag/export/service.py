@@ -139,8 +139,12 @@ class ExportService:
         _human(principal)
         header=self.catalog.contract.table(ASSETS).header;gap_header=self.catalog.contract.table(GAPS).header
         if len(header)!=35 or len(gap_header)!=14:raise ValueError('formal two-table contract required')
-        issues=[];assets=[];gaps=[];asset_refs={};gap_refs=[]
+        issues=[];assets=[];gaps=[];asset_refs={};gap_refs=[];alias_binding=None
         with self.database.transaction() as connection:
+            if spec.include_confirmed_aliases:
+                search=getattr(self.reviews,'search',None)
+                if search is None:raise ValueError('terminology search is not configured')
+                alias_binding=search.aliases.binding(connection)
             def authorize(identifier,revision=None,sha=None):
                 row=self.catalog._authorize(connection,identifier,principal)
                 if revision is not None and row['revision']!=revision or sha is not None and row['blob_sha256']!=sha:raise RevisionConflict('export selection changed')
@@ -149,7 +153,9 @@ class ExportService:
                 return row
             for selection in spec.assets:
                 row=authorize(selection.asset_id,selection.expected_revision,selection.source_sha256)
-                assets.append(self._asset_row(connection,row,principal,spec.include_ai_drafts,issues))
+                item=self._asset_row(connection,row,principal,spec.include_ai_drafts,issues)
+                if alias_binding:search.aliases.append(connection,row,item,issues,alias_binding)
+                assets.append(item)
             for selection in spec.gaps:
                 row=self.reviews._gap(connection,selection.gap_id,principal)
                 if row['revision']!=selection.expected_revision:raise RevisionConflict('gap selection changed')
@@ -164,13 +170,18 @@ class ExportService:
                 if row['owner_id'] in self.reviews.config.people:item['提出人']=self.reviews.config.people[row['owner_id']]
                 else:issues.append({'gap_id':row['gap_id'],'field':'提出人','code':'external_person_mapping_missing','actor_id':row['owner_id']})
                 gaps.append(item);gap_refs.append({'gap_id':row['gap_id'],'revision':row['revision']})
-        return {'schema_version':'d06-csv-snapshot-v1','template_fingerprint':self.catalog.contract.fingerprint,
+        snapshot={'schema_version':'d06-csv-snapshot-v1','template_fingerprint':self.catalog.contract.fingerprint,
             'policy_sha256':self.reviews.policy.digest,'people_mapping_sha256':sha256(encode(self.reviews.config.people).encode()).hexdigest(),
             'asset_refs':list(asset_refs.values()),'gap_refs':gap_refs,'assets':assets,'gaps':gaps,
             'asset_header':list(header),'gap_header':list(gap_header),'issues':issues,'include_ai_drafts':spec.include_ai_drafts}
+        if alias_binding:snapshot['alias_binding']=alias_binding
+        return snapshot
 
     def _current(self,connection,snapshot,principal):
         _human(principal)
+        if snapshot.get('alias_binding'):
+            search=getattr(self.reviews,'search',None)
+            if search is None or search.aliases.binding(connection)!=snapshot['alias_binding']:raise RevisionConflict('export alias vocabulary changed')
         if snapshot['template_fingerprint']!=self.catalog.contract.fingerprint or snapshot['policy_sha256']!=self.reviews.policy.digest or snapshot['people_mapping_sha256']!=sha256(encode(self.reviews.config.people).encode()).hexdigest():raise RevisionConflict('export policy changed')
         for ref in snapshot['asset_refs']:
             row=self.catalog._authorize(connection,ref['asset_id'],principal)

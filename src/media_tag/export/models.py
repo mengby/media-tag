@@ -19,6 +19,7 @@ class ExportSubmission(ContractModel):
     assets: Annotated[tuple[AssetSelection, ...], Field(max_length=500)] = ()
     gaps: Annotated[tuple[GapSelection, ...], Field(max_length=500)] = ()
     include_ai_drafts: bool = False
+    include_confirmed_aliases: bool = False
 
     @model_validator(mode='after')
     def selected(self):

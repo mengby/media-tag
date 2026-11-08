@@ -42,7 +42,7 @@ class ReviewPolicy:
                 from media_tag.terminology.lexicon.validation import issues,option_fields
                 projected=content.get('fields')
                 taxonomy=Taxonomy.model_validate_json(json.dumps({k:v for k,v in content.items() if k!='fields'}))
-                if issues(taxonomy,contract) or projected!=option_fields(taxonomy):
+                if issues(taxonomy,contract) or projected!=option_fields(taxonomy,contract):
                     raise ValueError('invalid D13 taxonomy or projection')
                 content={'schema_version':'d06-taxonomy-options-v1','template_fingerprint':taxonomy.template_fingerprint,'fields':projected}
             if set(content)!={'schema_version','template_fingerprint','fields'} or content['schema_version']!='d06-taxonomy-options-v1' or content['template_fingerprint']!=contract.fingerprint:
@@ -114,7 +114,10 @@ class ReviewPolicy:
 
 def basis(connection,asset,policy_digest):
     values=[json.loads(r[0]) for r in connection.execute('SELECT payload FROM effective_values WHERE asset_id=? ORDER BY field',(asset['asset_id'],))]
-    return sha256(encode({'source':asset['blob_sha256'],'name':asset['name'],'values':values,'policy':policy_digest}).encode()).hexdigest()
+    data={'source':asset['blob_sha256'],'name':asset['name'],'values':values,'policy':policy_digest}
+    links=[dict(r) for r in connection.execute('SELECT link_id,concept_sha256,active,polarity,direction,payload_json FROM asset_concept_links WHERE asset_id=? ORDER BY link_id',(asset['asset_id'],))]
+    if links:data['concept_links']=links
+    return sha256(encode(data).encode()).hexdigest()
 
 
 def index_status(connection,asset,policy=None):

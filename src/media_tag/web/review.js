@@ -3,7 +3,7 @@ export function playbackWindow(start,end,origin){
   if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(origin)||start<0||end<=start)throw Error('缺少已校验的片段时间基准');
   return {start:start+origin,end:end+origin};
 }
-export function installReviewUI({api,post,notify,getPerson}) {
+export function installReviewUI({api,post,notify,getPerson,onAsset}) {
   const $=id=>document.getElementById(id);
   const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
   const button=(text,action)=>{const n=el('button',text);n.type='button';n.addEventListener('click',guard(action));return n;};
@@ -52,6 +52,7 @@ export function installReviewUI({api,post,notify,getPerson}) {
     $('observation-end').value=String(result.technical.time_basis.duration_seconds??result.technical.duration_seconds??'');
     $('index-viewed').checked=false;$('confirm-index').disabled=!result.medical_reviewer;$('revoke-index').disabled=!result.medical_reviewer;
     renderObservations();renderField();
+    if(onAsset)await onAsset({detail:result,getObservations:()=>[...observations],refresh:async()=>{await refresh();await open(assetId);}});
   }
 
   function renderObservations(){
@@ -160,7 +161,7 @@ export function installReviewUI({api,post,notify,getPerson}) {
     const assets=queue.filter(r=>selectedAssets.has(r.asset_id)).map(r=>({asset_id:r.asset_id,expected_revision:r.revision,source_sha256:r.sha256}));
     const gaps=gapData.items.filter(r=>selectedGaps.has(r.gap_id)).map(r=>({gap_id:r.gap_id,expected_revision:r.revision}));
     if(!assets.length&&!gaps.length)throw Error('请明确勾选要导出的素材或缺口');
-    const result=await post('/review/exports',{request_id:id(),assets,gaps,include_ai_drafts:$('export-ai').checked});exportLinks(result);notify('两张 CSV 和质量报告已完整校验并发布。');
+    const result=await post('/review/exports',{request_id:id(),assets,gaps,include_ai_drafts:$('export-ai').checked,include_confirmed_aliases:$('export-aliases')?.checked||false});exportLinks(result);notify('两张 CSV 和质量报告已完整校验并发布。');
   }
 
   function reset(){epoch++;detail=null;queue=[];selectedAssets.clear();selectedGaps.clear();observations.clear();editingGap=null;gapData=null;clipEnd=null;
@@ -173,5 +174,5 @@ export function installReviewUI({api,post,notify,getPerson}) {
   $('confirm-index').addEventListener('click',guard(()=>confirm('confirm')));$('revoke-index').addEventListener('click',guard(()=>confirm('revoke')));
   $('gap-form').addEventListener('submit',guard(saveGap));$('new-gap').addEventListener('click',()=>{editingGap=null;renderGapFields();$('save-gap').textContent='登记 / 累计缺口';});
   $('create-export').addEventListener('click',guard(createExport));$('latest-export').addEventListener('click',guard(async()=>exportLinks(await api('/review/exports/latest'))));
-  return {session(person){$('review-nav').hidden=!person.features.review||person.role==='reader';},reset};
+  return {open,session(person){$('review-nav').hidden=!person.features.review||person.role==='reader';},reset};
 }

@@ -30,6 +30,8 @@ from media_tag.terminology.resolve.models import ResolveOptions
 from media_tag.terminology.resolve.service import Resolver
 from media_tag.terminology.embedding.registry import BGERegistry
 from media_tag.workers.terminology import terminology_stages,TerminologyHandlers
+from media_tag.search.models import SearchOptions
+from media_tag.search.service import SearchService
 
 
 class LocalConfig(ContractModel):
@@ -50,6 +52,7 @@ class LocalConfig(ContractModel):
     review: ReviewDeployment = ReviewDeployment()
     terminology: TerminologyDeployment = TerminologyDeployment()
     text: ResolveOptions = ResolveOptions()
+    search: SearchOptions = SearchOptions()
 
 
 def load_application(path: Path):
@@ -105,7 +108,9 @@ def load_application(path: Path):
     reviews=ReviewService(router,config.review) if config.review.enabled else None
     terminology=TerminologyService(router,config.terminology) if config.terminology.enabled else None
     resolver=Resolver(terminology,config.text) if config.text.enabled else None
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver)
+    if config.search.enabled and resolver is None:raise ValueError('search requires enabled text resolution')
+    search=SearchService(resolver,reviews=reviews,options=config.search) if config.search.enabled else None
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search)
     return app, router, tools
 
 

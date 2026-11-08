@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -59,7 +59,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     @app.middleware('http')
     async def private_file_responses(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/v1/','/redaction/','/retime/','/review/','/terminology/')):
+        if request.url.path.startswith(('/v1/','/redaction/','/retime/','/review/','/terminology/','/search/')):
             response.headers.update({'Cache-Control': 'private, no-store', 'Vary': 'Authorization',
                                      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer'})
         return response
@@ -330,10 +330,13 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     if resolver is not None:
         from media_tag.terminology.resolve.http import install as install_resolver
         install_resolver(app,resolver,identity,body)
+    if search is not None:
+        from media_tag.search.http import install as install_search
+        install_search(app,search,identity,body)
     if reviews is not None:
         from media_tag.review.http import install as install_reviews
         install_reviews(app,reviews,identity,body)
     if web:
         from media_tag.web.http import install
-        install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming,reviews=reviews)
+        install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming,reviews=reviews,search=search)
     return app

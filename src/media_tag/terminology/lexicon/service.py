@@ -199,7 +199,9 @@ class TerminologyService:
                         reports.append({'row':index,'status':'conflict','codes':['entry_id_conflict']});continue
                 for i,old in enumerate(values):
                     left=old.model_dump(mode='json',exclude={'entry_id','sources'});right=entry.model_dump(mode='json',exclude={'entry_id','sources'})
-                    if spec.entity=='aliases':left['expression']=normalize(left['expression']);right['expression']=normalize(right['expression'])
+                    if spec.entity=='aliases':
+                        left['expression']=normalize(left['expression']);right['expression']=normalize(right['expression'])
+                        for key in ('rationale','default_expand'):left.pop(key,None);right.pop(key,None)
                     if left==right:duplicate=i;break
                     if old.entry_id==entry.entry_id:status='conflict';break
                 if status=='conflict':reports.append({'row':index,'status':status,'codes':['entry_id_conflict']});continue
@@ -208,9 +210,12 @@ class TerminologyService:
                     for source in entry.sources:
                         if source not in sources:sources.append(source)
                     merged=old.model_dump(mode='json');merged['sources']=[s.model_dump(mode='json') for s in sources]
+                    if spec.entity=='aliases':
+                        if old.rationale!=entry.rationale:merged['rationale']=old.rationale+'\n'+entry.rationale
+                        merged['default_expand']=old.default_expand and entry.default_expand
                     try:values[duplicate]=models[spec.entity].model_validate_json(encode(merged))
                     except ValidationError:
-                        reports.append({'row':index,'status':'invalid','codes':['source_budget_exceeded']});continue
+                        reports.append({'row':index,'status':'invalid','codes':['merged_entry_budget_exceeded']});continue
                     status='merged'
                 else:values.append(entry)
                 reports.append({'row':index,'status':status,'entry_id':values[duplicate].entry_id if duplicate is not None else entry.entry_id})
@@ -264,8 +269,14 @@ class TerminologyService:
                 try:self.router.catalog._authorize(c,r['asset_id'],principal)
                 except (AccessDenied,NotFound):continue
                 affected.add(r['asset_id'])
+        if semantic:
+            placeholders=','.join('?' for _ in semantic)
+            for row in c.execute(f'SELECT DISTINCT asset_id FROM asset_concept_links WHERE active=1 AND concept_id IN ({placeholders})',semantic):
+                try:self.router.catalog._authorize(c,row['asset_id'],principal)
+                except (AccessDenied,NotFound):continue
+                affected.add(row['asset_id'])
         return {'added':added,'changed':changed,'removed':removed,'semantic_concepts':semantic,'affected_asset_ids':sorted(affected),
-                'impact_scope':'currently authorized effective taxonomy fields; concept links/search added in D15',
+                'impact_scope':'currently authorized effective taxonomy fields and active human concept links',
                 'visual_reanalysis':False,'human_values_rewritten':False,'invalidate':['query_cache','text_index'],
                 'lexicon_deactivated':row['kind']=='taxonomy' and self._head(c)['lexicon_release_id'] is not None}
 
@@ -312,7 +323,7 @@ class TerminologyService:
                 relative='jobs/terminology-'+uuid4().hex;batch=_directory(self.router.workspace,relative)
                 (batch/'README.md').write_text('Private D13 release attempt; DB head alone determines activation. No medical acceptance.\n',encoding='utf-8')
                 timestamp=utc_now();content=payload.model_dump(mode='json')
-                if isinstance(payload,Taxonomy):content['fields']=option_fields(payload)
+                if isinstance(payload,Taxonomy):content['fields']=option_fields(payload,self.contract)
                 raw=encode(content).encode()
                 taxrow=None
                 if isinstance(payload,Lexicon):taxrow,_=self._release(c,payload.taxonomy_release_id)

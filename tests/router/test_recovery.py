@@ -39,7 +39,7 @@ def test_v1_upgrade_preserves_data_and_failed_v2_is_transactional(tmp_path, monk
     monkeypatch.setattr(db_module, "ROUTER_SCHEMA", original)
     database.initialize()
     with database.transaction() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         assert connection.execute("SELECT value FROM catalog_metadata").fetchone()[0] == "synthetic-value"
         connection.execute("UPDATE schema_migrations SET checksum='tampered' WHERE version=2")
     with pytest.raises(CatalogError, match="checksum"):

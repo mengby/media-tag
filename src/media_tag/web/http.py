@@ -51,7 +51,7 @@ class Sessions:
             self.items.pop(sha256(request.cookies.get(COOKIE, '').encode()).hexdigest(), None)
 
 
-def install(app, router, identity, body, credentials, *, uploads, redactions, retiming, reviews=None):
+def install(app, router, identity, body, credentials, *, uploads, redactions, retiming, reviews=None,search=None):
     sessions = Sessions()
     app.state.ui_sessions = sessions
     people = sorted({p.actor_id for p in credentials.values() if p.role in ('editor','reader','admin')})
@@ -76,7 +76,8 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
         return response
 
     for url, name, mime in [('/ui/','index.html','text/html'),('/ui/app.js','app.js','text/javascript'),
-                            ('/ui/sha256.js','sha256.js','text/javascript'),('/ui/review.js','review.js','text/javascript'),('/ui/style.css','style.css','text/css')]:
+                            ('/ui/sha256.js','sha256.js','text/javascript'),('/ui/review.js','review.js','text/javascript'),
+                            ('/ui/search.js','search.js','text/javascript'),('/ui/terms.js','terms.js','text/javascript'),('/ui/style.css','style.css','text/css')]:
         def make_resource(name, mime):
             def resource():
                 return Response(files('media_tag.web').joinpath(name).read_bytes(), media_type=mime)
@@ -87,7 +88,9 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
         if principal.role not in ('editor','reader','admin'):
             raise HTTPException(403, 'personnel credential required')
         return {'actor_id':principal.actor_id, 'role':principal.role, 'people':people,
-            'features':{'upload':uploads is not None, 'redaction':redactions is not None, 'retime':retiming is not None,'review':reviews is not None},
+            'features':{'upload':uploads is not None, 'redaction':redactions is not None, 'retime':retiming is not None,'review':reviews is not None,'search':search is not None},
+            'terminology_capabilities':{'manage':bool(search and principal.actor_id in search.terminology.config.managers and principal.role!='reader'),
+                'publish':bool(search and principal.actor_id in search.terminology.config.publishers and principal.role!='reader')},
             'reviewer':{'redaction':bool(principal.role!='reader' and redactions and principal.actor_id in redactions.reviewers),
                         'retime':bool(principal.role!='reader' and retiming and principal.actor_id in retiming.reviewers)},
             'review_people':{kind:sorted(service.reviewers & editors) if service else [] for kind,service in

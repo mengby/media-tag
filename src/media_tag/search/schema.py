@@ -1,0 +1,20 @@
+"""Migration 9: private query documents, explicitly human links and feedback/import audit."""
+SEARCH_SCHEMA=(
+    '''CREATE TABLE search_documents(asset_id TEXT PRIMARY KEY REFERENCES assets(asset_id),source_sha256 TEXT NOT NULL,
+        revision INTEGER NOT NULL,basis_sha256 TEXT NOT NULL,payload_json TEXT NOT NULL,updated_at TEXT NOT NULL)''',
+    '''CREATE TABLE asset_concept_links(link_id TEXT PRIMARY KEY,asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+        source_sha256 TEXT NOT NULL,concept_id TEXT NOT NULL,lexicon_release_id TEXT NOT NULL REFERENCES terminology_releases(release_id),
+        concept_sha256 TEXT NOT NULL,active INTEGER NOT NULL,polarity TEXT NOT NULL,direction TEXT NOT NULL,
+        start_seconds REAL,end_seconds REAL,actor_id TEXT NOT NULL,asset_revision INTEGER NOT NULL,payload_json TEXT NOT NULL,created_at TEXT NOT NULL)''',
+    '''CREATE TABLE concept_link_events(event_id INTEGER PRIMARY KEY,link_id TEXT NOT NULL REFERENCES asset_concept_links(link_id),
+        actor_id TEXT NOT NULL,action TEXT NOT NULL,payload_json TEXT NOT NULL,created_at TEXT NOT NULL)''',
+    '''CREATE TABLE terminology_feedback(feedback_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,revision INTEGER NOT NULL,
+        state TEXT NOT NULL,fingerprint TEXT NOT NULL,payload_json TEXT NOT NULL,occurrences INTEGER NOT NULL,candidate_id TEXT,
+        created_at TEXT NOT NULL,UNIQUE(owner_id,fingerprint))''',
+    '''CREATE TABLE feedback_events(event_id INTEGER PRIMARY KEY,feedback_id TEXT NOT NULL REFERENCES terminology_feedback(feedback_id),
+        actor_id TEXT NOT NULL,action TEXT NOT NULL,payload_json TEXT NOT NULL,created_at TEXT NOT NULL)''',
+    '''CREATE TABLE terminology_imports(import_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,format TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL,artifact_ref TEXT NOT NULL,created_at TEXT NOT NULL)''',
+    'CREATE INDEX concept_links_asset ON asset_concept_links(asset_id,concept_id,active)',
+    'CREATE INDEX feedback_owner ON terminology_feedback(owner_id,created_at)',
+)

@@ -88,7 +88,7 @@ def test_v3_migration_failure_rolls_back_and_preserves_existing_data(tmp_path,mo
         assert connection.execute('SELECT value FROM catalog_metadata').fetchone()[0]=='keep'
     monkeypatch.setattr(module,'REDACTION_SCHEMA',schema); Database(path).initialize()
     with Database(path).transaction(write=True) as connection:
-        assert connection.execute('PRAGMA user_version').fetchone()[0]==8
+        assert connection.execute('PRAGMA user_version').fetchone()[0]==9
         connection.execute("UPDATE schema_migrations SET checksum='changed' WHERE version=4")
     with pytest.raises(CatalogError,match='checksum'): Database(path).initialize()
 
