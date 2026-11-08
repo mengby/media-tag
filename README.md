@@ -17,7 +17,7 @@
 
 本机使用根目录 `.venv`（Python 3.12.14），核心开发锁含27包，D04完整视觉锁含61包，版本及wheel哈希已锁定；本机实际CUDA/中文图文推理通过，见[D04说明](docs/model-workers.md)。FFmpeg/ffprobe 9.0.2位于项目忽略缓存，无需系统PATH。环境见 [开发环境说明](docs/DEVELOPMENT_ENVIRONMENT.md)，模板基线见 [D00契约说明](docs/contracts.md)，实际媒体工具与分析接口见 [D02说明](docs/media-evidence.md)，队列/API及启动配置见 [D03说明](docs/router-queue.md)，上传/衍生契约见 [D09说明](docs/upload-variants.md)，固定版本详情/预览/下载与Range见 [D17文件基础](docs/file-access.md)。[D13词表契约与发布](docs/terminology-release.md)已实现候选/逐条审核、快照/差异及配对回滚；[D14文本模型与术语匹配](docs/terminology-worker.md)已实现固定BGE CPU推理、配套索引/降级与Worker；[D15检索与反馈管理](docs/search-feedback.md)已接入人员页，[D16评测工具](docs/terminology-evaluation.md)已实现分组防泄漏、对照指标和离线校准；正式候选及独立业务集仍待补充。
 
-[D01索引与存储说明](docs/catalog-storage.md)列出核心库与权限边界。当前未建立生产数据库、未批量导入真实素材；当前全量596项Python工程测试及4项JavaScript测试涵盖临时合成数据、公开诊断图及真实本机模型推理；正式业务样本与独立集仍待提供。D02/D03/D04/D06/D09/D10/D11/D12/D17文件基础另有私有jobs工程验证批次，不构成真实内容或医学验收。
+[D01索引与存储说明](docs/catalog-storage.md)列出核心库与权限边界。当前未建立生产数据库、未批量导入真实素材；当前全量609项Python工程测试及4项JavaScript测试涵盖临时合成数据、公开诊断图及真实本机模型推理；正式业务样本与独立集仍待提供。D02/D03/D04/D06/D09/D10/D11/D12/D17文件基础另有私有jobs工程验证批次，不构成真实内容或医学验收。
 
 ```powershell
 & .\.venv\Scripts\python.exe -m pytest -q # 需六份本地原始模板、视觉依赖、权重及固定诊断图；仅核心环境用 --ignore=tests/models --ignore=tests/redaction --ignore=tests/retime/test_combined.py --ignore=tests/web/test_privacy.py --ignore=tests/export/test_privacy.py --ignore=tests/terminology/embedding/test_inference.py
@@ -35,10 +35,12 @@
 
 范围与顺序以总控文档为准，进度只看实际证据。D00本地命令、D01核心库、D02技术分析、D03调度控制API及D09上传/衍生契约已实现；D04模型、[D10打码核心与复核](docs/face-redaction.md)、D17文件基础已实现；[D11固定变速/组合](docs/fixed-retime.md)已实现；[D12人员页与入库](docs/personnel-ui.md)已实现处理分支，配置`web_enabled=true`后访问`/ui/`；[D06字段复核与CSV](docs/review-csv.md)已实现，[D15搜索与反馈管理](docs/search-feedback.md)已实现；D16独立效果评测、D17公共语义契约已实现，D18只读MCP适配已实现，真实宿主与常驻部署仍待后续。
 
-参考相邻 doctor-video-automation 的工作组织方式，不继承其处理授权，不修改相邻项目。AI取材的跨仓库实现范围在实际下发D19时明确。
+参考相邻剪辑项目的工作组织方式，本机实际仓库为 `D:/ai/auto-video`；不继承其处理授权，不修改相邻项目。D19已实现本仓库任务内固定字节下载/来源记录/当前用途预览交接，实际宿主集成仍待明确。
 
 Git保存代码、结构定义、合成测试夹具和文档。原始模板、运营词表、素材、数据库、运行记录、导出结果与凭证保存在忽略目录或仓库外。
 
 asset-index-template/ 由用户本地提供，整个目录忽略Git；早期提交仍含历史副本。新克隆需另行放入经授权的模板，缺失时明确报告，不能用示例编造正式契约。
 
 [D18只读MCP桥接](docs/mcp-adapter.md)提供四个受权取材工具，固定官方SDK2.3.0，Windows44包MCP开发锁已离线复现；标准现代/legacy客户端和真实stdio通过，实际AI宿主尚未配置。
+
+[D19剪辑来源适配](docs/editing-provider.md)已实现新任务边界、断点恢复、完整哈希/解码、缓存重新授权和绑定稿件/片段/证据的preview handoff；真实81次HTTP/9次CPU任务及CLI下载通过。交接保持预览终点和医学待审，实际剪辑宿主与完整预览仍待联调。

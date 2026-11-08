@@ -18,6 +18,14 @@ def main(argv=None):
     term_schema.add_argument('--model', choices=('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'), required=True)
     mcp_command=commands.add_parser('mcp-stdio',help='run the optional read-only MCP stdio bridge with a private client configuration')
     mcp_command.add_argument('--config',type=Path,required=True)
+    for name in ('acquire-media','prepare-preview-handoff'):
+        task_command=commands.add_parser(name,help='fixed media-tag bytes or checked preview handoff in an explicitly owned new job')
+        task_command.add_argument('--config',type=Path,required=True)
+        task_command.add_argument('--jobs-root',type=Path,required=True)
+        task_command.add_argument('--job-id',required=True)
+        task_command.add_argument('--input',type=Path,required=True)
+        task_command.add_argument('--tool-dir',type=Path)
+        task_command.add_argument('--license-validation',choices=('enabled','disabled'),default='enabled')
     for name in ('prepare-text-model','check-text-model'):
         text_command=commands.add_parser(name,help='explicit pinned BGE download or real CPU encoding diagnostic')
         text_command.add_argument('--model-root',type=Path,default=Path('cache/models/d14'))
@@ -33,6 +41,22 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command in ('acquire-media','prepare-preview-handoff'):
+        from .client.http import LibraryClient,LibraryClientError,load_settings
+        from .client.models import Acquisition,CurrentUseCheck
+        from .client.provider import TaskProvider
+        from .workers.probe import Toolchain,MediaError
+        try:
+            with args.input.open('rb') as stream:raw=stream.read(4*1024**2+1)
+            if len(raw)>4*1024**2:raise LibraryClientError('task_input_byte_budget')
+            model=Acquisition if args.command=='acquire-media' else CurrentUseCheck
+            spec=model.model_validate_json(raw)
+            provider=TaskProvider(LibraryClient(load_settings(args.config)),args.jobs_root,args.job_id,Toolchain(args.tool_dir),license_validation=args.license_validation=='enabled')
+            result=provider.fetch(spec) if args.command=='acquire-media' else provider.prepare_preview(spec)
+            print(json.dumps(result,ensure_ascii=True));return 0
+        except Exception as exc:
+            code=exc.code if isinstance(exc,(LibraryClientError,MediaError)) else 'task_adapter_failed'
+            print(json.dumps({'error':{'code':code,'retryable':getattr(exc,'retryable',False)}}),file=sys.stderr);return 2
     if args.command=='mcp-stdio':
         try:
             import asyncio
