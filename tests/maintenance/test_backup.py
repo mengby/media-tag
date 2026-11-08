@@ -135,3 +135,16 @@ def test_cli_invalid_secret_config_is_bounded_and_does_not_start_service(tmp_pat
     result=subprocess.run([sys.executable,'-m','media_tag','backup-offline','--config',str(path),'--destination',str(tmp_path/'backup'),'--offline-confirmed'],capture_output=True,timeout=10)
     assert result.returncode==2 and result.stdout==b'' and b'never-print-this' not in result.stderr
     assert json.loads(result.stderr)=={'error':'offline_maintenance_failed'} and not (tmp_path/'backup').exists()
+
+
+def test_previous_v9_backup_still_restores_and_can_migrate(env,tmp_path):
+    from media_tag.catalog import Database
+    with env.database.transaction(write=True) as c:
+        c.execute('DROP TABLE ai_draft_documents')
+        c.execute('DELETE FROM schema_migrations WHERE version=10')
+        c.execute('PRAGMA user_version=9')
+    target=tmp_path/'v9-backup'
+    result=snapshot(env.database.path,env.workspace,env.catalog.object_store.root,target,offline_confirmed=True)
+    restore(target,tmp_path/'v9-restored',result['manifest_sha256'])
+    database=Database(tmp_path/'v9-restored/database.sqlite3');database.initialize()
+    with database.transaction() as c:assert c.execute('PRAGMA user_version').fetchone()[0]==10

@@ -59,7 +59,7 @@ def test_v6_to_v7_failure_rollback_preservation_and_checksums(tmp_path,monkeypat
         assert not c.execute("SELECT 1 FROM sqlite_master WHERE name='terminology_candidates'").fetchone()
     monkeypatch.setattr(module,'TERMINOLOGY_SCHEMA',schema);Database(path).initialize();Database(path).initialize()
     with Database(path).transaction(write=True) as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0]==9
+        assert c.execute('PRAGMA user_version').fetchone()[0]==10
         assert c.execute('SELECT value FROM catalog_metadata').fetchone()[0]=='retained'
         c.execute("UPDATE schema_migrations SET checksum='tampered' WHERE version=7")
     with pytest.raises(CatalogError):Database(path).initialize()

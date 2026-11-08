@@ -21,6 +21,7 @@ class AssetSearch(ContractModel):
     selected_concept_ids: Annotated[tuple[Identifier,...],Field(max_length=20)]=()
     selection_lexicon_release_id: Identifier | None=None
     include_drafts: bool=False
+    include_visual_drafts: bool=False
     literal_only: bool=False
     use_model: bool=True
     limit: Annotated[int,Field(strict=True,ge=1,le=50)]=10
@@ -33,7 +34,7 @@ class AssetSearchService:
     def query(self,spec,*,principal):
         request=SearchRequest(request=ResolveInput(query=spec.query,context=spec.context,use_model=spec.use_model),
             filters=spec.filters,selected_concept_ids=spec.selected_concept_ids,selection_lexicon_release_id=spec.selection_lexicon_release_id,
-            literal_only=spec.literal_only,include_drafts=spec.include_drafts,prefer_confirmed=True,limit=spec.limit,cursor=spec.cursor,
+            literal_only=spec.literal_only,include_drafts=spec.include_drafts,include_visual_drafts=spec.include_visual_drafts,prefer_confirmed=True,limit=spec.limit,cursor=spec.cursor,
             request_context_sha256=fingerprint(spec.model_dump(mode='json',exclude={'cursor'})))
         try:
             result=self.search.search(request,principal=principal)
@@ -63,7 +64,7 @@ class AssetSearchService:
                 'ranking_algorithm':'d17-confirmed-first-v1','score_kind':'relative_priority_not_medical_probability',
                 'filter_unknown_policy':'exclude_if_requested','include_drafts':spec.include_drafts,
                 'shot_intent':spec.shot_intent,'shot_intent_application':'informational; structured query/context/filters determine matching',
-                'whole_file_download':True,'automatic_selection':False,'current_use_review':'not_checked'}
+                'whole_file_download':True,'automatic_selection':False,'current_use_review':'not_checked','visual_drafts':result['visual_drafts']}
         except AccessDenied:raise FileError(403,'search_access_denied') from None
         except NotFound:raise FileError(404,'search_resource_unavailable') from None
         except RevisionConflict:raise FileError(409,'search_results_changed',retryable=True) from None

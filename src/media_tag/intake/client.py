@@ -20,8 +20,8 @@ class IntakeClient:
         self._token=token;self.opener=build_opener(ProxyHandler({}),NoRedirect());self.retry_count=0
 
     def call(self,method,path,*,payload=None,content=None,headers=None):
-        allowed=(method=='GET' and re.fullmatch(r'/(ui/session|ui/library/asset-[a-f0-9]+|uploads/upload-[a-f0-9]+|v1/assets/asset-[a-f0-9]+|jobs/job-[a-f0-9]+)',path)) or (
-            method=='POST' and re.fullmatch(r'/uploads(?:/upload-[a-f0-9]+/complete)?',path)) or (
+        allowed=(method=='GET' and re.fullmatch(r'/(ui/session|ui/library/asset-[a-f0-9]+|uploads/upload-[a-f0-9]+|v1/assets/asset-[a-f0-9]+|jobs/job-[a-f0-9]+|search/assets/asset-[a-f0-9]+/ai-draft)',path)) or (
+            method=='POST' and re.fullmatch(r'(?:/uploads(?:/upload-[a-f0-9]+/complete)?|/review/exports)',path)) or (
             method=='PUT' and re.fullmatch(r'/uploads/upload-[a-f0-9]+/chunks\?offset=[0-9]+',path))
         if not allowed or payload is not None and content is not None:raise IntakeError('untrusted_intake_path')
         data=encode(payload).encode() if payload is not None else content
@@ -49,6 +49,16 @@ class IntakeClient:
         if person.get('role') not in ('editor','admin') or not person.get('features',{}).get('upload'):
             raise IntakeError('intake_editor_required')
         return person['actor_id']
+
+    def export_content(self,identifier,name):
+        if not re.fullmatch('export-[a-f0-9]+',identifier) or name not in ('assets.csv','gaps.csv','quality.json','manifest.json'):
+            raise IntakeError('untrusted_export_path')
+        request=Request(self.origin+'/review/exports/'+identifier+'/content/'+name,headers={'Authorization':'Bearer '+self._token,'Cache-Control':'no-store'})
+        try:
+            with self.opener.open(request,timeout=self.settings.timeout_seconds) as response:raw=response.read(32*1024**2+1)
+        except (HTTPError,URLError,TimeoutError,OSError):raise IntakeError('intake_export_download_failed') from None
+        if len(raw)>32*1024**2:raise IntakeError('intake_export_byte_budget')
+        return raw
 
 
 def local_settings(root):

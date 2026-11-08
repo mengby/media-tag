@@ -17,8 +17,9 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
   const wrapper=el('div',undefined,'search-tools');wrapper.id='search-tools';wrapper.hidden=true;
   const actions=el('div',undefined,'actions');
   actions.append(button('补充说法',()=>openFeedback()),button('我的提交',refreshFeedback));
-  const include=input('search-drafts','checkbox'),literal=input('search-literal','checkbox');
-  actions.append(field('包含未确认 AI 建议',include),field('仅按原文检索',literal));
+  const include=input('search-drafts','checkbox'),literal=input('search-literal','checkbox'),visual=input('search-visual-drafts','checkbox');
+  include.checked=true;
+  actions.append(field('包含未确认 AI 建议',include),field('视觉候选（未校准）',visual),field('仅按原文检索',literal));
   const filters=el('details');filters.append(el('summary','检索语境'));
   const grid=el('div',undefined,'edit-fields');
   const department=select('search-department',[['','科室不限']]),organ=select('search-organ',[['','器官不限']]);
@@ -89,6 +90,8 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     result=data;summary.replaceChildren();if(!data)return;
     const resolution=data.resolution;const state={resolved:'按已发布术语检索',ambiguous:'需要选择或补充语境',no_match:'暂未识别确切对应',degraded:'术语服务已降级'}[resolution.state]||'';
     summary.append(el('p',state+(data.include_drafts?' · 当前包含未确认 AI 建议':''),'muted'));
+    if(data.visual_drafts?.state==='ready_uncalibrated')summary.append(el('p','视觉候选按画面相似度排列，尚未校准，不表示医学分类或入片适用。','muted'));
+    else if(data.visual_drafts?.state==='unavailable')summary.append(el('p','视觉查询暂不可用，仍显示原文和 OCR 初稿匹配。','muted'));
     const message=searchMessage(data);if(message)summary.append(el('p',message));
     const choices=el('div',undefined,'actions');
     for(const candidate of resolution.candidates||[]){const b=button(`${candidate.name}${candidate.path==='bge_candidate'?' · 模型候选':''}`,async()=>{
@@ -101,12 +104,12 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     else if(data.empty_reason&&getPerson()?.role!=='reader')summary.append(button('补充这个说法',()=>openFeedback()));
     if(data.resolution.pending_publication)summary.append(el('p','新的词表仍待查询版本切换，当前结果绑定上一组有效版本。','muted'));
   }
-  for(const node of [include,literal,department,organ,polarity,direction])node.addEventListener('change',guard(async()=>{selected=[];selectionVersion=null;await refreshLibrary();}));
+  for(const node of [include,visual,literal,department,organ,polarity,direction])node.addEventListener('change',guard(async()=>{selected=[];selectionVersion=null;await refreshLibrary();}));
   async function search(query,mine,cursor){
     if(lastQuery!==query){selected=[];selectionVersion=null;lastQuery=query;}
     return post('/search/query',{request:{query,context:{departments:department.value?[department.value]:[],organs:organ.value?[organ.value]:[],
       polarity:polarity.value,direction:direction.value}},selected_concept_ids:selected,selection_lexicon_release_id:selectionVersion,
-      include_drafts:include.checked,literal_only:literal.checked,mine,limit:30,cursor});
+      include_drafts:include.checked,include_visual_drafts:visual.checked,literal_only:literal.checked,mine,limit:30,cursor});
   }
   async function reviewAsset(ctx){
     const generation=++reviewEpoch;conceptHost.replaceChildren();if(!getPerson()?.features.search)return;
@@ -133,13 +136,24 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     const linked=await api('/search/assets/'+data.asset_id+'/concepts');if(generation!==assetEpoch||!ctx.isCurrent())return;
     const host=el('div');host.append(el('h3','概念与命中依据'));
     const record=result?.items.flatMap(g=>g.versions).find(v=>v.asset_id===data.asset_id);
-    const labels={literal_name_or_id:'原文名称 / ID',human_text:'人工字段原文',expanded_name:'按术语扩展名称（不是医学证据）',expanded_human_text:'按术语扩展人工文字',human_classification:'已逐字段确认的分类',human_concept:'明确人工概念关联',ai_draft:'未确认 AI 建议'};
+    const labels={literal_name_or_id:'原文名称 / ID',human_text:'人工字段原文',expanded_name:'按术语扩展名称（不是医学证据）',expanded_human_text:'按术语扩展人工文字',human_classification:'已逐字段确认的分类',human_concept:'明确人工概念关联',ai_draft:'未确认 AI 建议',ai_visual_draft:'视觉候选（未校准）'};
     for(const reason of record?.reasons||[])host.append(el('p',`${labels[reason.kind]||reason.kind}${reason.field?' · '+reason.field:''}`));
     for(const link of linked.links.filter(l=>l.active))host.append(el('p',`${link.name} · ${link.current?'当前关联':'需重新复核'} · ${link.polarity==='negated'?'否定':'肯定'}`));
     if(getPerson()?.features.review&&linked.can_edit)host.append(button('在标签复核页维护关联',ctx.openReview));panel.append(host);
+    const draft=await api('/search/assets/'+data.asset_id+'/ai-draft');if(generation!==assetEpoch||!ctx.isCurrent())return;
+    const draftHost=el('div');draftHost.append(el('h3','AI 标签初稿（未确认）'));
+    const stageNames={ocr:'画中文字',face:'人脸抽样观察',clip:'视觉特征'};
+    const stageStates={ready:'已接入',visual_features_ready_classification_missing:'视觉检索可用；分类词表待补',not_requested:'未请求',unavailable:'结果不可用'};
+    for(const [name,state] of Object.entries(draft.stages))draftHost.append(el('p',`${stageNames[name]||name}：${stageStates[state]||state}`,'muted'));
+    for(const label of draft.labels.slice(0,100)){
+      const line=el('details',undefined,'evidence-card');line.append(el('summary',label.text),el('p',`模型 ${label.model_revision.slice(0,12)} · 证据 ${label.evidence_id} · 帧 ${label.frame_sha256.slice(0,12)}`));
+      if(label.confidence!==null)line.append(el('p',`模型分数 ${label.confidence.toFixed(3)}（不是医学概率）`));draftHost.append(line);
+    }
+    if(draft.labels.length>100)draftHost.append(el('p',`共 ${draft.labels.length} 条；页面显示前 100 条，完整记录可从批次初稿台账查看。`));
+    draftHost.append(el('p','OCR 原文和人脸检测均为模型观察；未检出不证明无人脸，检测到也不表示打码完成。','muted'));panel.append(draftHost);
   }
   function reset(){epoch++;reviewEpoch++;assetEpoch++;vocabulary=null;result=null;selected=[];selectionVersion=null;editing=null;lastQuery='';summary.replaceChildren();mySubmissions.replaceChildren();mySubmissions.hidden=true;
-    conceptHost.replaceChildren();expression.value='';quote.value='';target.replaceChildren();department.replaceChildren();organ.replaceChildren();polarity.value='unspecified';direction.value='unspecified';include.checked=false;literal.checked=false;aliasCheckbox.checked=false;dialog.close();wrapper.hidden=true;termsUI.reset();}
+    conceptHost.replaceChildren();expression.value='';quote.value='';target.replaceChildren();department.replaceChildren();organ.replaceChildren();polarity.value='unspecified';direction.value='unspecified';include.checked=true;visual.checked=false;literal.checked=false;aliasCheckbox.checked=false;dialog.close();wrapper.hidden=true;termsUI.reset();}
   return {search,results:renderResult,emptyMessage:()=>searchMessage(result),reviewAsset,assetSummary,reset,
     session(person){wrapper.hidden=!person.features.search;$('search').placeholder=person.features.search?'按常用说法、专业术语或原文查找':'按名称或素材 ID 查找';
       aliasLabel.hidden=!person.features.search;aliasCheckbox.disabled=!person.features.search;

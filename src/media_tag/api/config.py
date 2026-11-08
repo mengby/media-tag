@@ -112,6 +112,9 @@ def load_application(path: Path):
     resolver=Resolver(terminology,config.text) if config.text.enabled else None
     if config.search.enabled and resolver is None:raise ValueError('search requires enabled text resolution')
     search=SearchService(resolver,reviews=reviews,options=config.search) if config.search.enabled else None
+    if search and config.models.enabled:
+        from media_tag.drafts.visual import VisualEncoder
+        search.visual_encoder=VisualEncoder(ModelRegistry(Path(config.models.model_root)),router.workspace)
     if config.local_browser_login is not None and not config.web_enabled:raise ValueError('local browser login requires web UI')
     app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login)
     return app, router, tools
@@ -132,7 +135,9 @@ def executor_from_config(path: Path, worker_id: str):
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     retime_handler=RedactionHandlers(retiming) if retiming else None
     terms=TerminologyHandlers(app.state.resolver) if config.text.enabled else None
+    latest_asset=[None]
     def handle(lease,stopped):
+        latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
         if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
@@ -141,4 +146,9 @@ def executor_from_config(path: Path, worker_id: str):
     def adopt():
         for service in (redactions,retiming):
             if service: service.adopt_ready()
+        if config.search.enabled and latest_asset[0]:
+            from media_tag.drafts.service import DraftIndex
+            with router.database.transaction(write=True) as c:
+                asset=c.execute('SELECT * FROM assets WHERE asset_id=? AND deleted_at IS NULL',(latest_asset[0],)).fetchone()
+                if asset:DraftIndex(router).sync(c,asset)
     return LocalExecutor(router,principal,handle,after_release=adopt)

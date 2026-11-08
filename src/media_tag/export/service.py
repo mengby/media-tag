@@ -99,6 +99,14 @@ class ExportService:
                 if field=='许可状态':result[field]='未核实'
                 issues.append({'asset_id':identifier,'field':field,'code':effective.value.state,'reason':effective.value.reason})
         if include_ai:
+            if '含人脸' not in values:
+                from media_tag.drafts.service import DraftIndex
+                draft=DraftIndex(self.router).sync(connection,asset,persist=False)
+                faces=[l for l in draft['labels'] if l.get('field')=='含人脸' and l.get('value')=='有-需打码']
+                if faces:
+                    result['含人脸']='有-需打码'
+                    issues.append({'asset_id':identifier,'field':'含人脸','code':'unconfirmed_ai_draft',
+                        'draft_ids':[l['draft_id'] for l in faces],'evidence_ids':[l['evidence_id'] for l in faces]})
             # Only current, explicitly requested nonmedical drafts, never over a human decision.
             for record in connection.execute('SELECT * FROM tag_suggestions WHERE asset_id=? ORDER BY created_at,suggestion_id',(identifier,)):
                 field=json.loads(record['payload'])['field']

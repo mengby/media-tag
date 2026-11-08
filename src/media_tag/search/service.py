@@ -4,6 +4,7 @@ from hashlib import sha256
 import hmac
 import json
 import secrets
+import subprocess
 from types import SimpleNamespace
 from media_tag.catalog import AccessDenied,NotFound,RevisionConflict
 from media_tag.catalog.database import utc_now
@@ -24,7 +25,7 @@ def concept_fingerprint(concept):
 
 
 class SearchService:
-    def __init__(self,resolver,*,reviews=None,options=None):
+    def __init__(self,resolver,*,reviews=None,options=None,visual_encoder=None):
         from .models import SearchOptions
         self.resolver,self.terminology=resolver,resolver.terminology
         self.router,self.catalog,self.database=resolver.terminology.router,resolver.terminology.router.catalog,resolver.terminology.database
@@ -32,6 +33,8 @@ class SearchService:
         self.reviews,self.options=reviews,options or SearchOptions(enabled=True)
         if not self.options.enabled:raise ValueError('search is disabled')
         self.cursor_secret=secrets.token_bytes(32)
+        from media_tag.drafts.service import DraftIndex
+        self.drafts=DraftIndex(self.router);self.visual_encoder=visual_encoder
         from .links import ConceptLinks
         from .feedback import FeedbackService
         from .imports import TermImports
@@ -56,7 +59,7 @@ class SearchService:
             'options':[{'option_id':o.entry_id,'field':o.field,'value':o.value} for o in taxonomy.options if o.status=='active'],
             'versions':versions,'state':'published'}
 
-    def _document(self,c,asset,taxonomy_id):
+    def _document(self,c,asset,taxonomy_id,*,persist=False):
         records=list(c.execute('SELECT field,payload FROM effective_values WHERE asset_id=? ORDER BY field',(asset['asset_id'],)))
         aliases=[r[0] for r in c.execute('SELECT alias FROM asset_aliases WHERE asset_id=? ORDER BY namespace,alias',(asset['asset_id'],))]
         basis=fingerprint({'source':asset['blob_sha256'],'revision':asset['revision'],'values':[tuple(r) for r in records],'aliases':aliases,
@@ -75,7 +78,7 @@ class SearchService:
             values.append({'field':effective.field,'values':list(effective.value.values),'source':'human_effective','revision':effective.revision})
             if effective.field in MEDICAL:medical.append(values[-1])
         result={'name':asset['name'],'aliases':aliases,'fields':values,'medical_fields':medical}
-        c.execute('''INSERT INTO search_documents VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id) DO UPDATE SET
+        if persist:c.execute('''INSERT INTO search_documents VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id) DO UPDATE SET
             source_sha256=excluded.source_sha256,revision=excluded.revision,basis_sha256=excluded.basis_sha256,
             payload_json=excluded.payload_json,updated_at=excluded.updated_at''',
             (asset['asset_id'],asset['blob_sha256'],asset['revision'],basis,encode(result),utc_now()))
@@ -91,7 +94,7 @@ class SearchService:
             try:
                 task=TaskEnvelope.model_validate_json(row['envelope_json']);result=WorkerResult.model_validate_json(row['result_json'])
                 if task.asset_revision!=asset['revision'] or task.input_refs[0].sha256!=asset['blob_sha256']:continue
-                if task.stage not in ('ocr','terminology_resolve'):continue
+                if task.stage!='terminology_resolve':continue
                 self.router._artifacts(task,result)
                 for ref in result.artifacts:
                     if ref.kind not in ('model_report','terminology_report'):continue
@@ -99,11 +102,7 @@ class SearchService:
                     if len(raw)>8*1024**2 or sha256(raw).hexdigest()!=ref.sha256:continue
                     report=json.loads(raw)
                     if report.get('source_sha256')!=asset['blob_sha256']:continue
-                    if ref.kind=='model_report' and report.get('kind')=='ocr':
-                        for frame in report.get('frames',[]):
-                            for line in frame.get('observation',{}).get('lines',[]):
-                                found.append({'kind':'ocr_text','text':line['text'],'task_id':task.task_id,'start_seconds':frame.get('normalized_seconds')})
-                    elif ref.kind=='terminology_report' and lexicon and report.get('versions',{}).get('lexicon_release_id'):
+                    if ref.kind=='terminology_report' and lexicon and report.get('versions',{}).get('lexicon_release_id'):
                         _,sourcelex=self.terminology._release(c,report['versions']['lexicon_release_id'])
                         if not hasattr(sourcelex,'concepts') or report.get('input_fingerprint')!=task.input_fingerprint or report.get('asset_revision')!=asset['revision']:continue
                         previous={con.entry_id:con for con in sourcelex.concepts if con.status=='active'}
@@ -184,8 +183,16 @@ class SearchService:
         technical_filters=bool(filters.media_kinds or filters.format_names or any(v is not None for v in (
             filters.min_file_duration_seconds,filters.max_file_duration_seconds,filters.min_display_width,
             filters.min_display_height,filters.has_audio,filters.has_transparent_pixels)))
+        visual_query=None;visual_state='not_requested'
+        if spec.include_drafts and spec.include_visual_drafts and not spec.literal_only:
+            visual_state='not_applicable_context' if not simple else 'unavailable'
+            if simple and self.visual_encoder:
+                try:
+                    visual_query=self.visual_encoder.encode(spec.request.query);visual_state='ready_uncalibrated'
+                except (ValueError,OSError,RuntimeError,TimeoutError):pass
+                except subprocess.SubprocessError:pass
         results=[]
-        with self.database.transaction(write=True) as c:
+        with self.database.transaction() as c:
             rows=self._visible(c,principal,spec)
             for asset in rows:
                 document=self._document(c,asset,versions['taxonomy_release_id'] if versions else None);reasons=[]
@@ -220,9 +227,18 @@ class SearchService:
                             'direction':link['direction'],'start_seconds':link['start_seconds'],'end_seconds':link['end_seconds'],
                             'medical_evidence':json.loads(link['payload_json']).get('medical_concept',False)})
                 if spec.include_drafts:
-                    for draft in self._drafts(c,asset,lexicon):
+                    projected=self.drafts.sync(c,asset,persist=False)
+                    for draft in [*projected['labels'],*self._drafts(c,asset,lexicon)]:
                         if query in normalize(draft['text']) or simple and (draft.get('concept_id') in selected or any(term in normalize(draft['text']) for _,term in expansions)):
-                            reasons.append(draft|{'kind':'ai_draft','score':30,'medical_evidence':False})
+                            reasons.append(draft|{'draft_kind':draft['kind'],'kind':'ai_draft','score':30,'medical_evidence':False})
+                    if visual_query is not None:
+                        candidates=[f for f in projected['features'] if f['model_revision']==self.visual_encoder.registry.revision]
+                        if candidates:
+                            best=max(candidates,key=lambda f:sum(a*b for a,b in zip(visual_query,f['embedding'])))
+                            similarity=max(-1.,min(1.,sum(a*b for a,b in zip(visual_query,best['embedding']))))
+                            reasons.append({k:v for k,v in best.items() if k!='embedding'}|{'kind':'ai_visual_draft','score':10,
+                                'visual_similarity':similarity,'score_kind':'cosine_not_probability','medical_evidence':False,
+                                'calibration_state':'not_calibrated','field':None})
                 if (context.polarity!='unspecified' or context.direction!='unspecified') and not any(r['kind']=='human_concept' for r in reasons):continue
                 if not reasons:continue
                 if technical is None:technical=self.files._technical(c,asset)
@@ -235,6 +251,19 @@ class SearchService:
                     'sha256':asset['blob_sha256'],'revision':asset['revision'],'kind':asset['kind'],'mine':asset['owner_id']==principal.actor_id,
                     'file_access':'authorized','analysis':self.library._analysis(c,asset['asset_id']),'technical':technical,
                     'index_status':status,'ranking_score':score,'reasons':reasons}})
+            visual_order=sorted((r for r in results if any(v['kind']=='ai_visual_draft' for v in r['asset']['reasons'])),
+                key=lambda r:(-max(v['visual_similarity'] for v in r['asset']['reasons'] if v['kind']=='ai_visual_draft'),r['asset']['asset_id']))
+            visual_rank={r['asset']['asset_id']:rank for rank,r in enumerate(visual_order[:10])}
+            kept=[]
+            for r in results:
+                reasons=r['asset']['reasons'];rank=visual_rank.get(r['asset']['asset_id'])
+                reasons[:]=[v for v in reasons if v['kind']!='ai_visual_draft' or rank is not None]
+                for reason in reasons:
+                    if reason['kind']=='ai_visual_draft':reason['score']=20-rank
+                if not reasons:continue
+                bonus=(300 if spec.prefer_confirmed and r['asset']['index_status']=='confirmed' else 200 if spec.prefer_confirmed and any(v['kind'] in ('human_text','human_classification','human_concept') for v in reasons) else 0)
+                r['score']=r['asset']['ranking_score']=max(v['score'] for v in reasons)+bonus;kept.append(r)
+            results=kept
             grouped={}
             for result in results:
                 root=result['root_asset_id'];group=grouped.setdefault(root,{'root_asset_id':root,'score':0,'versions':[]})
@@ -252,4 +281,4 @@ class SearchService:
         empty_reason=None if page else 'recognized_no_visible_assets' if recognized else 'choose_concept' if resolution['candidates'] else 'terminology_unavailable' if resolution['state']=='degraded' else 'unrecognized_expression'
         return {'items':page,'next':next_cursor,'resolution':resolution,'selected_concept_ids':sorted(selected),'intent':meaning,'empty_reason':empty_reason,
             'search_kind':'literal_and_versioned_concepts','include_drafts':spec.include_drafts,'index_revision':dataset,'draft_trial':trial is not None,
-            'medical_confirmation':False,'license_confirmation':False}
+            'medical_confirmation':False,'license_confirmation':False,'visual_drafts':{'state':visual_state,'top_k':10,'calibration_state':'not_calibrated'}}

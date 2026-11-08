@@ -61,3 +61,5 @@ $env:PYTHONUTF8 = '1'
 批次中的 README、inventory.json/CSV、summary.json、progress.json、result.json、mapping.csv、validation.json 记录源路径、源哈希、上传ID、asset_id、job_id、实际验证及错误。CSV为技术盘点/映射台账，有公式转义；不冒充原35列正式索引导出。原模板不复制到批次或代码目录。
 
 代码入口在 `src/media_tag/intake/`；合成边界/协议测试在 `tests/bulk_intake/`。本轮199项相关测试通过，覆盖上传/页面、目录与来源保护、分块响应丢失/进程中断、重跑幂等、outbox重派、权限与成员撤回不覆盖、预算传递、格式副本命名和CSV安全。实际完整源与下载验证入口为 `tests/bulk_intake/validate_batch.py`，运行数据、图片、原路径明细、凭证和本机配置均忽略Git。
+
+2026-11-09后续：本批次OCR/人脸初稿、CLIP可选视觉候选、原35列索引表已接通，见[AI初稿索引](ai-draft-index.md)。上文“仍随队列继续处理”为本轮导入时的历史状态；415张现有模型推理均已结束，完整医学分类及正式词表仍待后续。

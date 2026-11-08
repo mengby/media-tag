@@ -15,7 +15,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contracts", help="local contract checks and schemas")
     intake=commands.add_parser('intake',help='read-only local inventory and resumable authenticated batch import')
-    intake.add_argument('action',choices=('scan','apply','status'))
+    intake.add_argument('action',choices=('scan','apply','status','drafts'))
     intake.add_argument('--source',type=Path)
     intake.add_argument('--jobs-root',type=Path,default=Path.cwd()/'jobs')
     intake.add_argument('--batch',type=Path)
@@ -93,6 +93,10 @@ def main(argv=None):
                 if args.action=='apply':
                     if client is None:raise IntakeError('explicit_editor_client_required')
                     result=apply(args.batch.absolute(),client,limit=args.limit,destination_root=args.local_root.absolute() if args.local_root else None)
+                elif args.action=='drafts':
+                    if client is None:raise IntakeError('explicit_editor_client_required')
+                    from .intake.drafts import materialize
+                    result=materialize(args.batch.absolute(),client)
                 else:result=inspect(args.batch.absolute(),client)
             print(json.dumps(result,ensure_ascii=True));return 0 if result.get('state')!='partial' else 1
         except KeyboardInterrupt:

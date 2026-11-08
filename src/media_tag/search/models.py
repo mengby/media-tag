@@ -36,6 +36,7 @@ class SearchRequest(ContractModel):
     selection_lexicon_release_id: Identifier | None=None
     literal_only: bool=False
     include_drafts: bool=False
+    include_visual_drafts: bool=False
     mine: bool=False
     workspace: bool=False
     limit: Annotated[int,Field(strict=True,ge=1,le=50)]=30

@@ -33,9 +33,10 @@ def sensitive(name):
 
 
 def csv_bytes(rows,columns):
+    from media_tag.export.service import safe_cell
     stream=StringIO(newline='');writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
     for row in rows:
-        writer.writerow({key:("'"+value if isinstance(value,str) and value.lstrip().startswith(('=','+','-','@')) else value) for key,value in row.items() if key in columns})
+        writer.writerow({key:(safe_cell(value)[0] if isinstance(value,str) else value) for key,value in row.items() if key in columns})
     return ('\ufeff'+stream.getvalue()).encode('utf8')
 
 

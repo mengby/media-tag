@@ -36,6 +36,22 @@ def install(app,search,identity,body):
     @app.get('/search/vocabulary')
     def vocabulary(principal=Depends(identity)):return search.vocabulary(principal=principal)
 
+    @app.get('/search/assets/{asset_id}/ai-draft')
+    def ai_draft(asset_id:Identifier,principal=Depends(identity)):
+        search._reader(principal)
+        with search.database.transaction(write=True) as c:
+            asset=search.catalog._authorize(c,asset_id,principal)
+            # The detail has exactly the existing source/producer/privacy gates.
+            gate=search.files._gate(c,asset)
+            if gate:
+                from media_tag.files.service import FileError
+                raise FileError(409,gate)
+            draft=search.drafts.sync(c,asset)
+            features=draft.pop('features')
+            draft['visual_features']={'frames':len(features),'state':'ready' if features else 'unavailable',
+                'classification_state':'missing_published_vocabulary','calibration_state':'not_calibrated'}
+            return draft
+
     @app.get('/search/assets/{asset_id}/concepts')
     def concepts(asset_id:Identifier,principal=Depends(identity)):return search.links.detail(asset_id,principal=principal)
 

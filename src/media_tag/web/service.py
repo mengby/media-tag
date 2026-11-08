@@ -151,14 +151,20 @@ class LibraryService:
         asset=connection.execute('SELECT * FROM assets WHERE asset_id=?',(asset_id,)).fetchone()
         status=index_state or index_status(connection,asset,getattr(self.catalog,'review_policy',None))
         if status in ('confirmed','needs_review'):return status
-        tasks = connection.execute('''SELECT t.state,t.spec_json,j.created_at,j.job_id FROM router_tasks t JOIN router_jobs j USING(job_id)
+        tasks = connection.execute('''SELECT t.state,t.spec_json,j.created_at,j.job_id,a.result_json FROM router_tasks t JOIN router_jobs j USING(job_id)
+            LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE j.asset_id=? AND t.active=1 AND j.cancelled=0 ORDER BY j.created_at DESC LIMIT 64''', (asset_id,)).fetchall()
         relevant = [t for t in tasks if json.loads(t['spec_json'])['stage'] in ('probe','evidence','ocr','face','clip')]
         latest = [t for t in relevant if t['job_id']==relevant[0]['job_id']] if relevant else []
-        states = [t['state'] for t in latest]
+        def visual_partial(t):
+            if json.loads(t['spec_json'])['stage']!='clip' or t['state']!='needs_attention' or not t['result_json']:return False
+            result=json.loads(t['result_json'])
+            return result.get('status')=='partial' and result.get('errors') and all(e['code']=='unpublished_vocabulary' for e in result['errors'])
+        states = ['succeeded' if visual_partial(t) else t['state'] for t in latest]
         if not states: return 'not_requested'
         if any(s in ('failed','needs_attention') for s in states): return 'failed'
         if any(s in ('queued','leased','running','retry_wait') for s in states): return 'running'
+        if any(visual_partial(t) for t in latest):return 'ai_draft_ready'
         return 'waiting_review' if any(json.loads(t['spec_json'])['stage'] in ('ocr','face','clip') for t in latest) else 'technical_ready'
 
     def tasks(self, *, principal):
