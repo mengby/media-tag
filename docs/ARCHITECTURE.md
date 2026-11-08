@@ -78,7 +78,7 @@ OCR、YuNet、Chinese-CLIP 和 BGE-small 是现有方案候选，具体版本在
 
 开发阶段可本机测试契约；团队首期需要 Windows 真机和局域网下载闭环。stdio 桥接或远程 Streamable HTTP MCP 以目标宿主实际能力选择。云端 AI 要另解决内网可达性；文件迁往 OSS 不等于检索 API 自动公网可达。
 
-D19本仓库客户端已实现任务内固定版本下载/解码、Range恢复、来源与当前用途交接，见 [说明](editing-provider.md)。本机只读核对的相邻剪辑仓库实际为 `D:/ai/auto-video`，未修改其登记器、共享素材或策略；实际跨端接入待后续单独维护任务。交接单固定预览终点/医学pending，不能据此报告宿主已采用或完成预览。
+D19本仓库客户端已实现任务内固定版本下载/解码、Range恢复、来源与当前用途交接，见 [说明](editing-provider.md)。本轮明确维护实际剪辑仓库`D:/ai/auto-video`，E:/asset保存取材，显式新任务CLI、原隐私处理/登记/验收与实时来源验证已接通，见[实际接入](editing-host.md)；旧任务/共享素材/预览与导出策略不变。交接单固定预览终点/医学pending，不能据此报告宿主已采用或完成预览。
 
 ## 发布与数据边界
 
@@ -99,4 +99,4 @@ D07 [离线维护](offline-recovery.md)已实现SQLite备份接口、全部本�
 
 总控文档确定范围、设计状态和实施顺序；专题保留字段与算法细节；冲突先检查本轮明确修订，不把旧阶段排期重新当作当前主线。
 
-2026-11-08当前电脑落地：EDY Limited登录任务通过项目`.venv`监管loopback API/Worker，以实例锁/挂起创建/命名Job和实际OS退出证据恢复本Worker旧租约；私有data/local保管配置/凭证/数据。Codex全局stdio入口及真实CLI工具/图像/停服恢复已通过，见 [部署](windows-deployment.md) 与 [宿主](codex-host.md)。正式业务、实际登录触发和D19/D20真实剪辑接入仍按各阶段验收，不修改相邻项目规则。
+2026-11-08当前电脑落地：EDY Limited登录任务通过项目`.venv`监管loopback API/Worker，以实例锁/挂起创建/命名Job和实际OS退出证据恢复本Worker旧租约；私有data/local保管配置/凭证/数据。Codex全局stdio入口及真实CLI工具/图像/停服恢复已通过，见 [部署](windows-deployment.md) 与 [宿主](codex-host.md)。正式业务、实际登录触发和D20真实剪辑完整预览仍按各阶段验收，不修改相邻项目规则。

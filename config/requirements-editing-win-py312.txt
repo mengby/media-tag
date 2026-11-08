@@ -1,0 +1,3 @@
+# Additive video privacy dependency for the existing editing project. Core/text/vision pins unchanged.
+# PyPI https://pypi.org/project/av/16.0.1/ ; CPython 3.12 Windows x64.
+av==16.0.1 --hash=sha256:0c669b6b6668c8ae74451c15ec6d6d8a36e4c3803dc5d9910f607a174dd18f17

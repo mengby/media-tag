@@ -17,4 +17,6 @@ D18独立桥接配置见 `library-client.example.json`（拟定填写示例，�
 
 ## Codex本机入口
 
+`requirements-editing-win-py312.txt`仅追加既有剪辑端视频隐私处理所需PyAV16.0.1 Windows x64 wheel，按官方摘要校验；其他锁不变。实际剪辑桥接的私有路径配置由D:/ai/auto-video/config/media-tag.local.json持有，正文令牌仍留素材库私有目录，见[接入说明](../docs/editing-host.md)。
+
 `codex-mcp.example.toml`与本机已安装入口等价，指向项目`.venv`及私有reader-client配置；不是凭证文件，不应覆盖其他用户设置。实际宿主与桌面重载边界见 [说明](../docs/codex-host.md)。

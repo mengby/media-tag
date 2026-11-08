@@ -14,6 +14,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="media-tag")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contracts", help="local contract checks and schemas")
+    editing=commands.add_parser('editing-source',help='explicit new editing jobs and external media-tag acquisition storage')
+    editing.add_argument('action',choices=('init-job','search','fetch','validate'))
+    editing.add_argument('--config',type=Path,required=True)
+    editing.add_argument('--job-id',required=True)
+    editing.add_argument('--input',type=Path,help='bounded JSON file; otherwise JSON from stdin')
     term_schema = commands.add_parser('terminology-schema', help='print strict D13 contracts; no operational data')
     term_schema.add_argument('--model', choices=('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'), required=True)
     mcp_command=commands.add_parser('mcp-stdio',help='run the optional read-only MCP stdio bridge with a private client configuration')
@@ -60,6 +65,20 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command=='editing-source':
+        from .client.editing import execute,read
+        from .client.http import LibraryClientError
+        try:
+            value=None
+            if args.action!='init-job':
+                raw=read(args.input) if args.input else sys.stdin.buffer.read(4*1024**2+1)
+                if len(raw)>4*1024**2:raise LibraryClientError('editing_input_byte_budget')
+                value=json.loads(raw)
+            result=execute(args.action,args.config,args.job_id,value)
+            print(json.dumps(result,ensure_ascii=True));return 0
+        except Exception as exc:
+            print(json.dumps(exc.payload() if isinstance(exc,LibraryClientError) else {'error':{'code':'editing_source_failed','retryable':False}}),file=sys.stderr)
+            return 2
     if args.command.startswith('local-'):
         from .deployment.local import DeploymentError,initialize,supervise,status,stop,child
         try:

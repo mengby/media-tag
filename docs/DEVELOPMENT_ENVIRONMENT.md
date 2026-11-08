@@ -79,3 +79,5 @@ D18增加可选MCP开发锁 requirements-mcp.lock：Windows CPython3.12、44包�
 D19本仓库取材客户端、D20真实stdio到合成完整预览演练及D07离线备份还原工程已验证，无新增依赖。D07本机报告 `jobs/d07-recovery-7e7d62dc/validation.json`：Windows11/Python3.12.14/项目`.venv`，还原后本卷空闲404961714176字节（仅当次本机读数），106个文件/687275字节实际备份还原及9次恢复后HTTP/BGE通过。基础解释器仍来自Codex缓存；最终主机、网络/常驻服务和容量业务门槛未验收。操作与边界见 [离线维护](offline-recovery.md)。
 
 用户随后确定先使用当前电脑和Codex。本机部署已使用项目`.venv`及EDY登录任务，固定模型/CUDA复查、实际监管/杀进程恢复与Codex CLI联调通过，见 [部署说明](windows-deployment.md)、[宿主说明](codex-host.md)。基础解释器路径仍保持现有依赖，未创建第二份运行环境或升级既有包；正式业务和跨机器未验收。
+
+D19实际剪辑接入沿用根目录.venv及既有视觉依赖，只追加剪辑端指定PyAV16.0.1（Windows CPython3.12官方wheel 32,296,912字节，摘要见[增量锁](../config/requirements-editing-win-py312.txt)）。该增量配合既有D04视觉环境使用，不升级核心、OCR/CLIP、OpenCV或NumPy版本；普通核心环境仍不需要PyAV。实际接入见[说明](editing-host.md)。

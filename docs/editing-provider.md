@@ -1,6 +1,6 @@
 # D19 任务内剪辑取材适配
 
-2026-11-08。已实现本仓库客户端工程；用户随后已确认Codex及D:/ai/auto-video，实际剪辑侧集成仍待单独维护。实现位于 `src/media_tag/client/`，复用 [D17固定版本API](asset-search-api.md) 和 [D18认证客户端](mcp-adapter.md)。没有修改相邻仓库、共享素材、旧剪辑任务或其预览/导出策略。
+2026-11-08。已实现本仓库客户端工程；随后用户明确E:/asset保存取材、Codex和D:/ai/auto-video剪辑，新任务CLI/实际隐私处理与登记接入现已通过，见[实际接入](editing-host.md)。以下保留早期公共客户端范围；后续新增的实际维护边界以新说明为准。实现位于 `src/media_tag/client/`，复用 [D17固定版本API](asset-search-api.md) 和 [D18认证客户端](mcp-adapter.md)。没有修改相邻仓库、共享素材、旧剪辑任务或其预览/导出策略。
 
 ## 实际范围
 
