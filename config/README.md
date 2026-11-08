@@ -12,3 +12,5 @@ D13新增可选 `terminology`：默认关闭，显式 `managers` / `publishers` 
 D14新增可选 `text`，须启用terminology；默认关闭模型。CPU BGE的绝对模型目录、拒识配置、解析和文本索引整组激活见 [D14说明](../docs/terminology-worker.md)。没有正式词表时明确降级，启用功能不下载模型，不产生假医学标签。
 
 D15新增 `search.enabled=true`（须启用text），默认5000个授权版本预算；检索/反馈/草稿管理页面、权限和有限别名CSV见 [D15说明](../docs/search-feedback.md)。正式管理/发布/医学审核能力仍分别配置，不因启用搜索而授予。
+
+D18独立桥接配置见 `library-client.example.json`（拟定填写示例，尚未指向实际服务），复制到忽略的 `*.local.json` 并填写 HTTPS/loopback origin 与绝对 reader-token 文件路径。正文凭证不写进JSON、工具参数或宿主启动参数；不复用相邻`.env`。stdio入口和依赖见 [MCP说明](../docs/mcp-adapter.md)，真实宿主尚未配置。

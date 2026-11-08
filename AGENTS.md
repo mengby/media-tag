@@ -12,7 +12,7 @@
 
 用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；D14已实现固定BGE/术语Worker/文本索引与降级，见 `docs/terminology-worker.md`；D15检索/反馈/词表管理页已实现，见 `docs/search-feedback.md`；D16独立数据/对照/离线校准工具已验证（`docs/terminology-evaluation.md`），正式医学词表及D16业务/指定负载验收仍未完成。用户已指示后续阶段自动继续，并暂时跳过补充业务样本、人员与部署/宿主信息。
 
-用户新增核心目标：供 AI 剪辑检索与取材。API/MCP 和剪辑适配器的拟定设计见 `docs/DESIGN_AND_IMPLEMENTATION.md` 第 12 节；未接入相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
+用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），实际AI宿主待联调；剪辑适配器的拟定设计见 `docs/DESIGN_AND_IMPLEMENTATION.md` 第 12 节；未接入相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
 
 ## 工作方式
 

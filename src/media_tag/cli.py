@@ -16,6 +16,8 @@ def main(argv=None):
     commands.add_parser("contracts", help="local contract checks and schemas")
     term_schema = commands.add_parser('terminology-schema', help='print strict D13 contracts; no operational data')
     term_schema.add_argument('--model', choices=('taxonomy','lexicon','candidate','revision','review','publish','rollback','import'), required=True)
+    mcp_command=commands.add_parser('mcp-stdio',help='run the optional read-only MCP stdio bridge with a private client configuration')
+    mcp_command.add_argument('--config',type=Path,required=True)
     for name in ('prepare-text-model','check-text-model'):
         text_command=commands.add_parser(name,help='explicit pinned BGE download or real CPU encoding diagnostic')
         text_command.add_argument('--model-root',type=Path,default=Path('cache/models/d14'))
@@ -31,6 +33,14 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command=='mcp-stdio':
+        try:
+            import asyncio
+            from .client.http import load_settings
+            from .mcp.server import serve
+            asyncio.run(serve(load_settings(args.config)));return 0
+        except Exception:
+            print(json.dumps({'error':'mcp_bridge_failed'}),file=sys.stderr);return 2
     if args.command in ('prepare-text-model','check-text-model'):
         from .terminology.embedding.registry import BGERegistry
         from .terminology.embedding.process import ProcessEncoder

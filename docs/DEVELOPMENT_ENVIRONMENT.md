@@ -73,3 +73,5 @@ D00～D04及D09工程已验收，D17文件基础已完成工程验证，D10打�
 2026-11-08补充：D13词表契约/审核/发布回滚工程已验收，无新增依赖；项目`.venv`500项、纯CPU431项及普通wheel集成157项通过。真实HTTP批次与边界见 [D13说明](terminology-release.md)。正式分类与候选来源/真实管理人仍待提供，D14文本模型和D15页面未实现。
 
 2026-11-08 D14：沿用现有`.venv`，无新包版本；新增46包文字依赖子集锁和BGE约91.4MiB权重，真实CPU中文512维/进程复用/超时清理通过。完整配置及工程验证见 [D14说明](terminology-worker.md)。
+
+D18增加可选MCP开发锁 requirements-mcp.lock：Windows CPython3.12、44包（核心/dev27＋新增17），固定官方mcp/mcp-types2.3.0。17个wheel共12,138,640字节，逐个核对官方PyPI摘要后离线安装；原62个包/项目版本不变。独立44包环境不含Torch/ONNX/OCR/psutil，桥接只调用实际配置的API；协议/stdio测试通过，真实宿主仍待确定。详见 [MCP说明](mcp-adapter.md)。

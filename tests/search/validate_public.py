@@ -24,9 +24,9 @@ from media_tag.terminology.resolve.models import IndexActivation
 from media_tag.web.models import Enrollment
 
 
-def main():
-    root=Path.cwd();folder=root/'jobs'/('d17-semantic-'+uuid4().hex[:8]);folder.mkdir()
-    (folder/'README.md').write_text('Private D17 synthetic geometry retrieval/retime/byte acquisition diagnostics. No medical or privacy approval.\n')
+def main(*,extension=None,prefix='d17-semantic'):
+    root=Path.cwd();folder=root/'jobs'/(prefix+'-'+uuid4().hex[:8]);folder.mkdir()
+    (folder/'README.md').write_text('Private '+prefix+' synthetic geometry retrieval/retime/byte acquisition diagnostics. No medical or privacy approval.\n')
     started=time.monotonic();report={'synthetic_engineering_only':True,'business_acceptance':False,'interpreter':sys.executable}
     try:
         dirs={}
@@ -40,6 +40,12 @@ def main():
             terminology={'enabled':True,'managers':[people['owner'].actor_id],'publishers':[people['owner'].actor_id]},
             text={'enabled':True,'model_enabled':True,'model_root':str(root/'cache/models/d14')},search={'enabled':True})
         cfg=folder/'validation.local.json';cfg.write_text(encode(config),encoding='utf8');app,router,tools=load_application(cfg);owner=people['owner']
+        actual_http_requests=0
+        @app.middleware('http')
+        async def count_requests(request,call_next):
+            nonlocal actual_http_requests
+            actual_http_requests+=1
+            return await call_next(request)
         env=SimpleNamespace(service=app.state.terminology,owner=owner,manager=owner,publisher=owner)
         tax=publish(env,taxonomy(option('purpose',field='用途大类',value='信息图解')),'synthetic-tax')
         words=publish(env,lexicon(tax['release_id'],concepts=[concept('circle',oid='purpose',name='合成圆形',concept_type='other',definition='红色圆形的合成工程图形轮廓',scope='仅工程几何'),
@@ -128,13 +134,16 @@ def main():
             call('POST','/v1/assets/search',{'query':'合成圆圈','limit':1,'cursor':first['next_cursor']},status=409)
             assert len(call('POST','/v1/assets/search',{'query':'合成圆圈'})['items'])==1
             (folder/'responses.json').write_text(encode({'first':first,'direction':direction,'preview':preview,'download':manifest,'derived':deriv}),encoding='utf8')
+            if extension:
+                report['extension']=extension(SimpleNamespace(root=root,folder=folder,url=url,tokens=tokens,people=people,router=router,
+                    tools=tools,picture=picture,video=video,picture_asset=assets[0],video_asset=source_asset,derived_asset=derived))
         assert all(sha256(p.read_bytes()).hexdigest()==original_hashes[p.name] for p in (picture,video))
         assert load_template_bundle(root/'asset-index-template',expected_fingerprint=FINGERPRINT).fingerprint==FINGERPRINT
         with router.database.transaction() as c:
             counts={t:c.execute('SELECT count(*) FROM '+t).fetchone()[0] for t in ('index_confirmations','privacy_reviews')}
             assert counts=={'index_confirmations':0,'privacy_reviews':0}
             assert c.execute("SELECT count(*) FROM effective_values WHERE field IN ('科室','器官/系统','疾病/症状','过程/状态')").fetchone()[0]==0
-        report.update(state='passed',http_requests=count,actual_cpu_attempts=len(outcomes),real_bge_cpu=True,source_hashes_unchanged=True,
+        report.update(state='passed',http_requests=actual_http_requests,direct_fixture_http_requests=count,actual_cpu_attempts=len(outcomes),real_bge_cpu=True,source_hashes_unchanged=True,
             explicit_source_acl_revision_change=True,download_sha256=selected['sha256'],derived_sha256=derived.sha256,
             whole_file_decode_passed=True,bounded_playback_manifest=True,paired_versioned_search=True,
             derived_only_grant_did_not_grant_source=True,old_manifest_and_cursor_revocation_passed=True,

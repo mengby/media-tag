@@ -1,0 +1,6 @@
+{
+  "base_url": "https://media-tag.invalid",
+  "token_file": "D:/REPLACE_WITH_APPROVED_LOCATION/reader-token.local.txt",
+  "timeout_seconds": 15.0,
+  "response_limit_bytes": 4194304
+}
