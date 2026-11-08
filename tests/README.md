@@ -9,3 +9,5 @@ D13新增 `terminology/lexicon/` 的合成分类/概念/别名、逐条审核、
 D14新增40项术语/文字工程测试；真实推理在 `terminology/embedding/test_inference.py`，无模型核心环境显式排除此文件。`python tests/terminology/resolve/validate_http.py` 执行真实CPU BGE、40次HTTP、索引恢复/重启/回滚及两次CLI Worker，数据只在私有jobs。
 
 D19 `client_adapter/` 新增13项固定下载/用途/任务边界测试；`python tests/client_adapter/validate_provider.py` 执行实际loopback、BGE、真实变速副本、断点恢复及独立CLI。检查单仅合成契约验证，未声称实际AI观看或宿主采用。
+
+D07 `maintenance/` 新增13项离线备份/校验/还原测试；`python tests/maintenance/validate_restore.py` 使用已停服的合成D20工程批次，实际执行三个独立CLI并启动隔离恢复后的HTTP/BGE，比较值/权限/衍生/词表索引配对；无生产部署或业务签收。

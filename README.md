@@ -17,7 +17,7 @@
 
 本机使用根目录 `.venv`（Python 3.12.14），核心开发锁含27包，D04完整视觉锁含61包，版本及wheel哈希已锁定；本机实际CUDA/中文图文推理通过，见[D04说明](docs/model-workers.md)。FFmpeg/ffprobe 9.0.2位于项目忽略缓存，无需系统PATH。环境见 [开发环境说明](docs/DEVELOPMENT_ENVIRONMENT.md)，模板基线见 [D00契约说明](docs/contracts.md)，实际媒体工具与分析接口见 [D02说明](docs/media-evidence.md)，队列/API及启动配置见 [D03说明](docs/router-queue.md)，上传/衍生契约见 [D09说明](docs/upload-variants.md)，固定版本详情/预览/下载与Range见 [D17文件基础](docs/file-access.md)。[D13词表契约与发布](docs/terminology-release.md)已实现候选/逐条审核、快照/差异及配对回滚；[D14文本模型与术语匹配](docs/terminology-worker.md)已实现固定BGE CPU推理、配套索引/降级与Worker；[D15检索与反馈管理](docs/search-feedback.md)已接入人员页，[D16评测工具](docs/terminology-evaluation.md)已实现分组防泄漏、对照指标和离线校准；正式候选及独立业务集仍待补充。
 
-[D01索引与存储说明](docs/catalog-storage.md)列出核心库与权限边界。当前未建立生产数据库、未批量导入真实素材；当前全量609项Python工程测试及4项JavaScript测试涵盖临时合成数据、公开诊断图及真实本机模型推理；正式业务样本与独立集仍待提供。D02/D03/D04/D06/D09/D10/D11/D12/D17文件基础另有私有jobs工程验证批次，不构成真实内容或医学验收。
+[D01索引与存储说明](docs/catalog-storage.md)列出核心库与权限边界。当前未建立生产数据库、未批量导入真实素材；最近一次全量621项Python工程测试、最终13项维护测试及既有4项JavaScript测试涵盖临时合成数据、公开诊断图及真实本机模型推理；正式业务样本与独立集仍待提供。D02/D03/D04/D06/D09/D10/D11/D12/D17文件基础另有私有jobs工程验证批次，不构成真实内容或医学验收。
 
 ```powershell
 & .\.venv\Scripts\python.exe -m pytest -q # 需六份本地原始模板、视觉依赖、权重及固定诊断图；仅核心环境用 --ignore=tests/models --ignore=tests/redaction --ignore=tests/retime/test_combined.py --ignore=tests/web/test_privacy.py --ignore=tests/export/test_privacy.py --ignore=tests/terminology/embedding/test_inference.py
@@ -46,3 +46,5 @@ asset-index-template/ 由用户本地提供，整个目录忽略Git；早期提�
 [D19剪辑来源适配](docs/editing-provider.md)已实现新任务边界、断点恢复、完整哈希/解码、缓存重新授权和绑定稿件/片段/证据的preview handoff；真实81次HTTP/9次CPU任务及CLI下载通过。交接保持预览终点和医学待审，实际剪辑宿主与完整预览仍待联调。
 
 [D20本仓库完整预览演练](docs/integration-rehearsal.md)通过真实stdio/API/固定下载及1.5秒24帧合成预览；实际宿主/跨机器和业务验收仍待补充。
+
+[D07离线维护](docs/offline-recovery.md)提供备份/校验/隔离还原CLI，真实本机恢复后HTTP/BGE、素材值/权限/版本/配对已验证；最终主机、常驻服务与业务综合签收仍待条件。

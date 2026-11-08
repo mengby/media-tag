@@ -26,6 +26,15 @@ def main(argv=None):
         task_command.add_argument('--input',type=Path,required=True)
         task_command.add_argument('--tool-dir',type=Path)
         task_command.add_argument('--license-validation',choices=('enabled','disabled'),default='enabled')
+    backup_command=commands.add_parser('backup-offline',help='snapshot an explicitly stopped service; never starts or stops processes')
+    backup_command.add_argument('--config',type=Path,required=True)
+    backup_command.add_argument('--destination',type=Path,required=True)
+    backup_command.add_argument('--offline-confirmed',action='store_true')
+    for name in ('verify-backup','restore-offline'):
+        recovery=commands.add_parser(name,help='verify a pinned private backup or restore into a fresh isolated directory')
+        recovery.add_argument('--source',type=Path,required=True)
+        recovery.add_argument('--manifest-sha256',required=True)
+        if name=='restore-offline':recovery.add_argument('--destination',type=Path,required=True)
     for name in ('prepare-text-model','check-text-model'):
         text_command=commands.add_parser(name,help='explicit pinned BGE download or real CPU encoding diagnostic')
         text_command.add_argument('--model-root',type=Path,default=Path('cache/models/d14'))
@@ -41,6 +50,22 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command in ('backup-offline','verify-backup','restore-offline'):
+        from .maintenance.backup import RecoveryError,snapshot,restore,verify_backup
+        try:
+            if args.command=='backup-offline':
+                from .api.config import LocalConfig
+                with args.config.open('rb') as stream:raw=stream.read(1024**2+1)
+                if len(raw)>1024**2:raise RecoveryError('private_config_byte_budget')
+                config=LocalConfig.model_validate_json(raw)
+                result=snapshot(Path(config.database),Path(config.workspace),Path(config.object_store),args.destination,offline_confirmed=args.offline_confirmed)
+            elif args.command=='restore-offline':result=restore(args.source,args.destination,args.manifest_sha256)
+            else:
+                _,manifest=verify_backup(args.source,args.manifest_sha256)
+                result={'manifest_sha256':args.manifest_sha256,'files':len(manifest.files),'database_integrity':'ok','state':'verified'}
+            print(json.dumps(result,ensure_ascii=True));return 0
+        except Exception as exc:
+            print(json.dumps({'error':str(exc) if isinstance(exc,RecoveryError) else 'offline_maintenance_failed'}),file=sys.stderr);return 2
     if args.command in ('acquire-media','prepare-preview-handoff'):
         from .client.http import LibraryClient,LibraryClientError,load_settings
         from .client.models import Acquisition,CurrentUseCheck

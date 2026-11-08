@@ -12,7 +12,9 @@
 
 用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；D14已实现固定BGE/术语Worker/文本索引与降级，见 `docs/terminology-worker.md`；D15检索/反馈/词表管理页已实现，见 `docs/search-feedback.md`；D16独立数据/对照/离线校准工具已验证（`docs/terminology-evaluation.md`），正式医学词表及D16业务/指定负载验收仍未完成。用户已指示后续阶段自动继续，并暂时跳过补充业务样本、人员与部署/宿主信息。
 
-用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），实际AI宿主待联调；D19本仓库任务内下载/来源/用途预览交接已实现（`docs/editing-provider.md`），真实剪辑宿主及D20仍待联调；本机相邻仓库实际为 `D:/ai/auto-video`，只读核对公开契约，未接入或修改相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
+用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），实际AI宿主待联调；D19本仓库任务内下载/来源/用途预览交接已实现（`docs/editing-provider.md`），D20本仓库完整预览演练已通过（`docs/integration-rehearsal.md`），真实剪辑宿主/跨机器仍待联调；本机相邻仓库实际为 `D:/ai/auto-video`，只读核对公开契约，未接入或修改相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
+
+D07离线备份/校验/全新目录还原工程已实现（`docs/offline-recovery.md`），本机真实恢复后HTTP/BGE与值/权限/版本配对通过；不等于最终部署或业务签收。当前首期独立工程已推进到待输入边界，D16正式独立评测、D18～D20真实宿主/跨机器、D07最终部署及A04/A05等业务签收仍需用户暂缓的条件；D05可选与D08后续不自行扩展执行。
 
 ## 工作方式
 
