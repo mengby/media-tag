@@ -44,3 +44,5 @@ asset-index-template/ 由用户本地提供，整个目录忽略Git；早期提�
 [D18只读MCP桥接](docs/mcp-adapter.md)提供四个受权取材工具，固定官方SDK2.3.0，Windows44包MCP开发锁已离线复现；标准现代/legacy客户端和真实stdio通过，实际AI宿主尚未配置。
 
 [D19剪辑来源适配](docs/editing-provider.md)已实现新任务边界、断点恢复、完整哈希/解码、缓存重新授权和绑定稿件/片段/证据的preview handoff；真实81次HTTP/9次CPU任务及CLI下载通过。交接保持预览终点和医学待审，实际剪辑宿主与完整预览仍待联调。
+
+[D20本仓库完整预览演练](docs/integration-rehearsal.md)通过真实stdio/API/固定下载及1.5秒24帧合成预览；实际宿主/跨机器和业务验收仍待补充。

@@ -45,3 +45,5 @@
 ## D19新增入口
 
 [剪辑来源适配](editing-provider.md)：本仓库任务内下载、来源登记及当前用途预览交接，实际相邻宿主仍待接入。
+
+[完整预览工程演练](integration-rehearsal.md)：真实API/MCP/下载/FFmpeg闭环及I01～I08待签收边界。
