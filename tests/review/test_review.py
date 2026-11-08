@@ -78,6 +78,12 @@ def test_idempotency_and_observation_cannot_cross_files(reviewed):
 
 def test_index_confirmation_requires_complete_per_field_reviews_and_invalidates_on_change(reviewed):
     env=reviewed;actor=env.reviewer;obs=observation(env,actor=actor)
+    def listing():
+        result=env.clients.reviewer.get('/ui/library').json()
+        assert result['medical_review']=='available'
+        return next(v for item in result['items'] for v in item['versions'] if v['asset_id']==env.asset.asset_id)
+    assert listing()['index_status']=='ai_draft'
+    assert env.clients.owner.get('/ui/library').json()['medical_review']=='not_assigned'
     def confirm(request='confirm'):
         asset=current(env,actor)
         return env.reviews.confirm(asset.asset_id,Confirmation(request_id=request,expected_revision=asset.revision,source_sha256=asset.sha256,
@@ -89,6 +95,29 @@ def test_index_confirmation_requires_complete_per_field_reviews_and_invalidates_
     confirmed=confirm()
     assert confirmed['index_status']=='confirmed' and current(env,actor).index_status=='confirmed'
     assert env.clients.reviewer.get('/v1/assets/'+env.asset.asset_id).json()['index_status']=='confirmed'
+    assert listing()['index_status']==listing()['analysis']=='confirmed'
     decide(env,'画面主体',values=('Synthetic changed visual',),actor=actor,obs=obs)
     assert current(env,actor).index_status=='needs_review'
+    assert listing()['index_status']==listing()['analysis']=='needs_review'
     assert env.clients.reviewer.get('/v1/assets/'+env.asset.asset_id).json()['current_use_review']=='not_checked'
+    confirm('reconfirm')
+    assert listing()['index_status']=='confirmed'
+    asset=current(env,actor)
+    env.reviews.confirm(asset.asset_id,Confirmation(request_id='revoke',expected_revision=asset.revision,source_sha256=asset.sha256,
+        decision='revoke',note='Synthetic explicit index withdrawal'),principal=actor)
+    assert listing()['index_status']==listing()['analysis']=='needs_review'
+
+
+def test_reader_named_in_reviewer_configuration_does_not_gain_medical_capability(reviewed):
+    env=reviewed
+    from media_tag.review.service import ReviewService
+    from media_tag.review.models import ReviewDeployment
+    from media_tag.api.app import create_app
+    from fastapi.testclient import TestClient
+    from hashlib import sha256
+    reviews=ReviewService(env.router,ReviewDeployment(enabled=True,reviewers=(env.reader.actor_id,)))
+    app=create_app(env.router,{sha256(b'reader').hexdigest():env.reader},web=True,reviews=reviews)
+    client=TestClient(app,headers={'Authorization':'Bearer reader'})
+    assert client.get('/ui/session').json()['medical_review']=='not_assigned'
+    assert client.get('/ui/library').json()['medical_review']=='not_assigned'
+    assert client.get('/review/assets/'+env.asset.asset_id).status_code==403

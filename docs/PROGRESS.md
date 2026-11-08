@@ -116,6 +116,8 @@
 
 ## 变更记录
 
+2026-11-08，Codex续查首期集成：发现并修正素材库列表固定返回ai_draft及旧not_implemented复核能力说明；复用D06真实确认依据，与详情的confirmed/needs_review保持一致。补验完整确认、修改失效、再次确认/撤回，以及reader被误列审核人时的会话/列表能力和写入拒绝。针对性21项、相关模块139项及27包纯核心普通wheel环境21项通过；pip check/compileall、Markdown与128个wheel模块资源一致性通过。正式业务/目标宿主/部署条件仍按用户指令暂缓；本修复不增加已完成任务数。
+
 2026-11-08，Codex完成D07离线维护工程：备份/完整校验/隔离还原CLI，无新依赖/迁移；全量621项、最终13项维护测试、27包核心wheel环境30项及实际恢复后9次HTTP/BGE通过。真实106文件/687275字节、值/权限/版本/词表索引配对及原件保护见 [说明](offline-recovery.md) 与 `jobs/d07-recovery-7e7d62dc/validation.json`。最终目标机器、常驻服务/容量/网络、独立业务/实际人员及真实AI/剪辑宿主均未验收，按用户指令暂缓资料，不增加已完成任务数。D19提交30fb59d，D20工程演练提交fa924be。
 
 2026-11-08，Codex完成D20本仓库工程演练：真实API/MCP/CPU BGE、固定字节下载、绑定用途交接及完整FFmpeg预览。产物见 [演练说明](integration-rehearsal.md) 与 `jobs/d20-rehearsal-0c3701a6/validation.json`；不是实际AI观看、相邻宿主包装或跨机器签收，不增加已完成任务数。D19本地提交 `30fb59d`，609项全量通过；继续D07离线备份还原等独立工程。

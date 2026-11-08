@@ -8,6 +8,7 @@ from media_tag.catalog.service import _human, encode
 from media_tag.contracts.models import TaskLimits, Versions
 from media_tag.files.service import FileService, FileError
 from media_tag.router.models import JobSpec, StepSpec
+from media_tag.review.policy import index_status
 
 
 class LibraryService:
@@ -111,6 +112,7 @@ class LibraryService:
 
     def assets(self, *, principal, query='', mine=False, workspace=False, after='', limit=30):
         self.files._role(principal)
+        policy=getattr(self.catalog,'review_policy',None)
         # Literal name/ID search only: no unpublished terminology or AI candidate expansion.
         with self.database.transaction() as connection:
             rows = connection.execute('''WITH eligible AS (
@@ -133,18 +135,19 @@ class LibraryService:
                 blocked = self.files._gate(connection, row)
                 if blocked and row['owner_id'] != principal.actor_id:
                     continue
+                status=index_status(connection,row,policy)
                 groups.setdefault(row['root_asset_id'], []).append(dict(asset_id=row['asset_id'], name=row['name'],
                     sha256=row['blob_sha256'], kind=row['kind'], revision=row['revision'], mine=row['owner_id'] == principal.actor_id,
-                    file_access=blocked or 'authorized', analysis=self._analysis(connection, row['asset_id']),
-                    technical=self.files._technical(connection, row), index_status='ai_draft'))
+                    file_access=blocked or 'authorized', analysis=self._analysis(connection, row['asset_id'],index_state=status),
+                    technical=self.files._technical(connection, row), index_status=status))
         items = [{'root_asset_id': root, 'versions': versions} for root, versions in groups.items()]
         return {'items': items, 'next': roots[limit-1] if len(roots)>limit else None,
-                'search_kind': 'literal_name_or_id', 'medical_review': 'not_implemented'}
+                'search_kind': 'literal_name_or_id',
+                'medical_review':'available' if policy and principal.role!='reader' and principal.actor_id in policy.config.reviewers else 'not_assigned'}
 
-    def _analysis(self, connection, asset_id):
-        from media_tag.review.policy import index_status
+    def _analysis(self, connection, asset_id, *, index_state=None):
         asset=connection.execute('SELECT * FROM assets WHERE asset_id=?',(asset_id,)).fetchone()
-        status=index_status(connection,asset,getattr(self.catalog,'review_policy',None))
+        status=index_state or index_status(connection,asset,getattr(self.catalog,'review_policy',None))
         if status in ('confirmed','needs_review'):return status
         tasks = connection.execute('''SELECT t.state,t.spec_json,j.created_at,j.job_id FROM router_tasks t JOIN router_jobs j USING(job_id)
             WHERE j.asset_id=? AND t.active=1 AND j.cancelled=0 ORDER BY j.created_at DESC LIMIT 64''', (asset_id,)).fetchall()

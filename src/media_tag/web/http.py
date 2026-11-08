@@ -95,7 +95,7 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
                         'retime':bool(principal.role!='reader' and retiming and principal.actor_id in retiming.reviewers)},
             'review_people':{kind:sorted(service.reviewers & editors) if service else [] for kind,service in
                              [('redaction',redactions),('retime',retiming)]},
-            'medical_review':'available' if reviews and principal.actor_id in reviews.config.reviewers else 'not_assigned', 'search':'literal_name_or_id'}
+            'medical_review':'available' if reviews and principal.role!='reader' and principal.actor_id in reviews.config.reviewers else 'not_assigned', 'search':'literal_name_or_id'}
 
     @app.post('/ui/session')
     def login(request: Request, principal=Depends(identity)):
