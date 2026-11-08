@@ -11,3 +11,5 @@ D14新增40项术语/文字工程测试；真实推理在 `terminology/embedding
 D19 `client_adapter/` 新增13项固定下载/用途/任务边界测试；`python tests/client_adapter/validate_provider.py` 执行实际loopback、BGE、真实变速副本、断点恢复及独立CLI。检查单仅合成契约验证，未声称实际AI观看或宿主采用。
 
 D07 `maintenance/` 新增13项离线备份/校验/还原测试；`python tests/maintenance/validate_restore.py` 使用已停服的合成D20工程批次，实际执行三个独立CLI并启动隔离恢复后的HTTP/BGE，比较值/权限/衍生/词表索引配对；无生产部署或业务签收。
+
+D07本机部署新增`deployment/`最终7项配置/锁/停止代次/真实解释器Job归属与分配失败清理；`validate_local.py`实际GPU租约杀进程恢复/HTTP/模型/备份，`validate_installed.py`实际EDY计划任务和Codex全局MCP停服/重连。`mcp_adapter/validate_codex.py`使用真实已登录Codex CLI四工具/图像/撤权；宿主输出和运行数据只存忽略目录，无业务签收。

@@ -5,7 +5,7 @@ from media_tag.models.contracts import ModelFailure
 
 
 class ProcessTree:
-    def __init__(self):
+    def __init__(self, *, name=None):
         if os.name != 'nt':
             raise ModelFailure('redaction_requires_windows_job_objects')
         import ctypes as c
@@ -28,7 +28,7 @@ class ProcessTree:
         k.QueryInformationJobObject.argtypes=[w.HANDLE,c.c_int,c.c_void_p,w.DWORD,c.c_void_p]; k.QueryInformationJobObject.restype=w.BOOL
         k.TerminateJobObject.argtypes=[w.HANDLE,w.UINT]; k.TerminateJobObject.restype=w.BOOL
         k.CloseHandle.argtypes=[w.HANDLE]
-        self.handle=k.CreateJobObjectW(None,None); info=Extended(); info.basic.flags=0x2000
+        self.handle=k.CreateJobObjectW(None,name); info=Extended(); info.basic.flags=0x2000
         if not self.handle or not k.SetInformationJobObject(self.handle,9,c.byref(info),c.sizeof(info)):
             if self.handle: k.CloseHandle(self.handle)
             raise ModelFailure('process_tree_containment_failed')

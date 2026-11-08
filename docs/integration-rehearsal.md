@@ -1,6 +1,6 @@
 # D20 本仓库完整预览工程演练
 
-2026-11-08。状态：本机工程演练通过，真实宿主/跨机器及业务验收未完成。入口 `tests/integration/validate_preview.py` 使用项目 `.venv`、真实 HTTP、官方 MCP SDK2.3.0 stdio子进程、实际CPU BGE和FFmpeg。重用D17新建批次夹具，不复制旧数据库，不修改相邻剪辑仓库。
+2026-11-08。状态：本机工程演练通过，真实剪辑任务/跨机器及业务验收未完成；随后D18已验证Codex CLI宿主，见codex-host.md。入口 `tests/integration/validate_preview.py` 使用项目 `.venv`、真实 HTTP、官方 MCP SDK2.3.0 stdio子进程、实际CPU BGE和FFmpeg。重用D17新建批次夹具，不复制旧数据库，不修改相邻剪辑仓库。
 
 ```powershell
 & .\.venv\Scripts\python.exe tests/integration/validate_preview.py
@@ -23,4 +23,4 @@
 | I07 | 全部写入本仓库新任务；相邻仓库、共享assets和旧任务未改 | 单独授权的宿主适配维护任务 |
 | I08 | 真实stdio传输；D01本地后端边界测试仍适用 | 实际后端/网络；真实OSS留D08 |
 
-正式D20仍待验收。最终部署机器、实际AI/剪辑宿主和业务资料已按用户指令暂缓；没有把本机演练写成正式I01～I08全部通过，也没有改变剪辑项目preview_only或医学pending策略。下一步推进可独立执行的D07离线备份还原工程，状态见 [进度](PROGRESS.md)。
+正式D20仍待验收。用户随后已确定当前电脑、Codex及D:/ai/auto-video，D07本机部署和D18 Codex CLI已通过；真实剪辑任务/正式业务资料及D19维护范围仍待后续；没有把本机演练写成正式I01～I08全部通过，也没有改变剪辑项目preview_only或医学pending策略。后续D07离线维护及当前电脑部署已验证，状态见 [进度](PROGRESS.md)。

@@ -98,3 +98,5 @@ D07 [离线维护](offline-recovery.md)已实现SQLite备份接口、全部本�
 - [词表与小模型 D13～D16](TERMINOLOGY_MAPPING_PLAN.md)：发布契约、交互及 T01～T12/业务评测。
 
 总控文档确定范围、设计状态和实施顺序；专题保留字段与算法细节；冲突先检查本轮明确修订，不把旧阶段排期重新当作当前主线。
+
+2026-11-08当前电脑落地：EDY Limited登录任务通过项目`.venv`监管loopback API/Worker，以实例锁/挂起创建/命名Job和实际OS退出证据恢复本Worker旧租约；私有data/local保管配置/凭证/数据。Codex全局stdio入口及真实CLI工具/图像/停服恢复已通过，见 [部署](windows-deployment.md) 与 [宿主](codex-host.md)。正式业务、实际登录触发和D19/D20真实剪辑接入仍按各阶段验收，不修改相邻项目规则。

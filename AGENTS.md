@@ -2,7 +2,7 @@
 
 ## 当前范围
 
-本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D04、D06、D09～D15及D17已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17公共分页检索/筛选/固定版本接口已实现（`docs/asset-search-api.md`），真实宿主/跨端业务验收未完成；D04真实OCR/人脸/CLIP Worker及本机CUDA验证见 `docs/model-workers.md`；D12人员处理页与主动入库已实现（`docs/personnel-ui.md`），D06字段复核/CSV已接入（`docs/review-csv.md`），D15检索已接入，整体验收仍待业务资料；目前没有常驻服务部署，正式词表/代表性校准与医学验收未完成。本机六份原始模板已齐并绑定摘要，D13发布机制已实现，完整医学分类词表仍待Q03实际管理人审核发布；服务器和存储部署位置仍按用户选定方案执行。
+本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D04、D06、D09～D15及D17/D18已完成工程交付（D18含Codex CLI宿主），见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17公共分页检索/筛选/固定版本接口已实现（`docs/asset-search-api.md`），真实宿主/跨端业务验收未完成；D04真实OCR/人脸/CLIP Worker及本机CUDA验证见 `docs/model-workers.md`；D12人员处理页与主动入库已实现（`docs/personnel-ui.md`），D06字段复核/CSV已接入（`docs/review-csv.md`），D15检索已接入，整体验收仍待业务资料；当前电脑已安装EDY登录自启动的API/Worker任务（`docs/windows-deployment.md`），正式词表/代表性校准与医学验收未完成。本机六份原始模板已齐并绑定摘要，D13发布机制已实现，完整医学分类词表仍待Q03实际管理人审核发布；当前实例存储在私有`data/local/`，其他存储/跨机器方案仍按后续明确范围执行。
 
 2026-11-07起总控入口为 `docs/REQUIREMENTS.md`、`docs/ARCHITECTURE.md`、`docs/IMPLEMENTATION_PLAN.md`、`docs/PROGRESS.md`，分别维护范围、设计、当前任务顺序和实际状态。保留D00～D20及A/T/I编号；专题中的早期阶段/工期不替代当前实施计划。候选表、模拟交互和任务卡不算对应功能已完成。
 
@@ -10,11 +10,11 @@
 
 用户已选定极简界面：素材库默认画廊、可切换列表；打码与变速属于独立“视频处理”功能；AI 打标后台自动执行。处理不依赖语义打标成功，医学标签人工确认与处理输出复核仍分别保留。
 
-用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；D14已实现固定BGE/术语Worker/文本索引与降级，见 `docs/terminology-worker.md`；D15检索/反馈/词表管理页已实现，见 `docs/search-feedback.md`；D16独立数据/对照/离线校准工具已验证（`docs/terminology-evaluation.md`），正式医学词表及D16业务/指定负载验收仍未完成。用户已指示后续阶段自动继续，并暂时跳过补充业务样本、人员与部署/宿主信息。
+用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；D14已实现固定BGE/术语Worker/文本索引与降级，见 `docs/terminology-worker.md`；D15检索/反馈/词表管理页已实现，见 `docs/search-feedback.md`；D16独立数据/对照/离线校准工具已验证（`docs/terminology-evaluation.md`），正式医学词表及D16业务/指定负载验收仍未完成。用户暂缓业务样本与实际审核人；随后明确当前电脑、Codex和剪辑项目`D:/ai/auto-video`，本轮优先推进D07部署与D18宿主联调。
 
-用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），实际AI宿主待联调；D19本仓库任务内下载/来源/用途预览交接已实现（`docs/editing-provider.md`），D20本仓库完整预览演练已通过（`docs/integration-rehearsal.md`），真实剪辑宿主/跨机器仍待联调；本机相邻仓库实际为 `D:/ai/auto-video`，只读核对公开契约，未接入或修改相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
+用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），真实Codex CLI宿主及全局入口已验证（`docs/codex-host.md`），桌面会话重载未自动操作；D19本仓库任务内下载/来源/用途预览交接已实现（`docs/editing-provider.md`），D20本仓库完整预览演练已通过（`docs/integration-rehearsal.md`），真实剪辑宿主/跨机器仍待联调；本机相邻仓库实际为 `D:/ai/auto-video`，只读核对公开契约，未接入或修改相邻项目。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
 
-D07离线备份/校验/全新目录还原工程已实现（`docs/offline-recovery.md`），本机真实恢复后HTTP/BGE与值/权限/版本配对通过；不等于最终部署或业务签收。当前首期独立工程已推进到待输入边界，D16正式独立评测、D18～D20真实宿主/跨机器、D07最终部署及A04/A05等业务签收仍需用户暂缓的条件；D05可选与D08后续不自行扩展执行。
+D07离线备份/校验/全新目录还原工程已实现（`docs/offline-recovery.md`），本机真实恢复后HTTP/BGE与值/权限/版本配对通过；不等于最终部署或业务签收。D07当前电脑部署与EDY登录任务已验证；D18 Codex CLI真实MCP/图像/停服恢复已验证。D16正式独立评测、D19实际剪辑项目维护、D20真实任务/跨机器、D07登录触发实测与A04/A05等综合业务签收仍待条件；D05可选与D08后续不自行扩展执行。
 
 ## 工作方式
 

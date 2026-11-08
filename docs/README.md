@@ -49,3 +49,7 @@
 [完整预览工程演练](integration-rehearsal.md)：真实API/MCP/下载/FFmpeg闭环及I01～I08待签收边界。
 
 [离线备份还原](offline-recovery.md)：停服约束、完整数据库/对象/证据清单、固定哈希校验与全新目录恢复；真实部署仍待条件。
+
+[当前电脑部署](windows-deployment.md)：已安装的EDY登录任务、项目`.venv`、私有目录与启停/恢复证据；综合业务签收仍待条件。
+
+[Codex宿主联调](codex-host.md)：实际CLI工具/图像/撤权/停服恢复、全局stdio入口及桌面手动重载边界。

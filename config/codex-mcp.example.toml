@@ -1,0 +1,7 @@
+# 本机已安装入口的等价示例，不覆盖现有用户配置；令牌只在本地私有文件。
+[mcp_servers.media_tag]
+command = "D:/ai/media-tag/.venv/Scripts/python.exe"
+args = ["-m", "media_tag", "mcp-stdio", "--config", "D:/ai/media-tag/data/local/reader-client.local.json"]
+
+[mcp_servers.media_tag.env]
+PYTHONUTF8 = "1"

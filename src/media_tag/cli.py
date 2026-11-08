@@ -35,6 +35,16 @@ def main(argv=None):
         recovery.add_argument('--source',type=Path,required=True)
         recovery.add_argument('--manifest-sha256',required=True)
         if name=='restore-offline':recovery.add_argument('--destination',type=Path,required=True)
+    for name in ('local-init','local-run','local-status','local-stop','local-child'):
+        local=commands.add_parser(name,help='explicit current-user Windows loopback deployment management')
+        local.add_argument('--root',type=Path,required=True)
+        if name=='local-init':
+            local.add_argument('--project',type=Path,required=True)
+            local.add_argument('--port',type=int,default=8765)
+            local.add_argument('--without-vision',action='store_true')
+        if name=='local-child':
+            local.add_argument('--generation',required=True)
+            local.add_argument('--kind',choices=('api','worker'),required=True)
     for name in ('prepare-text-model','check-text-model'):
         text_command=commands.add_parser(name,help='explicit pinned BGE download or real CPU encoding diagnostic')
         text_command.add_argument('--model-root',type=Path,default=Path('cache/models/d14'))
@@ -50,6 +60,19 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command.startswith('local-'):
+        from .deployment.local import DeploymentError,initialize,supervise,status,stop,child
+        try:
+            if args.command=='local-run':return supervise(args.root)
+            if args.command=='local-child':child(args.root,args.generation,args.kind);return 0
+            if args.command=='local-init':result=initialize(args.root,args.project,port=args.port,vision=not args.without_vision)
+            elif args.command=='local-status':result=status(args.root)
+            else:result=stop(args.root)
+            if sys.stdout is not None:print(json.dumps(result,ensure_ascii=True))
+            return 0
+        except Exception as exc:
+            if sys.stderr is not None:print(json.dumps({'error':str(exc) if isinstance(exc,DeploymentError) else 'local_deployment_failed'}),file=sys.stderr)
+            return 2
     if args.command in ('backup-offline','verify-backup','restore-offline'):
         from .maintenance.backup import RecoveryError,snapshot,restore,verify_backup
         try:

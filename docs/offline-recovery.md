@@ -1,6 +1,6 @@
 # D07 离线备份还原工程
 
-2026-11-08。已实现离线备份、完整校验和隔离还原CLI；最终Windows部署/容量、常驻服务、网络、真实人员与业务验收仍待条件。实现 `src/media_tag/maintenance/backup.py`，测试 `tests/maintenance/`。沿用项目`.venv`，无新依赖、无数据库迁移，也未修改服务启动行为。
+2026-11-08。已实现离线备份、完整校验和隔离还原CLI；后续已完成当前电脑部署/常驻和Codex CLI联调（见windows-deployment.md）；容量/跨机器网络、真实人员及业务综合验收仍待条件。实现 `src/media_tag/maintenance/backup.py`，测试 `tests/maintenance/`。沿用项目`.venv`，无新依赖、无数据库迁移，也未修改服务启动行为。
 
 ## 备份范围与一致性
 
@@ -30,9 +30,9 @@
 
 ## 目标部署仍属拟定
 
-最终机器未指定，当前`.venv`的基础解释器来自Codex缓存，不能复制它当作服务器运行时。目标机器需独立维护Python3.12、按对应哈希锁重建`.venv`、验证固定FFmpeg及已启用模型/CUDA；创建受控数据/备份目录并明确账号、容量、保留周期及还原目标。核心/视觉/文字/MCP依赖锁和兼容证据见 [环境说明](DEVELOPMENT_ENVIRONMENT.md)。
+用户已指定当前电脑，实际部署见 [说明](windows-deployment.md)。当前`.venv`的基础解释器来自Codex缓存，不能复制它当作服务器运行时。目标机器需独立维护Python3.12、按对应哈希锁重建`.venv`、验证固定FFmpeg及已启用模型/CUDA；创建受控数据/备份目录并明确账号、容量、保留周期及还原目标。核心/视觉/文字/MCP依赖锁和兼容证据见 [环境说明](DEVELOPMENT_ENVIRONMENT.md)。
 
-已有`serve --config`只监听loopback；跨机器访问、TLS、反向代理、网络策略与常驻API/Worker启动方式须结合实际机器部署。本轮没有开放端口、安装计划任务/系统服务或改用户网络配置。备份工具可随部署使用，但本机合成还原不等于最终部署及A08/A10综合签收。
+已有`serve --config`只监听loopback；跨机器访问、TLS、反向代理、网络策略与常驻API/Worker启动方式须结合实际机器部署。离线工具阶段没有开放端口或安装任务；后续本机部署已安装EDY Limited登录任务，仅loopback监听，未改防火墙/外网策略。备份工具可随部署使用，但本机合成还原不等于最终部署及A08/A10综合签收。
 
 ## 实际验证
 

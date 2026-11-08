@@ -77,3 +77,5 @@ D00～D04及D09工程已验收，D17文件基础已完成工程验证，D10打�
 D18增加可选MCP开发锁 requirements-mcp.lock：Windows CPython3.12、44包（核心/dev27＋新增17），固定官方mcp/mcp-types2.3.0。17个wheel共12,138,640字节，逐个核对官方PyPI摘要后离线安装；原62个包/项目版本不变。独立44包环境不含Torch/ONNX/OCR/psutil，桥接只调用实际配置的API；协议/stdio测试通过，真实宿主仍待确定。详见 [MCP说明](mcp-adapter.md)。
 
 D19本仓库取材客户端、D20真实stdio到合成完整预览演练及D07离线备份还原工程已验证，无新增依赖。D07本机报告 `jobs/d07-recovery-7e7d62dc/validation.json`：Windows11/Python3.12.14/项目`.venv`，还原后本卷空闲404961714176字节（仅当次本机读数），106个文件/687275字节实际备份还原及9次恢复后HTTP/BGE通过。基础解释器仍来自Codex缓存；最终主机、网络/常驻服务和容量业务门槛未验收。操作与边界见 [离线维护](offline-recovery.md)。
+
+用户随后确定先使用当前电脑和Codex。本机部署已使用项目`.venv`及EDY登录任务，固定模型/CUDA复查、实际监管/杀进程恢复与Codex CLI联调通过，见 [部署说明](windows-deployment.md)、[宿主说明](codex-host.md)。基础解释器路径仍保持现有依赖，未创建第二份运行环境或升级既有包；正式业务和跨机器未验收。
