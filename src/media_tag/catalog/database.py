@@ -12,6 +12,7 @@ from media_tag.router.schema import ROUTER_SCHEMA
 from media_tag.upload.schema import UPLOAD_SCHEMA
 from media_tag.transforms.schema import REDACTION_SCHEMA
 from media_tag.web.schema import LIBRARY_SCHEMA
+from media_tag.review.schema import REVIEW_SCHEMA
 
 
 class CatalogError(Exception):
@@ -128,11 +129,12 @@ class Database:
         migrations = ((1, SCHEMA, SCHEMA_CHECKSUM), (2, ROUTER_SCHEMA, sha256("\n".join(ROUTER_SCHEMA).encode()).hexdigest()),
                       (3, UPLOAD_SCHEMA, sha256("\n".join(UPLOAD_SCHEMA).encode()).hexdigest()),
                       (4, REDACTION_SCHEMA, sha256("\n".join(REDACTION_SCHEMA).encode()).hexdigest()),
-                      (5, LIBRARY_SCHEMA, sha256("\n".join(LIBRARY_SCHEMA).encode()).hexdigest()))
+                      (5, LIBRARY_SCHEMA, sha256("\n".join(LIBRARY_SCHEMA).encode()).hexdigest()),
+                      (6, REVIEW_SCHEMA, sha256("\n".join(REVIEW_SCHEMA).encode()).hexdigest()))
         connection = self._connect()
         try:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5):
+            if version not in (0, 1, 2, 3, 4, 5, 6):
                 raise CatalogError("unsupported database schema version")
             if version == 0 and connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone():
                 raise CatalogError("refusing to initialize an unversioned, nonempty database")
@@ -150,7 +152,7 @@ class Database:
                 connection.execute("INSERT INTO schema_migrations VALUES(1,?,?)", (SCHEMA_CHECKSUM, utc_now()))
                 connection.execute("PRAGMA user_version=1")
                 version = 1
-            if version not in (1, 2, 3, 4, 5):
+            if version not in (1, 2, 3, 4, 5, 6):
                 raise CatalogError("unsupported database schema version")
             for number, statements, checksum in migrations:
                 if number > version:

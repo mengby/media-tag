@@ -235,7 +235,7 @@ class FileService:
             sources = [{'source_id': s.source_id, 'label': s.label, 'reference': s.reference, 'attribution': s.attribution, 'license_status': s.license_status} for s in snapshot.sources]
             return dict(schema_version=SCHEMA, asset_id=asset_id, root_asset_id=asset['root_asset_id'], parent_asset_id=asset['parent_asset_id'],
                         sha256=asset['blob_sha256'], size_bytes=snapshot.size_bytes, revision=asset['revision'], name=asset['name'], kind=asset['kind'],
-                        index_status=asset['index_status'], effective_values=[v.model_dump(mode='json') for v in snapshot.effective_values],
+                        index_status=snapshot.index_status, effective_values=[v.model_dump(mode='json') for v in snapshot.effective_values],
                         suggestions=[s.model_dump(mode='json') for s in snapshot.suggestions], sources=sources, versions=versions,
                         versions_truncated=len(candidates) > 50,
                         technical=self._technical(connection, asset), file_access=blocked or 'authorized',

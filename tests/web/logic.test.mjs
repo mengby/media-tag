@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {SHA256,digestFile} from '../../src/media_tag/web/sha256.js';
+import {playbackWindow} from '../../src/media_tag/web/review.js';
 import {speedOf,makeEdit,audioTrack} from '../../src/media_tag/web/app.js';
 
 test('SHA256 standard vectors and streaming block/padding boundaries',()=>{
@@ -24,6 +25,7 @@ test('speed defaults and explicit bounds; no inherited speed',()=>{
   for(const value of ['bad',Infinity,0,4.1])assert.throws(()=>speedOf(true,value));
 });
 test('track actions serialize only their relevant contract fields',()=>{
+  assert.deepEqual(playbackWindow(.25,.75,5),{start:5.25,end:5.75});assert.throws(()=>playbackWindow(.25,.75,null));
   assert.deepEqual(makeEdit('exclude','track-1','','','','unused'),{action:'exclude',track_ids:['track-1']});
   assert.deepEqual(makeEdit('split','track-1','new',.5,999,[]),{action:'split',track_ids:['track-1'],new_track_id:'new',start_seconds:.5});
   const keyframes=[{seconds:0,box:[.1,.1,.3,.3]},{seconds:1,box:[.2,.2,.4,.4]}];

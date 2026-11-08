@@ -142,6 +142,10 @@ class LibraryService:
                 'search_kind': 'literal_name_or_id', 'medical_review': 'not_implemented'}
 
     def _analysis(self, connection, asset_id):
+        from media_tag.review.policy import index_status
+        asset=connection.execute('SELECT * FROM assets WHERE asset_id=?',(asset_id,)).fetchone()
+        status=index_status(connection,asset,getattr(self.catalog,'review_policy',None))
+        if status in ('confirmed','needs_review'):return status
         tasks = connection.execute('''SELECT t.state,t.spec_json,j.created_at,j.job_id FROM router_tasks t JOIN router_jobs j USING(job_id)
             WHERE j.asset_id=? AND t.active=1 AND j.cancelled=0 ORDER BY j.created_at DESC LIMIT 64''', (asset_id,)).fetchall()
         relevant = [t for t in tasks if json.loads(t['spec_json'])['stage'] in ('probe','evidence','ocr','face','clip')]

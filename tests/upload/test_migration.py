@@ -28,7 +28,7 @@ def test_v2_to_v3_preserves_queue_and_atomic_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'UPLOAD_SCHEMA', original)
     database.initialize()
     with database.transaction(write=True) as connection:
-        assert connection.execute('PRAGMA user_version').fetchone()[0] == 5
+        assert connection.execute('PRAGMA user_version').fetchone()[0] == 6
         assert connection.execute('SELECT paused FROM router_control').fetchone()[0] == 1
         connection.execute("UPDATE schema_migrations SET checksum='tampered' WHERE version=3")
     with pytest.raises(CatalogError, match='checksum'):

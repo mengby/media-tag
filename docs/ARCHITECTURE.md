@@ -1,19 +1,19 @@
 # 素材库设计总览
 
-整理日期：2026-11-07。状态：设计基线，D00～D04及D09～D11工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，整项仍实施中。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，[D04模型Worker](model-workers.md)已实现并完成本机推理验证；[D10人脸打码](face-redaction.md)已实现核心/接口与本机验证；[D11固定变速/组合](fixed-retime.md)已实现；完整语义检索和部署仍未实现，不能把设计图视为运行事实。
+整理日期：2026-11-07。状态：设计基线，D00～D04、D06及D09～D11工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，整项仍实施中。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，[D04模型Worker](model-workers.md)已实现并完成本机推理验证；[D10人脸打码](face-redaction.md)已实现核心/接口与本机验证；[D11固定变速/组合](fixed-retime.md)已实现；完整语义检索和部署仍未实现，不能把设计图视为运行事实。
 
 ## 设计决策
 
 | 决策 | 当前结论 | 状态 |
 | --- | --- | --- |
-| 人员界面 | 极简、画廊默认、列表可切换；视频处理独立；标签后台运行 | D12处理页/入库已实现；医学管理与语义检索待D06/D15 |
+| 人员界面 | 极简、画廊默认、列表可切换；视频处理独立；标签后台运行 | D12处理页/入库已实现；D06医学字段管理/CSV已接入，语义检索待D15 |
 | 术语解析 | 已发布词表＋文本小模型；多义、关系和否定独立处理 | 用户已选定路线；具体模型待实测 |
 | 权威数据 | 单服务写入本地 SQLite，网页、Worker、导出共用契约；数据库不放 SMB 共享盘 | D01核心与D03调度/结果事务入口已实现；常驻部署仍待D07/Q01 |
 | 团队部署 | 常开 Windows 承载 API、任务状态、数据库和文件服务；开发机仅做开发/测试 | 当前推荐，取代早期开发机长期承载主库的团队部署建议；Q01/Q02 |
 | 存储访问 | Filesystem 首期，OSS 后续；稳定入口和对象映射隔离物理路径 | D01本地后端与统一接口已实现；OSS明确未配置，真接入留D08 |
 | AI 接入 | HTTP API 为公共能力，MCP 为薄适配层，剪辑端负责下载和当前用途检查 | 推荐方案，Q04/Q05 |
 | 模型运行 | 确定性工具＋专用小模型；可选 VLM；GPU 重任务全局串行 | D04本机CPU/CUDA实测及队列适配已实现；正式词表/代表性校准、最终主机与可选VLM仍待后续 |
-| 人工管理 | 词表、医学标签审核、来源修订和导出放管理入口 | 为满足现有规则拟定；角色由 Q03 指定 |
+| 人工管理 | 词表、医学标签审核、来源修订和导出放管理入口 | D06字段复核/CSV已实现；词表管理仍待D13/D15，实际审核角色由Q03指定 |
 
 ## 总体结构
 
@@ -72,7 +72,7 @@ Router 是确定性调度程序，负责依赖、租约、幂等、取消及资�
 
 ## 技术选型与资源约束
 
-Python、FastAPI、SQLite、FFmpeg/ffprobe 为当前工程方向；D00已落地Python 3.12、Pydantic结构校验、setuptools及pytest，实际版本/哈希见依赖锁。D12已落地FastAPI同源HTML/CSS＋原生JavaScript，轨迹修订使用浏览器canvas，资源随wheel分发，不需要Node生产工具链。HTTP服务与人员处理页/入库已实现，语义检索、医学管理与常驻部署未完成；未来引入框架时先记录需求与影响。各接口先定 JSON Schema/错误/权限契约，不先搭多个框架或服务。
+Python、FastAPI、SQLite、FFmpeg/ffprobe 为当前工程方向；D00已落地Python 3.12、Pydantic结构校验、setuptools及pytest，实际版本/哈希见依赖锁。D12已落地FastAPI同源HTML/CSS＋原生JavaScript，轨迹修订使用浏览器canvas，资源随wheel分发，不需要Node生产工具链。HTTP服务与人员处理页/入库已实现，D06字段复核/CSV已实现，语义检索与常驻部署未完成；未来引入框架时先记录需求与影响。各接口先定 JSON Schema/错误/权限契约，不先搭多个框架或服务。
 
 OCR、YuNet、Chinese-CLIP 和 BGE-small 是现有方案候选，具体版本在独立环境实测后锁定；VLM 为后置选项。32GB 内存和 8GB 显存不能据此认定任何模型组合已兼容。GPU 重推理/硬件编码共用配额，不能按不同队列各自占满显存；搜索和文件服务保持可响应。
 
@@ -88,6 +88,7 @@ OCR、YuNet、Chinese-CLIP 和 BGE-small 是现有方案候选，具体版本在
 
 - [存储、字段归属、A01～A11 验收及 AI 接入](DESIGN_AND_IMPLEMENTATION.md)：第 4～6、10、12 节。
 - [模型、任务协议与 D00～D08](MODEL_ROUTER_WORKER_PLAN.md)：模型候选、租约、重试、资源和产物协议。
+- [D06字段复核与CSV](review-csv.md)：证据/人工有效值、整行状态、缺口与原子快照。
 - [D12人员页面与入库](personnel-ui.md)：会话、私有处理、指定人输出复核、明确版本入库与共享。
 - [上传、人脸与变速 D09～D12](UPLOAD_AND_MEDIA_VARIANTS.md)：完整视频处理和版本关系。
 - [词表与小模型 D13～D16](TERMINOLOGY_MAPPING_PLAN.md)：发布契约、交互及 T01～T12/业务评测。

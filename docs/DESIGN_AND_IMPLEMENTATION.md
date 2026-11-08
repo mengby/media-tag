@@ -187,7 +187,7 @@ jobs/<job_id>/          运行时：manifest、分阶段证据、review、report
 data/ cache/ outputs/   运行时：数据库、缓存、导出快照；Git 忽略
 ```
 
-拟定命令职责为 scan、probe、tag、review、export、sync、migrate-storage，当前没有可执行命令。CSV 采用 UTF-8 BOM，表头顺序严格跟随模板；对外部文件名等字段做电子表格公式注入防护，内部原值保留。写出使用临时文件与原子替换，同时输出快照版本和数据校验报告。
+拟定命令职责为scan、probe、tag、review、export、sync、migrate-storage；当前已实现serve/work-once及D06字段复核/CSV的HTTP与人员页，没有上述同名review/export CLI。CSV 采用 UTF-8 BOM，表头顺序严格跟随模板；对外部文件名等字段做电子表格公式注入防护，内部原值保留。写出使用临时文件与原子替换，同时输出快照版本和数据校验报告。
 
 ## 10. 分阶段实施与验收
 

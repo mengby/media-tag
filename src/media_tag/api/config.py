@@ -22,6 +22,8 @@ from media_tag.transforms.models import RedactionDeployment,RetimeDeployment
 from media_tag.transforms.runtime import RedactionHandlers, redaction_stages,retime_stages
 from media_tag.transforms.service import RedactionService
 from media_tag.transforms.retime_service import RetimeService
+from media_tag.review.models import ReviewDeployment
+from media_tag.review.service import ReviewService
 
 
 class LocalConfig(ContractModel):
@@ -39,6 +41,7 @@ class LocalConfig(ContractModel):
     redaction: RedactionDeployment = RedactionDeployment()
     retime: RetimeDeployment = RetimeDeployment()
     web_enabled: bool = False
+    review: ReviewDeployment = ReviewDeployment()
 
 
 def load_application(path: Path):
@@ -84,7 +87,8 @@ def load_application(path: Path):
         redactions.adopt_ready()
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     if retiming: retiming.adopt_ready()
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled)
+    reviews=ReviewService(router,config.review) if config.review.enabled else None
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews)
     return app, router, tools
 
 

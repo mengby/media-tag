@@ -46,6 +46,7 @@ class Catalog:
         self.backends = dict(read_backends or {})
         self.backends[self.backend_id] = object_store
         self.fields = {field.name: field for field in contract.field_definitions[0][1]}
+        self.contract = contract
         self.database.initialize()
         with self.database.transaction(write=True) as connection:
             row = connection.execute("SELECT value FROM catalog_metadata WHERE key='template_fingerprint'").fetchone()
@@ -89,7 +90,9 @@ class Catalog:
             "SELECT payload FROM effective_values WHERE asset_id=? ORDER BY field", (asset_id,)))
         suggestions = tuple(TagSuggestion.model_validate_json(item[0]) for item in connection.execute(
             "SELECT payload FROM tag_suggestions WHERE asset_id=? ORDER BY suggestion_id", (asset_id,)))
-        return AssetSnapshot(asset_id, row["blob_sha256"], blob[0], row["owner_id"], row["name"], row["revision"], row["index_status"],
+        from media_tag.review.policy import index_status
+        status=index_status(connection,row,getattr(self,'review_policy',None))
+        return AssetSnapshot(asset_id, row["blob_sha256"], blob[0], row["owner_id"], row["name"], row["revision"], status,
                              row["root_asset_id"], row["parent_asset_id"], row["created_at"], sources, aliases, effective, suggestions)
 
     def register_file(self, source_store: FilesystemBackend, source_key: str, *, source_backend_id: str, principal: Principal,
@@ -267,7 +270,10 @@ class Catalog:
             if definition.fill_policy in ("human_only", "human_or_script") or (suggestion.origin == "ai" and definition.fill_policy == "script"):
                 raise UnsupportedRevision("worker suggestions cannot infer human-only or script-owned fields")
             if suggestion.value.state == "observed" and (definition.field_type in ("单选", "多选") or definition.fill_policy == "ai_candidate_per_field_human_review"):
-                raise UnsupportedRevision("observed medical/selection suggestions require D06/D13 vocabulary and evidence validation")
+                policy = getattr(self, 'review_policy', None)
+                if policy is None:
+                    raise UnsupportedRevision("observed medical/selection suggestions require D06/D13 vocabulary and evidence validation")
+                policy.validate_suggestion(definition, suggestion, result)
             payload = suggestion.model_dump_json()
             existing = connection.execute("SELECT 1 FROM tag_suggestions WHERE asset_id=? AND suggestion_id=?",
                                           (task.asset_id, suggestion.suggestion_id)).fetchone()
