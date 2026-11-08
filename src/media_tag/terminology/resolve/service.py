@@ -44,6 +44,7 @@ class Resolver:
                 except (StorageError,ValueError,NotFound):index_error='text_index_unavailable'
             versions.update(taxonomy_release_id=taxid,lexicon_release_id=lexid,embedding_index_id=indexid,
                 model_revision=self.registry.revision,preprocess_version=PREPROCESS_VERSION,match_version=MATCH_VERSION,
+                resolution_policy_sha256=fingerprint(self.options.model_dump(mode='json',include={'model_enabled','min_cosine','min_margin','query_timeout_seconds','cache_entries'})),
                 serving_epoch=head['epoch'] if pinned is None else None,published_generation=published['generation'],
                 vocabulary_generation=head['vocabulary_generation'] if pinned is None and head['lexicon_release_id'] else published['generation'])
             return taxonomy,lexicon,index,index_error,versions
