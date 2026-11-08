@@ -12,9 +12,11 @@
 
 用户已选择口语词与专业术语按“词表＋文本小模型”实现，详见 `docs/TERMINOLOGY_MAPPING_PLAN.md`；D13契约、候选审核、不可变发布及配对回滚机制已实现，见 `docs/terminology-release.md`；D14已实现固定BGE/术语Worker/文本索引与降级，见 `docs/terminology-worker.md`；D15检索/反馈/词表管理页已实现，见 `docs/search-feedback.md`；D16独立数据/对照/离线校准工具已验证（`docs/terminology-evaluation.md`），正式医学词表及D16业务/指定负载验收仍未完成。用户暂缓业务样本与实际审核人；随后明确当前电脑、Codex和剪辑项目`D:/ai/auto-video`，本轮优先推进D07部署与D18宿主联调。
 
-用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），真实Codex CLI宿主及全局入口已验证（`docs/codex-host.md`），桌面会话重载未自动操作；D19本仓库任务内下载/来源/用途预览交接已实现（`docs/editing-provider.md`），D20本仓库完整预览演练已通过（`docs/integration-rehearsal.md`），真实剪辑宿主/跨机器仍待联调；本轮用户已明确E:/asset保存取材、D:/ai/auto-video剪辑，D19显式新任务CLI及原隐私/登记/用途检查已接入，见`docs/editing-host.md`；旧任务和共享assets不改。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
+用户新增核心目标：供 AI 剪辑检索与取材。D17公共API及D18只读MCP适配工程已实现（`docs/mcp-adapter.md`），真实Codex CLI宿主及全局入口已验证（`docs/codex-host.md`），桌面会话重载未自动操作；D19本仓库任务内下载/来源/用途预览交接已实现（`docs/editing-provider.md`），D20本仓库完整预览演练已通过（`docs/integration-rehearsal.md`），后续本机真实任务结果见下方D20补充，跨机器仍待联调；本轮用户已明确E:/asset保存取材、D:/ai/auto-video剪辑，D19显式新任务CLI及原隐私/登记/用途检查已接入，见`docs/editing-host.md`；旧任务和共享assets不改。库内标签确认不替代当前剪辑用途检查，不授权改变相邻项目的预览/导出策略。
 
-D07离线备份/校验/全新目录还原工程已实现（`docs/offline-recovery.md`），本机真实恢复后HTTP/BGE与值/权限/版本配对通过；不等于最终部署或业务签收。D07当前电脑部署与EDY登录任务已验证；D18 Codex CLI真实MCP/图像/停服恢复已验证。D16正式独立评测、D20真实任务/跨机器、D07登录触发实测与A04/A05等综合业务签收仍待条件；D05可选与D08后续不自行扩展执行。
+D07离线备份/校验/全新目录还原工程已实现（`docs/offline-recovery.md`），本机真实恢复后HTTP/BGE与值/权限/版本配对通过；不等于最终部署或业务签收。D07当前电脑部署与EDY登录任务已验证；D18 Codex CLI真实MCP/图像/停服恢复已验证。D16正式独立评测、D20完整视听/综合与跨机器、D07登录触发实测与A04/A05等综合业务签收仍待条件；D05可选与D08后续不自行扩展执行。
+
+D20当前补充（2026-11-08）：用户指定20261107-demo；本机Codex实际4工具/授权5图、E:/asset取材、原剪辑器校验/应用和完整171.64秒预览已验证，见 `docs/real-editing-integration.md`。旧任务1952文件与预览/导出策略不变。完整连续观看/试听、医学与独立语义业务仍待验收，不把单次静帧用途验收当成整片批准；D20仍待综合验收。
 
 ## 工作方式
 

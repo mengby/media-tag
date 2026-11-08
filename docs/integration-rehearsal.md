@@ -24,3 +24,5 @@
 | I08 | 真实stdio传输；D01本地后端边界测试仍适用 | 实际后端/网络；真实OSS留D08 |
 
 正式D20仍待验收。用户随后已确定当前电脑、Codex及D:/ai/auto-video，D07本机部署和D18 Codex CLI已通过；真实剪辑任务/正式业务资料及D19维护范围仍待后续；没有把本机演练写成正式I01～I08全部通过，也没有改变剪辑项目preview_only或医学pending策略。后续D07离线维护及当前电脑部署已验证，状态见 [进度](PROGRESS.md)。
+
+后续真实任务：用户已指定20261107-demo，本机实际Codex审看、E:/asset取材及D:/ai/auto-video完整预览验证见[真实联调说明](real-editing-integration.md)。上述1.5秒合成演练保留为历史工程证据，不代替后续真实结果。
