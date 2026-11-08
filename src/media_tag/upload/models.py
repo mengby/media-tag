@@ -24,6 +24,7 @@ class UploadSpec(ContractModel):
 
 
 class UploadOptions(ContractModel):
+    probe_max_pixels: Annotated[int, Field(ge=1, le=64*1024**2)] = 16*1024**2
     max_file_bytes: Annotated[int, Field(ge=1, le=2 * 1024**3)] = 2 * 1024**3
     chunk_bytes: Annotated[int, Field(ge=1, le=8 * 1024**2)] = 4 * 1024**2
     max_open_per_owner: Annotated[int, Field(ge=1, le=100)] = 8

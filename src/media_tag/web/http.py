@@ -58,7 +58,7 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
     local_tickets=TicketStore(local_browser_login) if local_browser_login else None
     people = sorted({p.actor_id for p in credentials.values() if p.role in ('editor','reader','admin')})
     editors = {p.actor_id for p in credentials.values() if p.role in ('editor','admin')}
-    library = LibraryService(router, people=people)
+    library = LibraryService(router, people=people,probe_max_pixels=uploads.options.probe_max_pixels if uploads else 16*1024**2)
     app.state.library = library
     library.dispatch_pending(principal=Principal(actor_id='local-library-recovery', role='admin'))
 

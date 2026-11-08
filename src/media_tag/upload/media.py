@@ -5,7 +5,7 @@ from pathlib import Path
 from media_tag.workers.probe import FORMAT_WHITELIST, MediaError, ProbeOptions, probe_media
 
 EXTENSIONS = {
-    '.png': {'png_pipe'}, '.jpg': {'jpeg_pipe'}, '.jpeg': {'jpeg_pipe'}, '.gif': {'gif'},
+    '.png': {'png_pipe'}, '.jpg': {'jpeg_pipe'}, '.jpeg': {'jpeg_pipe'}, '.jfif': {'jpeg_pipe'}, '.gif': {'gif'},
     '.webp': {'webp_pipe'}, '.bmp': {'bmp_pipe'}, '.tif': {'tiff_pipe'}, '.tiff': {'tiff_pipe'},
     '.mp4': {'mov'}, '.mov': {'mov'}, '.m4v': {'mov'}, '.mkv': {'matroska'}, '.webm': {'matroska'},
     '.avi': {'avi'}, '.ts': {'mpegts'}, '.mpeg': {'mpeg'}, '.mpg': {'mpeg'},
@@ -13,8 +13,8 @@ EXTENSIONS = {
 }
 
 
-def validate_media(path, tools, *, filename=None, full_decode=False):
-    info = probe_media(path, tools, ProbeOptions())
+def validate_media(path, tools, *, filename=None, full_decode=False, probe_options=None):
+    info = probe_media(path, tools, probe_options or ProbeOptions())
     formats = set(info.raw_metadata.get('format', {}).get('format_name', '').split(','))
     if filename is not None and not formats & EXTENSIONS.get(Path(filename).suffix.lower(), set()):
         raise MediaError('format_mismatch', 'actual format does not match the supported filename type')

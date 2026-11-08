@@ -15,7 +15,7 @@ from media_tag.router.models import JobSpec, StepSpec
 from media_tag.storage import IntegrityError, StorageError, UnsafePath
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.workers.evidence import _directory
-from media_tag.workers.probe import MediaError
+from media_tag.workers.probe import MediaError,ProbeOptions
 from .media import EXTENSIONS, validate_media
 from .models import UploadOptions, UploadSpec
 
@@ -174,7 +174,8 @@ class UploadService:
                 raise IntegrityError('complete upload hash or size mismatch')
             source = FilesystemBackend(folder)
             with source.open_verified(name, spec.sha256, spec.size_bytes) as stream:
-                validation = validate_media(Path(stream.name), self.tools, filename=spec.filename)
+                validation = validate_media(Path(stream.name), self.tools, filename=spec.filename,
+                    probe_options=ProbeOptions(max_pixels=self.options.probe_max_pixels))
                 stream.seek(0)
                 blob = self.catalog.object_store.ingest(stream)
             if (blob.sha256, blob.size_bytes) != (spec.sha256, spec.size_bytes):
@@ -215,7 +216,7 @@ class UploadService:
             error, job_id = None, None
             try:
                 versions = Versions(rules_version=f'sha256:{fingerprint}', preprocess_version='d02-cpu-v1')
-                steps = (StepSpec(key='probe', stage='probe', versions=versions),)
+                steps = (StepSpec(key='probe', stage='probe', versions=versions,config={'max_pixels':self.options.probe_max_pixels}),)
                 if event['purpose'] == 'library':
                     steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)
                     for kind in ('ocr', 'face', 'clip'):

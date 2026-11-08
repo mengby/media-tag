@@ -14,6 +14,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="media-tag")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contracts", help="local contract checks and schemas")
+    intake=commands.add_parser('intake',help='read-only local inventory and resumable authenticated batch import')
+    intake.add_argument('action',choices=('scan','apply','status'))
+    intake.add_argument('--source',type=Path)
+    intake.add_argument('--jobs-root',type=Path,default=Path.cwd()/'jobs')
+    intake.add_argument('--batch',type=Path)
+    intake.add_argument('--max-files',type=int,default=10000)
+    intake.add_argument('--limit',type=int)
+    intake_server=intake.add_mutually_exclusive_group()
+    intake_server.add_argument('--local-root',type=Path)
+    intake_server.add_argument('--config',type=Path,help='private editor client settings, not read-only MCP settings')
     editing=commands.add_parser('editing-source',help='explicit new editing jobs and external media-tag acquisition storage')
     editing.add_argument('action',choices=('init-job','search','fetch','validate'))
     editing.add_argument('--config',type=Path,required=True)
@@ -65,6 +75,30 @@ def main(argv=None):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
     args = parser.parse_args(argv)
+    if args.command=='intake':
+        from .intake.models import IntakeError
+        from .intake.inventory import scan
+        from .intake.batch import apply,inspect
+        from .intake.client import IntakeClient,local_settings
+        from .client.http import load_settings
+        try:
+            if args.action=='scan':
+                if args.source is None:raise IntakeError('explicit_source_required')
+                batch,result=scan(args.source.absolute(),args.jobs_root.absolute(),max_files=args.max_files)
+                result.update(batch=str(batch),state='inventoried')
+            else:
+                if args.batch is None:raise IntakeError('explicit_batch_required')
+                settings=local_settings(args.local_root.absolute()) if args.local_root else load_settings(args.config) if args.config else None
+                client=IntakeClient(settings) if settings else None
+                if args.action=='apply':
+                    if client is None:raise IntakeError('explicit_editor_client_required')
+                    result=apply(args.batch.absolute(),client,limit=args.limit,destination_root=args.local_root.absolute() if args.local_root else None)
+                else:result=inspect(args.batch.absolute(),client)
+            print(json.dumps(result,ensure_ascii=True));return 0 if result.get('state')!='partial' else 1
+        except KeyboardInterrupt:
+            print(json.dumps({'error':'intake_interrupted_resume_same_batch'}),file=sys.stderr);return 130
+        except Exception as exc:
+            print(json.dumps({'error':exc.code if isinstance(exc,IntakeError) else 'intake_failed'}),file=sys.stderr);return 2
     if args.command=='editing-source':
         from .client.editing import execute,read
         from .client.http import LibraryClientError

@@ -100,3 +100,5 @@ D07 [离线维护](offline-recovery.md)已实现SQLite备份接口、全部本�
 总控文档确定范围、设计状态和实施顺序；专题保留字段与算法细节；冲突先检查本轮明确修订，不把旧阶段排期重新当作当前主线。
 
 2026-11-08当前电脑落地：EDY Limited登录任务通过项目`.venv`监管loopback API/Worker，以实例锁/挂起创建/命名Job和实际OS退出证据恢复本Worker旧租约；私有data/local保管配置/凭证/数据。Codex全局stdio入口及真实CLI工具/图像/停服恢复已通过，见 [部署](windows-deployment.md) 与 [宿主](codex-host.md)。D20本机真实Codex取材与完整剪辑预览已验证（[说明](real-editing-integration.md)）；正式业务、实际登录触发、连续观看/试听及医学仍按各阶段验收，不修改相邻项目规则。
+
+2026-11-09本地数据入口：`intake scan/apply/status` 在独立批次只读盘点用户源目录；editor客户端通过既有上传/outbox/图库入口导入，服务端不接收任意本地源路径读取请求。清单摘要/源哈希/文件身份绑定、断点与完成幂等、当前权限/成员复验见[说明](local-intake.md)。与正式医学/隐私/词表发布分离，原模板与相邻项目保持原边界。

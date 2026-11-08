@@ -12,7 +12,9 @@ from media_tag.review.policy import index_status
 
 
 class LibraryService:
-    def __init__(self, router, *, people=()):
+    def __init__(self, router, *, people=(),probe_max_pixels=16*1024**2):
+        from media_tag.workers.probe import ProbeOptions
+        self.probe_max_pixels=ProbeOptions(max_pixels=probe_max_pixels).max_pixels
         self.router, self.catalog, self.database = router, router.catalog, router.database
         self.files = FileService(router)
         self.people = frozenset(people)
@@ -93,7 +95,7 @@ class LibraryService:
                     job_id = prior['job_id']
                 else:
                     versions = Versions(rules_version=f'sha256:{fingerprint}', preprocess_version='d02-cpu-v1')
-                    steps = [StepSpec(key='probe', stage='probe', versions=versions),
+                    steps = [StepSpec(key='probe', stage='probe', versions=versions,config={'max_pixels':self.probe_max_pixels}),
                              StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions)]
                     for kind in ('ocr', 'face', 'clip'):
                         definition = self.router.stages.get(kind)
