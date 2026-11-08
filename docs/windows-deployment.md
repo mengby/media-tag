@@ -13,7 +13,7 @@
 | 登录启动任务 | `MediaTag-Local-6cd832eafba7`，EDY登录触发；失败有限重试，忽略重复实例 |
 | 私有数据 | `D:/ai/media-tag/data/local/`：catalog.sqlite3、objects、workspace、logs、backups、restore-tests |
 | 运行配置 | 上述目录的runtime.local.json、instance.json；初始化不会覆盖既有实例或轮换已有凭证 |
-| 人员登录 | 在本机打开页面，使用私有目录owner-token.local.txt中的凭证；凭证不写聊天或Git |
+| 人员登录 | 双击桌面“素材处理”自动建立本人会话；长期凭证仅留私有目录，不手输、不写聊天或Git |
 | AI身份 | 独立reader凭证与reader-client.local.json，仅取材，无上传、修改、审核或发布权限 |
 
 私有目录已修正为实际EDY所有、只授权EDY及SYSTEM，保护继承；不是Codex隔离账户。数据库、媒体、模型缓存、备份、日志、令牌和本机配置继续Git忽略。原六模板与来源文件只读，没有导入正式医学词表、候选数据或业务素材，也未写入相邻`D:/ai/auto-video`。
@@ -56,3 +56,5 @@
 真实独立实例批次 `jobs/d07-local-3ade147c/validation.json`：9次HTTP、真实CPU/OCR/人脸/CLIP CUDA；在GPU租约持有期间杀掉监管器，8个旧后代全部退出后重启，仅中断CLIP重试，旧租约释放及配额清空。CLIP明确记录词表未发布，不伪造标签成功；固定下载/只读拒写/46文件605791字节离线备份还原通过。原图片哈希不变，正式发布、医学/隐私批准均为0。
 
 实际EDY登录任务另见 `jobs/d07-installed-b4e0cd42/validation.json`：启动/停止/重启、1个数据库文件备份/还原，以及真实Codex全局MCP入口的停服错误/恢复后空库查询通过。私有备份路径及摘要见同批次private-backup.json；最后保持服务运行。没有注销当前Windows用户、重启整机、开放防火墙或外网监听；真实登录触发与跨机器、A04/A05/A06/D16及完整I类业务签收仍待后续。
+
+本机人员自动登录已启用，具体使用/安全边界/首次迁移与实际验证见[说明](local-browser-login.md)。普通地址在没有会话时提示使用桌面入口，不自动授予匿名编辑权限。

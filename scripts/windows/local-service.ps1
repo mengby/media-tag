@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('Install','Start','Stop','Status','Remove')][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet('Install','Start','Stop','Status','Remove','Open')][string]$Action,
     [Parameter(Mandatory=$true)][string]$Root
 )
 $ErrorActionPreference = 'Stop'
@@ -29,6 +29,24 @@ if ($Action -eq 'Install') {
         $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $trigger -Principal $principal -Settings $settings -Description $description | Out-Null
     }
+    & $pythonPath -m media_tag local-enable-browser --root $taskRoot | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Local browser setup failed' }
+    $desktop = [Environment]::GetFolderPath('Desktop')
+    $shortcutName = ([string][char]0x7D20) + [char]0x6750 + [char]0x5904 + [char]0x7406 + '.lnk'
+    $shortcutPath = Join-Path $desktop $shortcutName
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $openArguments = '-m media_tag local-open --root "' + $taskRoot + '"'
+    if ((Test-Path -LiteralPath $shortcutPath) -and ($shortcut.TargetPath -ne $pythonwPath -or $shortcut.Arguments -ne $openArguments)) { throw 'Refusing to overwrite an unrelated desktop shortcut' }
+    $shortcut.TargetPath = $pythonwPath
+    $shortcut.Arguments = $openArguments
+    $shortcut.WorkingDirectory = $projectRoot
+    $shortcut.WindowStyle = 7
+    $shortcut.Description = 'media-tag private browser entry ' + $instance.instance_id
+    $shortcut.Save()
+} elseif ($Action -eq 'Open') {
+    & $pythonPath -m media_tag local-open --root $taskRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Local browser open failed' }
 } elseif ($Action -eq 'Start') {
     if (-not $existing) { throw 'Install task first' }
     Start-ScheduledTask -TaskName $taskName

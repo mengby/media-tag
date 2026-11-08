@@ -55,3 +55,5 @@ D19本机实际来源接入见[剪辑端说明](editing-host.md)：E:/asset保�
 [当前电脑部署](windows-deployment.md)：已安装的EDY登录任务、项目`.venv`、私有目录与启停/恢复证据；综合业务签收仍待条件。
 
 [Codex宿主联调](codex-host.md)：实际CLI工具/图像/撤权/停服恢复、全局stdio入口及桌面手动重载边界。
+
+[本机自动登录](local-browser-login.md)：当前用户桌面入口、短期私有交接、原身份/权限与真实浏览器验证。

@@ -51,9 +51,11 @@ class Sessions:
             self.items.pop(sha256(request.cookies.get(COOKIE, '').encode()).hexdigest(), None)
 
 
-def install(app, router, identity, body, credentials, *, uploads, redactions, retiming, reviews=None,search=None):
+def install(app, router, identity, body, credentials, *, uploads, redactions, retiming, reviews=None,search=None,local_browser_login=None):
     sessions = Sessions()
     app.state.ui_sessions = sessions
+    from .local_login import TicketStore,TicketInput
+    local_tickets=TicketStore(local_browser_login) if local_browser_login else None
     people = sorted({p.actor_id for p in credentials.values() if p.role in ('editor','reader','admin')})
     editors = {p.actor_id for p in credentials.values() if p.role in ('editor','admin')}
     library = LibraryService(router, people=people)
@@ -99,6 +101,9 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
 
     @app.post('/ui/session')
     def login(request: Request, principal=Depends(identity)):
+        return session_response(request,principal)
+
+    def session_response(request,principal):
         from fastapi.responses import JSONResponse
         result = who(principal)
         sessions.remove(request)
@@ -107,6 +112,18 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
         response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
                             secure=request.url.scheme == 'https', samesite='strict', path='/')
         return response
+
+    @app.get('/ui/login-options')
+    def login_options():
+        return {'local_browser_login':local_tickets is not None}
+
+    @app.post('/ui/local-session')
+    async def local_session(request: Request):
+        if local_tickets is None or not local_tickets.allows(request):raise HTTPException(403,'local browser entry required')
+        submitted=await body(request,TicketInput)
+        try:principal=local_tickets.consume(submitted.ticket,credentials)
+        except Exception:raise HTTPException(401,'local browser login expired or unavailable') from None
+        return session_response(request,principal)
 
     @app.get('/ui/session')
     def current(principal=Depends(identity)):

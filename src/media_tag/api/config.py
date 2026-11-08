@@ -32,6 +32,7 @@ from media_tag.terminology.embedding.registry import BGERegistry
 from media_tag.workers.terminology import terminology_stages,TerminologyHandlers
 from media_tag.search.models import SearchOptions
 from media_tag.search.service import SearchService
+from media_tag.web.local_login import LocalBrowserLogin
 
 
 class LocalConfig(ContractModel):
@@ -49,6 +50,7 @@ class LocalConfig(ContractModel):
     redaction: RedactionDeployment = RedactionDeployment()
     retime: RetimeDeployment = RetimeDeployment()
     web_enabled: bool = False
+    local_browser_login: LocalBrowserLogin | None = None
     review: ReviewDeployment = ReviewDeployment()
     terminology: TerminologyDeployment = TerminologyDeployment()
     text: ResolveOptions = ResolveOptions()
@@ -110,7 +112,8 @@ def load_application(path: Path):
     resolver=Resolver(terminology,config.text) if config.text.enabled else None
     if config.search.enabled and resolver is None:raise ValueError('search requires enabled text resolution')
     search=SearchService(resolver,reviews=reviews,options=config.search) if config.search.enabled else None
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search)
+    if config.local_browser_login is not None and not config.web_enabled:raise ValueError('local browser login requires web UI')
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login)
     return app, router, tools
 
 

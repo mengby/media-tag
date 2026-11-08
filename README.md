@@ -50,3 +50,5 @@ asset-index-template/ 由用户本地提供，整个目录忽略Git；早期提�
 [D07离线维护](docs/offline-recovery.md)提供备份/校验/隔离还原CLI，真实本机恢复后HTTP/BGE、素材值/权限/版本/配对已验证；当前电脑常驻服务已落地，实际登录触发及业务综合签收仍待条件。
 
 2026-11-08后续：用户已确定当前电脑与Codex，[D07本机部署](docs/windows-deployment.md)已安装EDY登录自启动任务，页面为 http://127.0.0.1:8765/ui/ ，数据/凭证在私有`data/local/`；[D18 Codex CLI宿主](docs/codex-host.md)已完成实际4工具/图像/撤权及停服恢复验证。当前桌面会话的MCP连接重载按说明手动执行；D19实际剪辑来源接入现已验证；正式医学词表/业务及D20真实剪辑完整预览仍待后续。
+
+本机人员界面现支持桌面“素材处理”入口自动登录，无需手工token；会话与权限保持原绑定。过期或重启后从该入口重新打开，见[本机登录](docs/local-browser-login.md)。

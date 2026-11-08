@@ -16,7 +16,7 @@
 & .\.venv\Scripts\python.exe -m media_tag work-once --config config/YOUR.local.json --worker-id YOUR_WORKER_ID
 ```
 
-使用已有配置中显式绑定的editor/admin/reader凭证；没有默认用户或通用token。登录后原凭证输入立即清空，服务器发放随机HttpOnly、SameSite=Strict会话Cookie，最长8小时；HTTPS使用Secure，当前CLI仅loopback HTTP。服务重启使会话失效；退出会销毁会话并清空页面中的源帧、媒体、选择及上传表单。偏好存储只保存按人员区分的画廊/列表模式。
+当前电脑已增加[本机自动登录](local-browser-login.md)，从桌面入口建立原身份会话，无需手输token。其他部署仍使用已有配置中显式绑定的editor/admin/reader凭证；没有默认用户或通用token。登录后原凭证输入立即清空，服务器发放随机HttpOnly、SameSite=Strict会话Cookie，最长8小时；HTTPS使用Secure，当前CLI仅loopback HTTP。服务重启使会话失效；退出会销毁会话并清空页面中的源帧、媒体、选择及上传表单。偏好存储只保存按人员区分的画廊/列表模式。
 
 媒体由同源Cookie请求，支持浏览器原生video/audio/img及Range；不把凭证放进URL或JavaScript持久存储。不提供公共媒体静态目录。Cookie写操作要求同源Origin，跨站请求拒绝；CSP禁止外部脚本和内嵌页面，文件仍逐对象、哈希及来源链校验。生产TLS、受限账号、反向代理及常驻Worker留D07，当前未部署。
 

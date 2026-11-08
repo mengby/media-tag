@@ -40,7 +40,7 @@ def main(argv=None):
         recovery.add_argument('--source',type=Path,required=True)
         recovery.add_argument('--manifest-sha256',required=True)
         if name=='restore-offline':recovery.add_argument('--destination',type=Path,required=True)
-    for name in ('local-init','local-run','local-status','local-stop','local-child'):
+    for name in ('local-init','local-run','local-status','local-stop','local-child','local-enable-browser','local-open'):
         local=commands.add_parser(name,help='explicit current-user Windows loopback deployment management')
         local.add_argument('--root',type=Path,required=True)
         if name=='local-init':
@@ -81,16 +81,22 @@ def main(argv=None):
             return 2
     if args.command.startswith('local-'):
         from .deployment.local import DeploymentError,initialize,supervise,status,stop,child
+        from .deployment.browser import enable_browser,open_browser
         try:
             if args.command=='local-run':return supervise(args.root)
             if args.command=='local-child':child(args.root,args.generation,args.kind);return 0
-            if args.command=='local-init':result=initialize(args.root,args.project,port=args.port,vision=not args.without_vision)
+            if args.command=='local-open':result=open_browser(args.root)
+            elif args.command=='local-enable-browser':result=enable_browser(args.root)
+            elif args.command=='local-init':result=initialize(args.root,args.project,port=args.port,vision=not args.without_vision)
             elif args.command=='local-status':result=status(args.root)
             else:result=stop(args.root)
             if sys.stdout is not None:print(json.dumps(result,ensure_ascii=True))
             return 0
         except Exception as exc:
             if sys.stderr is not None:print(json.dumps({'error':str(exc) if isinstance(exc,DeploymentError) else 'local_deployment_failed'}),file=sys.stderr)
+            elif args.command=='local-open' and sys.platform=='win32':
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(None,'素材服务暂未就绪，或当前账号无权打开。请稍后通过本机入口重试。','素材处理',0x10)
             return 2
     if args.command in ('backup-offline','verify-backup','restore-offline'):
         from .maintenance.backup import RecoveryError,snapshot,restore,verify_backup

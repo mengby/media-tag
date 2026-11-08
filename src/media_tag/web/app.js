@@ -10,17 +10,20 @@ const label=s=>states[s]||s;
 if(typeof document!=='undefined')start();
 
 function start(){
+const localTicket=new URLSearchParams(location.hash.slice(1)).get('local-login');
+if(location.hash.startsWith('#local-login='))history.replaceState(null,'',location.pathname+location.search);
+let localLogin=false;
 const $=id=>document.getElementById(id),el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 let sessionEpoch=0,processGeneration=0,reviewUI,searchUI,libraryGeneration=0;
 let person=null,page='library',mode='gallery',groups=[],selected=null,source=null,sourceRows=[],scan=null,edits=[],keys=[],box=null,frameImage=null,frameEpoch=0,output=null,currentJob=null,uploadPurpose='library',uploadStop=false,enrollContext=null,reviewContext=null,selectEpoch=0,sourceEpoch=0,pollBusy=false,noticeTimer;
 const requestId=()=>crypto.randomUUID();
-async function api(path,options={}){const epoch=sessionEpoch;const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options,headers:{...(options.body&&typeof options.body==='string'?{'Content-Type':'application/json'}:{}),...options.headers}});if(epoch!==sessionEpoch)throw Error('会话已切换');if(!response.ok){let data;try{data=await response.json();}catch{}if(response.status===401){clearSession();throw Error('会话已失效，请重新登录');}const reason=data?.error?.code||data?.code||(typeof data?.detail==='string'?data.detail:JSON.stringify(data?.detail||''));throw Error(`${response.status} · ${reason||'请求失败，请刷新后重试'}`);}const result=response.status===204?null:await response.json();if(epoch!==sessionEpoch)throw Error('会话已切换');return result;}
+async function api(path,options={}){const epoch=sessionEpoch;const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options,headers:{...(options.body&&typeof options.body==='string'?{'Content-Type':'application/json'}:{}),...options.headers}});if(epoch!==sessionEpoch)throw Error('会话已切换');if(!response.ok){let data;try{data=await response.json();}catch{}if(response.status===401){clearSession();throw Error(localLogin?'会话已失效，请从桌面“素材处理”入口重新打开':'会话已失效，请重新登录');}const reason=data?.error?.code||data?.code||(typeof data?.detail==='string'?data.detail:JSON.stringify(data?.detail||''));throw Error(`${response.status} · ${reason||'请求失败，请刷新后重试'}`);}const result=response.status===204?null:await response.json();if(epoch!==sessionEpoch)throw Error('会话已切换');return result;}
 const post=(path,data={})=>api(path,{method:'POST',body:JSON.stringify(data)});
 function notify(message){$('notice').textContent=message;$('notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').hidden=true,10000);}
 function guard(fn){return async event=>{try{await fn(event);}catch(error){notify(error.message);}};}
 function button(text,fn,cls){const n=el('button',text,cls);n.type='button';n.addEventListener('click',guard(fn));return n;}
 function mediaUrl(asset,review=null,download=false){return `/ui/media/${encodeURIComponent(asset.asset_id)}?sha256=${asset.sha256}${review?'&review='+review:''}${download?'&download=true':''}`;}
-function clearSession(){reviewUI?.reset();searchUI?.reset();libraryGeneration++;sessionEpoch++;uploadStop=true;person=null;groups=[];sourceRows=[];selected=null;source=null;output=null;scan=null;currentJob=null;selectEpoch++;sourceEpoch++;frameEpoch++;$('workspace').hidden=true;$('login').hidden=false;$('logout').hidden=true;$('actor').textContent='未登录';$('credential').value='';$('collection').replaceChildren();$('details').replaceChildren();$('details').hidden=true;$('track-editor').hidden=true;frameImage=null;box=null;edits=[];keys=[];$('frame').getContext('2d').clearRect(0,0,$('frame').width,$('frame').height);for(const id of ['search','source-label','source-reference','resume-upload','upload-files'])$(id).value='';$('mine').checked=false;$('review-only').checked=false;$('upload-state').textContent='';$('risks').textContent='';$('task-list').replaceChildren();$('source').replaceChildren(el('option','选择工作素材或库内视频'));clearVideo();for(const dialog of document.querySelectorAll('dialog'))dialog.close();}
+function clearSession(){reviewUI?.reset();searchUI?.reset();libraryGeneration++;sessionEpoch++;uploadStop=true;person=null;groups=[];sourceRows=[];selected=null;source=null;output=null;scan=null;currentJob=null;selectEpoch++;sourceEpoch++;frameEpoch++;$('workspace').hidden=true;$('login').hidden=false;$('login-form').hidden=localLogin;$('local-login-status').hidden=!localLogin;$('logout').hidden=true;$('actor').textContent='未登录';$('credential').value='';$('collection').replaceChildren();$('details').replaceChildren();$('details').hidden=true;$('track-editor').hidden=true;frameImage=null;box=null;edits=[];keys=[];$('frame').getContext('2d').clearRect(0,0,$('frame').width,$('frame').height);for(const id of ['search','source-label','source-reference','resume-upload','upload-files'])$(id).value='';$('mine').checked=false;$('review-only').checked=false;$('upload-state').textContent='';$('risks').textContent='';$('task-list').replaceChildren();$('source').replaceChildren(el('option','选择工作素材或库内视频'));clearVideo();for(const dialog of document.querySelectorAll('dialog'))dialog.close();}
 function clearVideo(){$('video').pause();$('video').removeAttribute('src');$('video').load();$('output-actions').hidden=true;}
 function invalidateOutput(){processGeneration++;currentJob=null;if(output)$('preview-title').textContent='此前输出（设置已改变，请重新生成）';output=null;$('output-actions').hidden=true;$('review-dialog').close();$('enroll-dialog').close();}
 function showPage(next){page=next;for(const id of ['library','process','tasks','review','terms'])$(id).hidden=id!==next;for(const b of document.querySelectorAll('[data-page]'))b.classList.toggle('active',b.dataset.page===next);$('breadcrumb').textContent='工作空间 / '+({library:'素材库',process:'视频处理',tasks:'我的任务',review:'标签复核与导出',terms:'术语词表'}[next]);if(next==='tasks')refreshTasks().catch(e=>notify(e.message));if(next==='process')refreshSources().catch(e=>notify(e.message));}
@@ -72,5 +75,14 @@ $('enroll-output').addEventListener('click',guard(()=>openEnroll(output)));$('re
 setInterval(()=>{if(!person)return;poll().catch(e=>{currentJob=null;notify(e.message);});if(page==='tasks')refreshTasks().catch(e=>notify(e.message));},4000);
 reviewUI=installReviewUI({api,post,notify,getPerson:()=>person,onAsset:ctx=>searchUI?.reviewAsset(ctx)});
 searchUI=installSearchUI({api,post,notify,getPerson:()=>person,refreshLibrary,showPage});
-api('/ui/session').then(connected).catch(()=>{}).finally(()=>{document.documentElement.dataset.ready='true';});
+(async()=>{
+  try{
+    const options=await api('/ui/login-options');localLogin=options.local_browser_login;
+    $('login-form').hidden=localLogin;$('local-login-status').hidden=!localLogin;
+    $('login-intro').textContent=localLogin?'使用本机工作空间，无需手动输入凭证。':'使用管理员分配的人员访问凭证登录。';
+    const data=localTicket?await post('/ui/local-session',{ticket:localTicket}):await api('/ui/session');
+    await connected(data);
+  }catch(error){if(localTicket)notify('本机登录链接已失效，请从桌面“素材处理”入口重新打开。');}
+  finally{document.documentElement.dataset.ready='true';}
+})();
 }
