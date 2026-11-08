@@ -71,7 +71,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):
         if request.url.path.startswith('/v1/'):
-            code = 'authentication_required' if exc.status_code == 401 else 'route_unavailable'
+            code = {401:'authentication_required',413:'request_body_too_large',422:'invalid_request'}.get(exc.status_code,'route_unavailable')
             return JSONResponse(FileError(exc.status_code, code).payload(), status_code=exc.status_code, headers=exc.headers)
         return await http_exception_handler(request, exc)
 
@@ -131,6 +131,15 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     async def media_error(request, exc):
         return JSONResponse({'detail': 'media validation failed', 'code': exc.code}, status_code=422)
 
+    @app.get('/v1/capabilities')
+    def capabilities(principal=Depends(identity)):
+        files._role(principal)
+        search_enabled=getattr(app.state,'asset_search',None) is not None
+        return {'schema_version':'d17-api-v1','search_enabled':search_enabled,'search_contract':'/v1/search-contract' if search_enabled else None,
+            'fixed_version_files':True,'single_range':True,'native_whole_file_preview':True,'bounded_playback_manifest':True,
+            'read_only_identity':principal.role=='reader','authorization_scope':'explicit asset access and privacy lineage',
+            'current_use_review':'not_checked'}
+
     @app.get('/v1/assets/{asset_id}')
     def asset_details(asset_id: Identifier, principal=Depends(identity)):
         return files.details(asset_id, principal=principal)
@@ -140,8 +149,13 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         return files.download_manifest(asset_id, sha256, principal=principal)
 
     @app.get('/v1/assets/{asset_id}/preview-manifest')
-    def preview_manifest(asset_id: Identifier, sha256: Sha256, principal=Depends(identity)):
-        return files.preview_manifest(asset_id, sha256, principal=principal)
+    def preview_manifest(asset_id: Identifier, sha256: Sha256,start_seconds:float|None=None,end_seconds:float|None=None, principal=Depends(identity)):
+        playback=None
+        if start_seconds is not None or end_seconds is not None:
+            from media_tag.files.models import PlaybackInterval
+            try:playback=PlaybackInterval(start_seconds=start_seconds,end_seconds=end_seconds)
+            except ValidationError:raise FileError(422,'invalid_playback_interval') from None
+        return files.preview_manifest(asset_id, sha256, principal=principal,playback=playback)
 
     @app.api_route('/v1/assets/{asset_id}/content', methods=['GET', 'HEAD'])
     async def content(asset_id: Identifier, sha256: Sha256, request: Request, principal=Depends(identity)):

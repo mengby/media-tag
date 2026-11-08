@@ -2,7 +2,7 @@
 
 ## 当前范围
 
-本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D04、D06、D09～D15已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17语义检索/整体验收仍未完成；D04真实OCR/人脸/CLIP Worker及本机CUDA验证见 `docs/model-workers.md`；D12人员处理页与主动入库已实现（`docs/personnel-ui.md`），D06字段复核/CSV已接入（`docs/review-csv.md`），D15检索已接入，整体验收仍待业务资料；目前没有常驻服务部署，正式词表/代表性校准与医学验收未完成。本机六份原始模板已齐并绑定摘要，D13发布机制已实现，完整医学分类词表仍待Q03实际管理人审核发布；服务器和存储部署位置仍按用户选定方案执行。
+本项目负责素材登记、技术信息提取、AI 标签初稿、人工修订、表格导出及后续飞书同步。D00～D04、D06、D09～D15及D17已完成工程验收，见 `docs/catalog-storage.md`、`docs/media-evidence.md`、`docs/router-queue.md`、`docs/upload-variants.md`。已有持久化Router/队列、HTTP上传/控制、衍生契约、本地CPU执行，以及D17授权文件/预览/下载基础接口（`docs/file-access.md`）；D17公共分页检索/筛选/固定版本接口已实现（`docs/asset-search-api.md`），真实宿主/跨端业务验收未完成；D04真实OCR/人脸/CLIP Worker及本机CUDA验证见 `docs/model-workers.md`；D12人员处理页与主动入库已实现（`docs/personnel-ui.md`），D06字段复核/CSV已接入（`docs/review-csv.md`），D15检索已接入，整体验收仍待业务资料；目前没有常驻服务部署，正式词表/代表性校准与医学验收未完成。本机六份原始模板已齐并绑定摘要，D13发布机制已实现，完整医学分类词表仍待Q03实际管理人审核发布；服务器和存储部署位置仍按用户选定方案执行。
 
 2026-11-07起总控入口为 `docs/REQUIREMENTS.md`、`docs/ARCHITECTURE.md`、`docs/IMPLEMENTATION_PLAN.md`、`docs/PROGRESS.md`，分别维护范围、设计、当前任务顺序和实际状态。保留D00～D20及A/T/I编号；专题中的早期阶段/工期不替代当前实施计划。候选表、模拟交互和任务卡不算对应功能已完成。
 

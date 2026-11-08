@@ -10,6 +10,26 @@ class SearchOptions(ContractModel):
     max_assets: Annotated[int,Field(strict=True,ge=1,le=50000)]=5000
 
 
+class AssetFilters(ContractModel):
+    media_kinds: Annotated[tuple[Literal['image','gif','animation','video','audio'],...],Field(max_length=5)]=()
+    format_names: Annotated[tuple[Annotated[str,Field(pattern=r'^[a-z0-9_]{1,64}$')],...],Field(max_length=20)]=()
+    min_file_duration_seconds: Annotated[float,Field(ge=0,le=864000)] | None=None
+    max_file_duration_seconds: Annotated[float,Field(ge=0,le=864000)] | None=None
+    min_display_width: Annotated[int,Field(strict=True,ge=1,le=65535)] | None=None
+    min_display_height: Annotated[int,Field(strict=True,ge=1,le=65535)] | None=None
+    has_audio: bool | None=None
+    has_transparent_pixels: bool | None=None
+    usages: Annotated[tuple[Annotated[str,Field(min_length=1,max_length=200)],...],Field(max_length=20)]=()
+    exclude_asset_ids: Annotated[tuple[Identifier,...],Field(max_length=100)]=()
+    require_redacted: bool=False
+
+    @model_validator(mode='after')
+    def duration_range(self):
+        if self.min_file_duration_seconds is not None and self.max_file_duration_seconds is not None and self.min_file_duration_seconds>self.max_file_duration_seconds:
+            raise ValueError('file duration range inverted')
+        return self
+
+
 class SearchRequest(ContractModel):
     request: ResolveInput
     selected_concept_ids: Annotated[tuple[Identifier,...],Field(max_length=20)]=()
@@ -20,6 +40,9 @@ class SearchRequest(ContractModel):
     workspace: bool=False
     limit: Annotated[int,Field(strict=True,ge=1,le=50)]=30
     cursor: Annotated[str,Field(max_length=2048)]=''
+    filters: AssetFilters=AssetFilters()
+    prefer_confirmed: bool=False
+    request_context_sha256: Sha256 | None=None
 
 
 class ConceptLink(ContractModel):

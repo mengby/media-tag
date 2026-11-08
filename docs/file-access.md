@@ -61,6 +61,8 @@ HTTP 行为依据：[RFC 9110 条件请求与 Range](https://www.rfc-editor.org/
 
 真实六模板批次：`jobs/d17-files-validation-20261107-e6992419/validation.json`。实际 loopback 上传/重启续传→自动 probe/evidence→reader 清单→两次 Range 下载/拼接/原子落盘→完整 SHA256/FFmpeg 解码；3 张 PNG 哈希、HEAD、304、只读拒写、撤权后拒绝旧清单均通过。原件未变，metadata revision 仅因明确的测试授权/撤权从 1→3。媒体/数据库/报告/凭证摘要配置忽略 Git，原 token 只在验证进程内存。
 
-D17 整项仍待 D15 语义检索/分页和完整 I 验收；D18/MCP、D19 剪辑适配、D20 跨机器/宿主联调未做。TLS/受限账户/常驻服务和容量恢复留 D07，D10已实现绑定哈希的隐私输出复核核心，业务全片复查仍待指定人员。本轮不修改相邻项目的取材、预览或导出规则。
+D17语义检索/分页现已实现（[公共API](asset-search-api.md)），完整跨端 I 类业务验收仍待后续；D18/MCP、D19 剪辑适配、D20 跨机器/宿主联调未做。TLS/受限账户/常驻服务和容量恢复留 D07，D10已实现绑定哈希的隐私输出复核核心，业务全片复查仍待指定人员。本轮不修改相邻项目的取材、预览或导出规则。
 
 D12新增[同源人员页](personnel-ui.md)及HttpOnly会话访问`/ui/media`、`/ui/thumbnail`，继续复用本文件服务的Range、哈希和隐私来源链；不会回退未处理源帧。既有Bearer接口继续可用。
+
+2026-11-08：新增受授权的 /v1/capabilities、/v1/search-contract 与 POST /v1/assets/search；preview-manifest 增加有限的 start_seconds/end_seconds 播放区间声明，仍传输固定完整文件，不生成假裁片或观看记录。技术投影增加实际格式、透明像素、codec与平均帧率，未知不补造；见 [D17公共API](asset-search-api.md)。

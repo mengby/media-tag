@@ -16,6 +16,7 @@ from media_tag.terminology.contracts import normalize
 from media_tag.terminology.lexicon.service import fingerprint
 from media_tag.terminology.resolve.matching import exact_matches,intent
 from media_tag.web.service import LibraryService
+from media_tag.terminology.resolve.models import QueryInputError
 
 
 def concept_fingerprint(concept):
@@ -140,10 +141,12 @@ class SearchService:
             last=data['last']
             if not isinstance(last,list) or len(last)!=2 or type(last[0]) is not int or not isinstance(last[1],str):raise ValueError()
             return tuple(last)
-        except (ValueError,KeyError,TypeError):raise ValueError('invalid search cursor') from None
+        except (ValueError,KeyError,TypeError):raise QueryInputError('invalid search cursor') from None
 
     def search(self,spec,*,principal,trial=None):
         self._reader(principal)
+        from .filters import validate_filters,passes
+        validate_filters(self,spec.filters)
         if trial is None:
             resolution=self.resolver.resolve(spec.request.model_copy(update={'use_model':False}) if spec.literal_only else spec.request,principal=principal)
             versions=resolution.get('versions')
@@ -160,7 +163,7 @@ class SearchService:
             resolution={'state':state,'query':spec.request.query,'literal_query':spec.request.query,'candidates':valid,'matches':matches,
                         'errors':errors,'model_state':'not_used_for_draft','versions':versions,'draft_trial':True}
         concepts={con.entry_id:con for con in lexicon.concepts if con.status=='active'} if lexicon else {}
-        if len(set(spec.selected_concept_ids))!=len(spec.selected_concept_ids) or not set(spec.selected_concept_ids)<=concepts.keys():raise ValueError('select active published concepts')
+        if len(set(spec.selected_concept_ids))!=len(spec.selected_concept_ids) or not set(spec.selected_concept_ids)<=concepts.keys():raise QueryInputError('select active published concepts')
         selected=set(spec.selected_concept_ids)
         if selected and (spec.literal_only or not versions or spec.selection_lexicon_release_id!=versions['lexicon_release_id']):raise RevisionConflict('selected concept version changed; choose again')
         if not selected and not spec.literal_only and resolution['state']=='resolved':selected={m['concept_id'] for m in resolution['candidates'] if m['default_expand']}
@@ -177,11 +180,18 @@ class SearchService:
         simple=meaning['polarity']=='affirmed' and meaning['direction'] in ('unspecified','static') and not meaning['uncertain']
         expansions=[(cid,normalize(concepts[cid].name)) for cid in selected] if simple else []
         option_lookup={o.entry_id:o for o in taxonomy.options if o.status=='active'} if taxonomy else {}
+        filters=spec.filters
+        technical_filters=bool(filters.media_kinds or filters.format_names or any(v is not None for v in (
+            filters.min_file_duration_seconds,filters.max_file_duration_seconds,filters.min_display_width,
+            filters.min_display_height,filters.has_audio,filters.has_transparent_pixels)))
         results=[]
         with self.database.transaction(write=True) as c:
             rows=self._visible(c,principal,spec)
             for asset in rows:
                 document=self._document(c,asset,versions['taxonomy_release_id'] if versions else None);reasons=[]
+                if asset['asset_id'] in filters.exclude_asset_ids:continue
+                technical=self.files._technical(c,asset) if technical_filters else None
+                if not passes(self,c,asset,document,technical or {},filters):continue
                 context=spec.request.context
                 if any(ids and not any(oid in option_lookup and any(f['field']==field and option_lookup[oid].value in f['values']
                     for f in document['medical_fields']) for oid in ids) for field,ids in (('科室',context.departments),('器官/系统',context.organs))):continue
@@ -215,11 +225,16 @@ class SearchService:
                             reasons.append(draft|{'kind':'ai_draft','score':30,'medical_evidence':False})
                 if (context.polarity!='unspecified' or context.direction!='unspecified') and not any(r['kind']=='human_concept' for r in reasons):continue
                 if not reasons:continue
+                if technical is None:technical=self.files._technical(c,asset)
                 score=max(r['score'] for r in reasons)
+                status=index_status(c,asset,getattr(self.catalog,'review_policy',None))
+                if spec.prefer_confirmed:
+                    if status=='confirmed':score+=300
+                    elif any(r['kind'] in ('human_text','human_classification','human_concept') for r in reasons):score+=200
                 results.append({'root_asset_id':asset['root_asset_id'],'score':score,'asset':{'asset_id':asset['asset_id'],'name':asset['name'],
                     'sha256':asset['blob_sha256'],'revision':asset['revision'],'kind':asset['kind'],'mine':asset['owner_id']==principal.actor_id,
-                    'file_access':'authorized','analysis':self.library._analysis(c,asset['asset_id']),'technical':self.files._technical(c,asset),
-                    'index_status':index_status(c,asset,getattr(self.catalog,'review_policy',None)),'reasons':reasons}})
+                    'file_access':'authorized','analysis':self.library._analysis(c,asset['asset_id']),'technical':technical,
+                    'index_status':status,'ranking_score':score,'reasons':reasons}})
             grouped={}
             for result in results:
                 root=result['root_asset_id'];group=grouped.setdefault(root,{'root_asset_id':root,'score':0,'versions':[]})
@@ -229,7 +244,7 @@ class SearchService:
             scope_versions={key:value for key,value in (versions or {}).items() if key not in ('published_generation','vocabulary_generation')}
             scope=fingerprint({'actor':principal.actor_id,'role':principal.role,'request':spec.model_dump(mode='json',exclude={'cursor'}),'versions':scope_versions,'dataset':dataset})
             after=self._after(spec.cursor,scope)
-            for group in grouped.values():group['versions'].sort(key=lambda asset:(max(r['score'] for r in asset['reasons']),asset['asset_id']))
+            for group in grouped.values():group['versions'].sort(key=lambda asset:(asset['ranking_score'],asset['asset_id']))
             ordered=sorted(grouped.values(),key=lambda group:(-group['score'],group['root_asset_id']))
             if after:ordered=[g for g in ordered if (-g['score'],g['root_asset_id'])>after]
             page=ordered[:spec.limit];next_cursor=self._cursor(scope,[-page[-1]['score'],page[-1]['root_asset_id']]) if len(ordered)>spec.limit else None

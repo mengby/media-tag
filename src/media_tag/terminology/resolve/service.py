@@ -12,7 +12,7 @@ from media_tag.terminology.embedding.registry import BGERegistry
 from media_tag.terminology.embedding.process import ProcessEncoder
 from media_tag.terminology.lexicon.service import fingerprint
 from .matching import exact_matches,concept_documents,intent,NEGATIVE
-from .models import PREPROCESS_VERSION,MATCH_VERSION
+from .models import PREPROCESS_VERSION,MATCH_VERSION,QueryInputError
 
 
 class Resolver:
@@ -77,7 +77,7 @@ class Resolver:
         allowed_options={o.entry_id:o for o in taxonomy.options if o.status=='active'}
         for field,label in (('departments','科室'),('organs','器官/系统')):
             if any(oid not in allowed_options or allowed_options[oid].field!=label for oid in getattr(request.context,field)):
-                raise ValueError('context must reference the bound published taxonomy')
+                raise QueryInputError('context must reference the bound published taxonomy')
         key=fingerprint({'actor':principal.actor_id,'role':principal.role,'input':request.model_dump(mode='json'),'versions':versions,
                          'threshold':self.options.min_cosine,'margin':self.options.min_margin,'model_enabled':self.options.model_enabled})
         # Verify files BEFORE a cache hit, so removal/corruption cannot hide behind cache.

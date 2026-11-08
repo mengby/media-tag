@@ -1,6 +1,7 @@
 """Read-only file policy, manifests and preview selection from adopted D02 evidence."""
 
 from hashlib import sha256
+from fractions import Fraction
 import json
 import os
 
@@ -196,6 +197,15 @@ class FileService:
                     break
         keys = ('kind', 'width', 'height', 'display_width', 'display_height', 'duration_seconds', 'start_seconds', 'has_audio')
         technical = {key: data.get(key) for key in keys}
+        technical['has_transparent_pixels']=data.get('transparency',{}).get('has_transparent_pixels')
+        formats=data.get('raw_metadata',{}).get('format',{}).get('format_name','')
+        technical['format_names']=[v for v in formats.split(',') if v and len(v)<=64]
+        video=next((s for s in data.get('raw_metadata',{}).get('streams',[]) if s.get('codec_type')=='video' and not s.get('disposition',{}).get('attached_pic')),None)
+        technical['video_codec']=video.get('codec_name') if video else None
+        try:
+            fps=float(Fraction(video.get('avg_frame_rate','0/1'))) if video else None
+            technical['frame_rate']=fps if fps is not None and 0<fps<=10000 else None
+        except (ValueError,TypeError,ZeroDivisionError,OverflowError):technical['frame_rate']=None
         technical['report_state'] = report_state
         technical['audio_streams'] = [{'index':s['index'], 'codec':s.get('codec_name'),
                                       'language':s.get('tags',{}).get('language')} for s in
@@ -338,13 +348,21 @@ class FileService:
                 raise FileError(503, 'preview_format_invalid') from None
             raise
 
-    def preview_manifest(self, asset_id, expected_sha, *, principal):
+    def preview_manifest(self, asset_id, expected_sha, *, principal,playback=None):
         opened = self.open(asset_id, expected_sha, principal=principal)
         try:
             with self.database.transaction() as connection:
                 records, state = self._previews(connection, asset_id, expected_sha)
                 asset = self._asset(connection, asset_id, expected_sha, principal)
                 technical = self._technical(connection, asset)
+            requested=None
+            if playback is not None:
+                basis=technical['time_basis'];duration=basis['duration_seconds'];origin=basis['normalization_origin_seconds']
+                if duration is None or origin is None:raise FileError(409,'playback_clock_unavailable')
+                if playback.end_seconds>duration:raise FileError(422,'playback_outside_version')
+                requested=playback.model_dump(mode='json')|{'interval':'half_open','asset_id':asset_id,'sha256':expected_sha,
+                    'time_basis':basis,'whole_file_bytes':True,'server_clip_generated':False,'actual_playback_not_attested':True}
+                records=[r for r in records if r['source_seconds'] is not None and playback.start_seconds<=r['source_seconds']-origin<playback.end_seconds]
             resources = []
             for record in records:
                 preview = self.open_preview(asset_id, expected_sha, record['preview_id'], record['artifact'].sha256, principal=principal)
@@ -360,9 +378,11 @@ class FileService:
                 resources.insert(0, dict(kind='source_media', sha256=expected_sha, size_bytes=opened.size, media_type=opened.mime,
                     content=self._entry(asset_id, expected_sha, 'preview-content'), time_map={'kind': 'identity', 'version_sha256': expected_sha},
                     time_basis=technical['time_basis'], compatibility='client_dependent', whole_file=True))
+            status_query=self._entry(asset_id,expected_sha,'preview-manifest')
+            if playback is not None:status_query+=f'&start_seconds={playback.start_seconds}&end_seconds={playback.end_seconds}'
             return dict(schema_version=SCHEMA, asset_id=asset_id, source_sha256=expected_sha, resources=resources,
                         state='ready' if inline or resources else state, thumbnail_state=state,
                         reason=None if resources else 'no_visual_preview' if state == 'not_applicable' else f'preview_{state}',
-                        status_query=self._entry(asset_id, expected_sha, 'preview-manifest'), full_video_observed=False)
+                        status_query=status_query, requested_playback=requested, full_video_observed=False)
         finally:
             opened.close()

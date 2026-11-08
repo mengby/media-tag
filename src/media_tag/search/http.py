@@ -12,6 +12,21 @@ from .models import SearchRequest,ConceptLink,RevokeLink,Feedback,FeedbackRevisi
 
 def install(app,search,identity,body):
     app.state.search=search;terms=search.terminology
+    from .public import AssetSearch,AssetSearchService
+    public=AssetSearchService(search);app.state.asset_search=public
+
+    @app.get('/v1/search-contract')
+    def search_contract(principal=Depends(identity)):
+        search.files._role(principal)
+        return {'schema_version':'d17-search-v1','request_schema':AssetSearch.model_json_schema(),
+            'method':'POST','endpoint':'/v1/assets/search','ranking_unit':'one fixed default version per root',
+            'cursor_semantics':'signed actor/request/versions/dataset bound; restart or changed scope requires first page',
+            'errors_schema':'d17-files-v1','current_use_review':'not_checked'}
+
+    @app.post('/v1/assets/search')
+    async def search_assets(request:Request,principal=Depends(identity)):
+        spec=await body(request,AssetSearch)
+        return await run_in_threadpool(public.query,spec,principal=principal)
 
     @app.post('/search/query')
     async def query(request:Request,principal=Depends(identity)):

@@ -8,6 +8,10 @@ PREPROCESS_VERSION='d14-cls-l2-v1'
 MATCH_VERSION='d14-conservative-v1'
 
 
+class QueryInputError(ValueError):
+    """A bounded caller query error, distinct from corrupt server metadata."""
+
+
 class ResolveInput(ContractModel):
     query: Annotated[str,Field(min_length=1,max_length=2000,pattern=r'\S')]
     purpose: Literal['search','tag']='search'
