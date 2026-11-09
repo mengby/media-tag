@@ -1,0 +1,10 @@
+{
+  "package": "media-contracts",
+  "version": "0.1.0",
+  "protocol_version": "media-publication-v1",
+  "wheel": "media_contracts-0.1.0-py3-none-any.whl",
+  "wheel_sha256": "6e0d5ce186ad36c88d2243166a2f81ebff7b96e512cadab8e780a7d2b1ad9043",
+  "source_date_epoch": 1794225600,
+  "provider": "media-cloud",
+  "compatibility": "publication/query first slice; no model query encoder, intake or processing protocol yet"
+}

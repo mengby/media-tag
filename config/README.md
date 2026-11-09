@@ -1,5 +1,7 @@
 # 本地 Router 配置
 
+M-006双仓共享契约制品锁见`media-contracts.lock.json`，记录提供方、精确版本与wheel SHA256；它不包含运行凭证。发布器的显式私有配置和命令见`docs/cloud-publication.md`。原Router配置不用于启动media-cloud。
+
 `*.local.*` 已被忽略。实际根目录、数据库位置及 bearer 凭证摘要只放本地文件；
 不从相邻项目读取 `.env`。使用独立随机 token，将其 SHA256（十六进制）映射到受信
 `actor_id`/`role`，客户端保管原 token。Worker 使用单独身份，不能共享管理员凭证。
