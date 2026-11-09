@@ -86,6 +86,7 @@ class SearchService:
 
     def _drafts(self,c,asset,lexicon):
         concepts={con.entry_id:con for con in lexicon.concepts if con.status=='active'} if lexicon else {}
+        if not concepts:return []
         found=[]
         rows=c.execute('''SELECT a.envelope_json,a.result_json,t.spec_json FROM router_attempts a JOIN router_tasks t USING(task_id)
             JOIN router_jobs j USING(job_id) WHERE j.asset_id=? AND j.cancelled=0 AND t.active=1 AND t.state='succeeded'
@@ -194,6 +195,7 @@ class SearchService:
         results=[]
         with self.database.transaction() as c:
             rows=self._visible(c,principal,spec)
+            draft_view=self.drafts.read_view(c,rows) if spec.include_drafts else None
             for asset in rows:
                 document=self._document(c,asset,versions['taxonomy_release_id'] if versions else None);reasons=[]
                 if asset['asset_id'] in filters.exclude_asset_ids:continue
@@ -227,9 +229,13 @@ class SearchService:
                             'direction':link['direction'],'start_seconds':link['start_seconds'],'end_seconds':link['end_seconds'],
                             'medical_evidence':json.loads(link['payload_json']).get('medical_concept',False)})
                 if spec.include_drafts:
-                    projected=self.drafts.sync(c,asset,persist=False)
+                    def matches(draft):
+                        return query in normalize(draft['text']) or simple and (draft.get('concept_id') in selected or any(term in normalize(draft['text']) for _,term in expansions))
+                    def select_document(document):
+                        return visual_query is not None and bool(document['features']) or any(matches(draft) for draft in document['labels'])
+                    projected=self.drafts.sync(c,asset,persist=False,select_document=select_document,read_view=draft_view)
                     for draft in [*projected['labels'],*self._drafts(c,asset,lexicon)]:
-                        if query in normalize(draft['text']) or simple and (draft.get('concept_id') in selected or any(term in normalize(draft['text']) for _,term in expansions)):
+                        if matches(draft):
                             reasons.append(draft|{'draft_kind':draft['kind'],'kind':'ai_draft','score':30,'medical_evidence':False})
                     if visual_query is not None:
                         candidates=[f for f in projected['features'] if f['model_revision']==self.visual_encoder.registry.revision]

@@ -11,6 +11,11 @@ STAGES=('ocr','face','clip')
 VERSION='ai-observations-v2'
 
 
+class _ReadView:
+    """One transaction's current tasks/projections; never reused between requests."""
+    def __init__(self,connection):self.connection=connection;self.rows={};self.documents={}
+
+
 def vector(value):
     if not isinstance(value,list) or len(value)!=512 or any(type(v) not in (int,float) or not math.isfinite(v) for v in value):raise ValueError('invalid visual vector')
     norm=math.sqrt(sum(v*v for v in value))
@@ -21,10 +26,30 @@ def vector(value):
 class DraftIndex:
     def __init__(self,router):self.router,self.database=router,router.database
 
-    def _report(self,task,result):
+    def read_view(self,c,assets):
+        view=_ReadView(c);ids=[a['asset_id'] for a in assets]
+        for start in range(0,len(ids),400):
+            group=ids[start:start+400];marks=','.join('?' for _ in group)
+            for asset_id in group:view.rows[asset_id]=[]
+            rows=c.execute('''SELECT j.asset_id,t.task_id,t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
+                FROM router_tasks t JOIN router_jobs j USING(job_id)
+                LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
+                WHERE j.asset_id IN ('''+marks+''') AND j.cancelled=0 AND t.active=1
+                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields')
+                ORDER BY j.created_at DESC,t.rowid DESC''',group)
+            for row in rows:view.rows[row['asset_id']].append(row)
+            for row in c.execute('SELECT asset_id,stage,basis_sha256,payload_json FROM ai_draft_documents WHERE asset_id IN ('+marks+')',group):
+                view.documents[(row['asset_id'],row['stage'],row['basis_sha256'])]=row['payload_json']
+        return view
+
+    @staticmethod
+    def _report_ref(task,result):
         refs=[r for r in result.artifacts if r.kind==('visual_fields_report' if task.stage=='visual_fields' else 'model_report')]
         if len(refs)!=1:raise ValueError('one model report required')
-        ref=refs[0]
+        return refs[0]
+
+    def _report(self,task,result):
+        ref=self._report_ref(task,result)
         self.router._artifacts(task,result)
         for evidence in result.evidence:
             with self.router.files.open_read(evidence.artifact.ref) as stream:frame=stream.read(16*1024**2+1)
@@ -107,8 +132,12 @@ class DraftIndex:
             'classification_state':'missing_published_vocabulary' if task.stage=='clip' else 'not_generated',
             'medical_confirmation':False,'privacy_confirmation':False,'license_confirmation':False}
 
-    def sync(self,c,asset,*,persist=True):
-        rows=c.execute('''SELECT t.task_id,t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
+    def sync(self,c,asset,*,persist=True,select_document=None,read_view=None):
+        # A search prefilter can only exclude a current indexed nonmatch. Every
+        # returned candidate still goes through the same report/frame byte checks.
+        if select_document is not None and persist:raise ValueError('search selection must be read-only')
+        if read_view is not None and (read_view.connection is not c or persist):raise ValueError('read view requires its original read transaction')
+        rows=read_view.rows[asset['asset_id']] if read_view is not None else c.execute('''SELECT t.task_id,t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
             FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE j.asset_id=? AND j.cancelled=0 AND t.active=1
@@ -136,17 +165,26 @@ class DraftIndex:
                         continue
                     usable=result.status=='succeeded' and row['state']=='succeeded' or (stage=='clip' and result.status=='partial' and row['state']=='needs_attention' and result.errors and all(e.code=='unpublished_vocabulary' for e in result.errors))
                     if not usable:raise ValueError('model result unavailable')
-                    ref,report=self._report(task,result)
-                    # Verify report/frame bytes even when a persisted projection already exists.
+                    ref=self._report_ref(task,result)
                     basis=sha256(encode([VERSION,asset['blob_sha256'],task.task_id,task.lease_epoch,row['result_digest'],ref.sha256]).encode()).hexdigest()
-                    old=c.execute('SELECT payload_json FROM ai_draft_documents WHERE asset_id=? AND stage=? AND basis_sha256=?',(asset['asset_id'],stage,basis)).fetchone()
-                    document=json.loads(old[0]) if old else self._project(task,result,ref,report)
-                    if persist and not old:c.execute('''INSERT INTO ai_draft_documents VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id,stage) DO UPDATE SET
+                    if read_view is None:
+                        old=c.execute('SELECT payload_json FROM ai_draft_documents WHERE asset_id=? AND stage=? AND basis_sha256=?',(asset['asset_id'],stage,basis)).fetchone()
+                        cached=old[0] if old else None
+                    else:cached=read_view.documents.get((asset['asset_id'],stage,basis))
+                    indexed=json.loads(cached) if cached is not None else None
+                    if indexed is not None and select_document is not None and not select_document(indexed):
+                        states[stage]='not_selected'
+                        continue
+                    # No index/version match -> full verification and projection.
+                    # A matching cached candidate is never trusted without bytes.
+                    ref,report=self._report(task,result)
+                    document=indexed if indexed is not None else self._project(task,result,ref,report)
+                    if persist and cached is None:c.execute('''INSERT INTO ai_draft_documents VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id,stage) DO UPDATE SET
                         source_sha256=excluded.source_sha256,basis_sha256=excluded.basis_sha256,payload_json=excluded.payload_json,updated_at=excluded.updated_at''',
                         (asset['asset_id'],stage,asset['blob_sha256'],basis,encode(document),utc_now()))
                     state='ready' if stage!='clip' else 'visual_features_ready_classification_missing'
                 except (StorageError,OSError,ValueError,KeyError,TypeError,StopIteration):state='unavailable'
-            if document is not None:documents.append(document)
+            if document is not None and (select_document is None or select_document(document)):documents.append(document)
             elif persist:c.execute('DELETE FROM ai_draft_documents WHERE asset_id=? AND stage=?',(asset['asset_id'],stage))
             states[stage]=state
         return {'schema_version':VERSION,'asset_id':asset['asset_id'],'source_sha256':asset['blob_sha256'],
