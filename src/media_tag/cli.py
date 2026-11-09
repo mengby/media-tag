@@ -15,7 +15,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contracts", help="local contract checks and schemas")
     intake=commands.add_parser('intake',help='read-only local inventory and resumable authenticated batch import')
-    intake.add_argument('action',choices=('scan','apply','status','drafts'))
+    intake.add_argument('action',choices=('scan','apply','status','drafts','describe','tag'))
     intake.add_argument('--source',type=Path)
     intake.add_argument('--jobs-root',type=Path,default=Path.cwd()/'jobs')
     intake.add_argument('--batch',type=Path)
@@ -74,7 +74,19 @@ def main(argv=None):
     for name in ('prepare-models', 'check-models'):
         model_command = commands.add_parser(name, help='explicit D04 model download or GPU compatibility check')
         model_command.add_argument('--model-root', type=Path, default=Path('cache/models/d04'))
+    for name in ('prepare-semantic-model','check-semantic-model'):
+        model_command=commands.add_parser(name,help='explicit pinned local visual-fields model download or integrity check')
+        model_command.add_argument('--model-root',type=Path,default=Path('cache/models/semantic'))
     args = parser.parse_args(argv)
+    if args.command in ('prepare-semantic-model','check-semantic-model'):
+        from .semantic.registry import SemanticRegistry
+        try:
+            registry=SemanticRegistry(args.model_root.absolute())
+            if args.command=='prepare-semantic-model':result=registry.fetch()
+            else:registry.verify();result={'state':'verified','model_revision':registry.revision}
+            print(json.dumps(result));return 0
+        except Exception:
+            print(json.dumps({'error':'semantic_model_fetch_or_integrity_failed'}),file=sys.stderr);return 2
     if args.command=='intake':
         from .intake.models import IntakeError
         from .intake.inventory import scan
@@ -97,6 +109,14 @@ def main(argv=None):
                     if client is None:raise IntakeError('explicit_editor_client_required')
                     from .intake.drafts import materialize
                     result=materialize(args.batch.absolute(),client)
+                elif args.action=='describe':
+                    if client is None:raise IntakeError('explicit_editor_client_required')
+                    from .intake.describe import enqueue
+                    result=enqueue(args.batch.absolute(),client,limit=args.limit)
+                elif args.action=='tag':
+                    if client is None:raise IntakeError('explicit_editor_client_required')
+                    from .intake.tag import run
+                    result=run(args.batch.absolute(),client,notify=lambda state:print(json.dumps(state),flush=True))
                 else:result=inspect(args.batch.absolute(),client)
             print(json.dumps(result,ensure_ascii=True));return 0 if result.get('state')!='partial' else 1
         except KeyboardInterrupt:

@@ -8,7 +8,7 @@ from media_tag.contracts.models import TaskEnvelope,WorkerResult,ArtifactRef
 from media_tag.storage import StorageError
 
 STAGES=('ocr','face','clip')
-VERSION='ai-observations-v1'
+VERSION='ai-observations-v2'
 
 
 def vector(value):
@@ -22,7 +22,7 @@ class DraftIndex:
     def __init__(self,router):self.router,self.database=router,router.database
 
     def _report(self,task,result):
-        refs=[r for r in result.artifacts if r.kind=='model_report']
+        refs=[r for r in result.artifacts if r.kind==('visual_fields_report' if task.stage=='visual_fields' else 'model_report')]
         if len(refs)!=1:raise ValueError('one model report required')
         ref=refs[0]
         self.router._artifacts(task,result)
@@ -34,12 +34,39 @@ class DraftIndex:
         report=json.loads(raw)
         if report.get('kind')!=task.stage or report.get('source_sha256')!=task.input_refs[0].sha256 or report.get('model_revision')!=task.versions.model_revision:
             raise ValueError('report identity')
-        frames=report.get('frames',[])
+        frames=[report['frame']] if task.stage=='visual_fields' else report.get('frames',[])
         if not frames or len(frames)>12:raise ValueError('invalid frames')
         return ref,report
 
     def _project(self,task,result,ref,report):
         labels=[];features=[]
+        if task.stage=='visual_fields':
+            from media_tag.semantic.contracts import Caption
+            from media_tag.semantic.runtime import suggestions
+            from media_tag.semantic.prompt import PROMPT_VERSION
+            caption=Caption.model_validate_json(json.dumps(report['caption']))
+            frame=report['frame'];artifact=ArtifactRef.model_validate(frame['artifact'])
+            evidence=next((e for e in result.evidence if e.artifact==artifact and e.source_sha256==report['source_sha256'] and e.start_seconds==frame['normalized_seconds']),None)
+            if evidence is None or artifact not in task.input_refs or report['prompt_version']!=PROMPT_VERSION or result.suggestions!=suggestions(caption,task,evidence.evidence_id):raise ValueError('semantic report binding')
+            for item in result.suggestions:
+                if item.value.state!='observed':continue
+                labels.append({'draft_id':item.suggestion_id,'kind':'field_suggestion','field':item.field,'value':item.value.values[0],
+                    'text':item.value.values[0],'state':'ai_draft','confidence':None,'score_kind':'generative_draft_not_probability',
+                    'task_id':task.task_id,'lease_epoch':task.lease_epoch,'model_revision':report['model_revision'],
+                    'preprocess_version':task.versions.preprocess_version,'prompt_version':report['prompt_version'],
+                    'report_sha256':ref.sha256,'frame_sha256':artifact.sha256,'evidence_id':evidence.evidence_id,
+                    'start_seconds':frame['normalized_seconds'],'medical_confirmation':False,'synonym_mapping_published':False})
+            field_states={s.field:s.value.model_dump(mode='json') for s in result.suggestions}
+            normalizations=list(report.get('normalizations',[]))
+            if 'form_outside_template_left_unknown' in normalizations:
+                field_states['表现形式']={'state':'no_match','values':None,'reason':'model_candidate_outside_original_options'}
+            return {'schema_version':VERSION,'stage':task.stage,'source_sha256':report['source_sha256'],'producer_status':result.status,
+                'labels':labels,'features':[],'field_states':field_states,'normalizations':normalizations,
+                'provenance':{'task_id':task.task_id,'lease_epoch':task.lease_epoch,'model_revision':report['model_revision'],
+                    'prompt_version':report['prompt_version'],'preprocess_version':task.versions.preprocess_version,
+                    'report_sha256':ref.sha256,'frame_sha256':artifact.sha256,'evidence_id':evidence.evidence_id},
+                'uncertainties':list(caption.uncertainties),'model_revision':report['model_revision'],
+                'medical_confirmation':False,'privacy_confirmation':False,'license_confirmation':False}
         for number,frame in enumerate(report['frames']):
             artifact=ArtifactRef.model_validate(frame['artifact']);seconds=frame.get('normalized_seconds')
             evidence=next((e for e in result.evidence if e.artifact==artifact and e.source_sha256==report['source_sha256'] and e.start_seconds==seconds),None)
@@ -85,18 +112,28 @@ class DraftIndex:
             FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE j.asset_id=? AND j.cancelled=0 AND t.active=1
-            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip')
+            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields')
             ORDER BY j.created_at DESC,t.rowid DESC''',(asset['asset_id'],)).fetchall()
         latest={}
         for row in rows:latest.setdefault(json.loads(row['spec_json'])['stage'],row)
         documents=[];states={}
-        for stage in STAGES:
+        stages=(*STAGES,'visual_fields') if 'visual_fields' in latest or 'visual_fields' in self.router.stages else STAGES
+        for stage in stages:
             row=latest.get(stage)
             state='not_requested' if row is None else row['state'];document=None
             if row and row['released_at'] is not None and row['result_json']:
                 try:
                     task=TaskEnvelope.model_validate_json(row['envelope_json']);result=WorkerResult.model_validate_json(row['result_json'])
                     if task.stage!=stage or task.input_refs[0].sha256!=asset['blob_sha256']:raise ValueError('source changed')
+                    if result.status=='not_applicable' and row['state']=='succeeded':
+                        self.router._artifacts(task,result)
+                        document={'stage':stage,'labels':[],'features':[]}
+                        if stage=='visual_fields':
+                            from media_tag.semantic.contracts import FIELDS
+                            document.update(field_states={f:{'state':'not_applicable','values':None,'reason':result.reason} for f in FIELDS},uncertainties=[],normalizations=[])
+                        documents.append(document);states[stage]='not_applicable'
+                        if persist:c.execute('DELETE FROM ai_draft_documents WHERE asset_id=? AND stage=?',(asset['asset_id'],stage))
+                        continue
                     usable=result.status=='succeeded' and row['state']=='succeeded' or (stage=='clip' and result.status=='partial' and row['state']=='needs_attention' and result.errors and all(e.code=='unpublished_vocabulary' for e in result.errors))
                     if not usable:raise ValueError('model result unavailable')
                     ref,report=self._report(task,result)
@@ -116,4 +153,8 @@ class DraftIndex:
             'state':'ai_draft','stages':states,'labels':[l for d in documents for l in d['labels']],
             'features':[f for d in documents for f in d['features']],
             'medical_confirmation':False,'privacy_confirmation':False,'license_status':'unverified',
-            'effective_values_written':False,'filename_used_as_evidence':False}
+            'effective_values_written':False,'filename_used_as_evidence':False,
+            'field_states':next((d['field_states'] for d in documents if d['stage']=='visual_fields'),{}),
+            'field_provenance':next((d.get('provenance',{}) for d in documents if d['stage']=='visual_fields'),{}),
+            'normalizations':next((d.get('normalizations',[]) for d in documents if d['stage']=='visual_fields'),[]),
+            'uncertainties':next((d['uncertainties'] for d in documents if d['stage']=='visual_fields'),[])}

@@ -26,3 +26,5 @@ D18独立桥接配置见 `library-client.example.json`（拟定填写示例，�
 ## 本地批量素材入口
 
 `media-tag intake scan/apply/status` 从独立只读源目录盘点并调用当前上传/图库API，见[说明](../docs/local-intake.md)。上传验证的 `upload_options.probe_max_pixels` 默认16×1024²，受信配置范围1～64×1024²，同时传递到上传/入库后的probe作业；普通上传请求不能自设此上限。当前实例因两张实际高分辨率照片明确配置为33554432，并保留配置备份；压缩字节及其余安全预算不变，不要求新环境一律提高。
+
+可选 `semantic` 配置：`enabled` 默认false，`model_root`启用时必须是固定本地权重的绝对路径。需启用review模板校验策略，无需实际审核人先分配；新素材库上传/入库自动追加visual_fields阶段，视频处理purpose不依赖该模型。安装和显式下载见[画面字段说明](../docs/visual-fields-drafts.md)及requirements-semantic-win-py312.txt，推理不自动下载或向外发送素材。

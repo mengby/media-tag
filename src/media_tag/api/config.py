@@ -33,6 +33,7 @@ from media_tag.workers.terminology import terminology_stages,TerminologyHandlers
 from media_tag.search.models import SearchOptions
 from media_tag.search.service import SearchService
 from media_tag.web.local_login import LocalBrowserLogin
+from media_tag.semantic.contracts import SemanticDeployment
 
 
 class LocalConfig(ContractModel):
@@ -47,6 +48,7 @@ class LocalConfig(ContractModel):
     tool_dir: str | None = None
     upload_options: UploadOptions = UploadOptions()
     models: ModelDeployment = ModelDeployment()
+    semantic: SemanticDeployment = SemanticDeployment()
     redaction: RedactionDeployment = RedactionDeployment()
     retime: RetimeDeployment = RetimeDeployment()
     web_enabled: bool = False
@@ -85,6 +87,16 @@ def load_application(path: Path):
             router.stages.update(redaction_stages(ModelRegistry(model_root),tools))
     if config.retime.enabled:
         router.stages.update(retime_stages(tools))
+    semantic_registry=None
+    if config.semantic.enabled:
+        if not config.review.enabled:raise ValueError('semantic drafts require the template validation policy; no reviewer assignment required')
+        from media_tag.semantic.registry import SemanticRegistry
+        from media_tag.semantic.runtime import semantic_stage
+        root=Path(config.semantic.model_root)
+        if not root.is_absolute():raise ValueError('enabled semantic model root must be absolute')
+        require_local_path(root)
+        semantic_registry=SemanticRegistry(root)
+        router.stages['visual_fields']=semantic_stage(semantic_registry)
     if config.text.enabled:
         if not config.terminology.enabled:raise ValueError('text resolution requires the terminology service')
         if config.text.model_enabled:
@@ -112,6 +124,9 @@ def load_application(path: Path):
     resolver=Resolver(terminology,config.text) if config.text.enabled else None
     if config.search.enabled and resolver is None:raise ValueError('search requires enabled text resolution')
     search=SearchService(resolver,reviews=reviews,options=config.search) if config.search.enabled else None
+    if search:
+        search.semantic_registry=semantic_registry
+        search.library.probe_max_pixels=config.upload_options.probe_max_pixels
     if search and config.models.enabled:
         from media_tag.drafts.visual import VisualEncoder
         search.visual_encoder=VisualEncoder(ModelRegistry(Path(config.models.model_root)),router.workspace)
@@ -130,6 +145,11 @@ def executor_from_config(path: Path, worker_id: str):
     config = LocalConfig.model_validate_json(path.read_bytes())
     cpu = CPUHandlers(router, principal, tools)
     models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device)
+    semantic_handler=None
+    if config.semantic.enabled:
+        from media_tag.semantic.registry import SemanticRegistry
+        from media_tag.semantic.runtime import SemanticHandlers
+        semantic_handler=SemanticHandlers(router,SemanticRegistry(Path(config.semantic.model_root)))
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
     transform=RedactionHandlers(redactions) if redactions else None
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
@@ -139,6 +159,7 @@ def executor_from_config(path: Path, worker_id: str):
     def handle(lease,stopped):
         latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
+        if lease.task.stage=='visual_fields' and semantic_handler:return semantic_handler(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
         if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
         if lease.task.stage=='terminology_resolve' and terms:return terms(lease,stopped)

@@ -28,7 +28,7 @@ def materialize(batch,client):
     if len(selection)>500:raise IntakeError('draft_formal_export_selection_budget')
     fingerprint=sha256(encode(records).encode()).hexdigest()
     folder=_directory(batch,'ai-drafts-'+fingerprint[:12])
-    (folder/'README.md').write_text('AI draft snapshot. assets.csv uses the unchanged 35-column original template; medical fields remain unconfirmed. ai-labels.csv / ai-drafts.jsonl preserve model observations, not approvals. quality.json explains empty cells and provenance.\n',encoding='utf8')
+    (folder/'README.md').write_text('AI draft snapshot. assets.csv uses the unchanged 35-column original template; medical fields remain unconfirmed. ai-labels.csv / ai-drafts.jsonl preserve model observations, not approvals. ai-field-states.csv records observed, unknown, no-match and not-applicable field states with evidence. quality.json explains empty cells and provenance.\n',encoding='utf8')
     exported=client.call('POST','/review/exports',payload={'request_id':'ai-drafts-'+fingerprint,'assets':selection,'include_ai_drafts':True})
     if exported['state']!='ready':raise IntakeError('draft_formal_export_unavailable')
     manifest=exported['manifest'];identifier=exported['export_id']
@@ -43,15 +43,23 @@ def materialize(batch,client):
     if len(table)!=len(records)+1 or len(table[0])!=35 or any(len(row)!=35 for row in table):raise IntakeError('draft_formal_export_contract')
     payloads={'ai-drafts.jsonl':(''.join(encode(r)+'\n' for r in records)).encode()}
     labels=[{'asset_id':r['asset_id'],'source_key':r['source_key'],'source_sha256':r['source_sha256'],**label} for r in records for label in r['labels']]
-    columns=('asset_id','source_key','source_sha256','draft_id','kind','text','state','confidence','field','value','task_id','lease_epoch','model_revision','preprocess_version','report_sha256','evidence_id','frame_sha256','start_seconds')
+    columns=('asset_id','source_key','source_sha256','draft_id','kind','text','state','confidence','field','value','task_id','lease_epoch','model_revision','preprocess_version','prompt_version','report_sha256','evidence_id','frame_sha256','start_seconds')
     payloads['ai-labels.csv']=csv_bytes(labels,columns)
+    states=[{'asset_id':r['asset_id'],'source_key':r['source_key'],'source_sha256':r['source_sha256'],'field':field,
+        'state':value['state'],'values':','.join(value.get('values') or ()),'reason':value.get('reason'),**r.get('field_provenance',{})}
+        for r in records for field,value in r.get('field_states',{}).items()]
+    payloads['ai-field-states.csv']=csv_bytes(states,('asset_id','source_key','source_sha256','field','state','values','reason',
+        'task_id','lease_epoch','model_revision','preprocess_version','prompt_version','report_sha256','frame_sha256','evidence_id'))
     for name,raw in payloads.items():
         temporary=folder/(name+'.tmp');temporary.write_bytes(raw);os.replace(temporary,folder/name)
-    ready=sum(r['stages']['ocr']=='ready' and r['stages']['face']=='ready' and r['visual_features']['frames']>0 for r in records)
+    ready=sum(r['stages']['ocr'] in ('ready','not_applicable') and r['stages']['face'] in ('ready','not_applicable')
+        and (r['visual_features']['frames']>0 or r['visual_features']['state']=='not_applicable')
+        and r['stages'].get('visual_fields','ready') in ('ready','not_applicable') for r in records)
     result={'state':'ready' if ready==len(records) else 'partial','asset_rows':len(records),'ready_drafts':ready,
         'label_rows':len(labels),'ocr_labels':sum(l['kind']=='ocr_text' for l in labels),
         'face_detected_assets':sum(any(l.get('value')=='有-需打码' for l in r['labels']) for r in records),
         'visual_indexed_assets':sum(r['visual_features']['frames']>0 for r in records),'classification_state':'missing_published_vocabulary',
+        'field_drafts':{f:sum(any(l.get('field')==f for l in r['labels']) for r in records) for f in ('画面主体','表现形式','中文检索词','英文检索词')},
         'formal_columns':35,'export_id':identifier,'output_dir':str(folder),'snapshot_sha256':fingerprint,
         'files':{name:sha256((folder/name).read_bytes()).hexdigest() for name in (*payloads,'assets.csv','gaps.csv','quality.json','manifest.json')},
         'medical_confirmation':False,'privacy_confirmation':False,'license_status':'unverified','effective_values_written':False}

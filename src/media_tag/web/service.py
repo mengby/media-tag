@@ -97,10 +97,10 @@ class LibraryService:
                     versions = Versions(rules_version=f'sha256:{fingerprint}', preprocess_version='d02-cpu-v1')
                     steps = [StepSpec(key='probe', stage='probe', versions=versions,config={'max_pixels':self.probe_max_pixels}),
                              StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions)]
-                    for kind in ('ocr', 'face', 'clip'):
+                    for kind in ('ocr', 'face', 'clip','visual_fields'):
                         definition = self.router.stages.get(kind)
                         if definition and definition.required_model_revision:
-                            steps.append(StepSpec(key=kind, stage=kind, depends_on=('evidence',),
+                            steps.append(StepSpec(key=kind, stage=kind, depends_on=('evidence',),target_fields=definition.allowed_target_fields or (),
                                 versions=Versions(rules_version=versions.rules_version, preprocess_version=definition.required_preprocess_version,
                                                   model_revision=definition.required_model_revision),
                                 limits=TaskLimits(gpu_slots=definition.required_gpu_slots)))
@@ -154,7 +154,7 @@ class LibraryService:
         tasks = connection.execute('''SELECT t.state,t.spec_json,j.created_at,j.job_id,a.result_json FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE j.asset_id=? AND t.active=1 AND j.cancelled=0 ORDER BY j.created_at DESC LIMIT 64''', (asset_id,)).fetchall()
-        relevant = [t for t in tasks if json.loads(t['spec_json'])['stage'] in ('probe','evidence','ocr','face','clip')]
+        relevant = [t for t in tasks if json.loads(t['spec_json'])['stage'] in ('probe','evidence','ocr','face','clip','visual_fields')]
         latest = [t for t in relevant if t['job_id']==relevant[0]['job_id']] if relevant else []
         def visual_partial(t):
             if json.loads(t['spec_json'])['stage']!='clip' or t['state']!='needs_attention' or not t['result_json']:return False

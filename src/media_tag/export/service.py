@@ -113,7 +113,14 @@ class ExportService:
                 if field in values or field in MEDICAL:continue
                 try:
                     suggestion,_,_=self.reviews.suggestion(connection,asset,record['run_id'],record['suggestion_id'])
-                    if suggestion.value.state!='observed':continue
+                    if suggestion.value.state!='observed':
+                        state=suggestion.value.state;reason=suggestion.value.reason
+                        if field=='表现形式':
+                            from media_tag.drafts.service import DraftIndex
+                            current=DraftIndex(self.router).sync(connection,asset,persist=False)['field_states'].get(field,{})
+                            state=current.get('state',state);reason=current.get('reason',reason)
+                        issues.append({'asset_id':identifier,'field':field,'code':'ai_'+state,'reason':reason})
+                        continue
                     rejected=connection.execute("SELECT 1 FROM review_decisions WHERE asset_id=? AND json_extract(payload_json,'$.run_id')=? AND json_extract(payload_json,'$.suggestion_id')=? AND decision='reject'",(identifier,record['run_id'],record['suggestion_id'])).fetchone()
                     definition=self.reviews.policy.asset_fields[field]
                     if rejected or definition.fill_policy not in ('ai_draft_human_sample_review',):continue

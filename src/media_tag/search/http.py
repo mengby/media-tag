@@ -48,9 +48,33 @@ def install(app,search,identity,body):
                 raise FileError(409,gate)
             draft=search.drafts.sync(c,asset)
             features=draft.pop('features')
-            draft['visual_features']={'frames':len(features),'state':'ready' if features else 'unavailable',
+            draft['visual_features']={'frames':len(features),'state':'ready' if features else 'not_applicable' if draft['stages'].get('clip')=='not_applicable' else 'unavailable',
                 'classification_state':'missing_published_vocabulary','calibration_state':'not_calibrated'}
             return draft
+
+    @app.post('/search/assets/{asset_id}/visual-fields')
+    async def visual_fields(asset_id:Identifier,request:Request,principal=Depends(identity)):
+        from media_tag.semantic.service import SemanticSubmission,ensure
+        spec=await body(request,SemanticSubmission)
+        return await run_in_threadpool(ensure,search,asset_id,spec,principal=principal)
+
+    @app.post('/search/auto-tag')
+    async def auto_tag(request:Request,principal=Depends(identity)):
+        from media_tag.semantic.batch import AutoTagScope,submit
+        spec=await body(request,AutoTagScope)
+        return await run_in_threadpool(submit,search,spec,principal=principal)
+
+    @app.post('/search/auto-tag/status')
+    async def auto_tag_status(request:Request,principal=Depends(identity)):
+        from media_tag.semantic.batch import AutoTagScope,progress
+        spec=await body(request,AutoTagScope)
+        return await run_in_threadpool(progress,search,spec,principal=principal)
+
+    @app.post('/search/auto-tag/export')
+    async def auto_tag_export(request:Request,principal=Depends(identity)):
+        from media_tag.semantic.batch import AutoTagScope,export
+        spec=await body(request,AutoTagScope)
+        return await run_in_threadpool(export,search,spec,principal=principal)
 
     @app.get('/search/assets/{asset_id}/concepts')
     def concepts(asset_id:Identifier,principal=Depends(identity)):return search.links.detail(asset_id,principal=principal)

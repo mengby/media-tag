@@ -219,13 +219,13 @@ class UploadService:
                 steps = (StepSpec(key='probe', stage='probe', versions=versions,config={'max_pixels':self.options.probe_max_pixels}),)
                 if event['purpose'] == 'library':
                     steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)
-                    for kind in ('ocr', 'face', 'clip'):
+                    for kind in ('ocr', 'face', 'clip','visual_fields'):
                         definition = self.router.stages.get(kind)
                         if definition and definition.required_model_revision:
                             model_versions = Versions(rules_version=versions.rules_version,
                                 preprocess_version=definition.required_preprocess_version,
                                 model_revision=definition.required_model_revision)
-                            steps += (StepSpec(key=kind, stage=kind, depends_on=('evidence',), versions=model_versions,
+                            steps += (StepSpec(key=kind, stage=kind, depends_on=('evidence',), versions=model_versions,target_fields=definition.allowed_target_fields or (),
                                                limits=TaskLimits(gpu_slots=definition.required_gpu_slots)),)
                 job = self.router.submit(JobSpec(asset_id=event['asset_id'], steps=steps), request_id=event['event_id'], principal=Principal(actor_id=event['owner_id']))
                 job_id = job['job_id']

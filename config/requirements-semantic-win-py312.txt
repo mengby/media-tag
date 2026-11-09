@@ -1,0 +1,9 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.9.1+cu128
+torchvision==0.24.1+cu128
+transformers==4.57.6
+accelerate==1.12.0
+msvc-runtime==14.51.36231; sys_platform == 'win32'
+# Explicit download only; inference remains offline.
+huggingface-hub==0.36.2
+hf-xet==1.2.0

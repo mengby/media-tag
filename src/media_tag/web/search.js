@@ -17,6 +17,35 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
   const wrapper=el('div',undefined,'search-tools');wrapper.id='search-tools';wrapper.hidden=true;
   const actions=el('div',undefined,'actions');
   actions.append(button('补充说法',()=>openFeedback()),button('我的提交',refreshFeedback));
+  const tagging=el('div');tagging.id='auto-tag-state';let taggingBusy=false;
+  const tagButton=button('我的素材批量自动打标',async()=>{
+    if(taggingBusy)return;taggingBusy=true;tagButton.disabled=true;
+    const generation=epoch;
+    try{
+      const submitted=await post('/search/auto-tag',{});
+      if(generation!==epoch)return;
+      if(submitted.errors.length)throw Error(`有 ${submitted.errors.length} 份素材尚不满足分析条件，请查看我的任务。`);
+      tagging.textContent=`已启动 ${submitted.total} 份素材的自动打标，成功阶段会复用。`;
+      await refreshTagging();
+    }catch(error){if(generation!==epoch)return;taggingBusy=false;tagButton.disabled=getPerson()?.role==='reader';throw error;}
+  });
+  tagButton.id='auto-tag-start';actions.append(tagButton);
+  async function refreshTagging(){
+    if(!taggingBusy||!getPerson())return;
+    const generation=epoch;
+    try{
+      const state=await post('/search/auto-tag/status',{});
+      if(generation!==epoch)return;
+      tagging.textContent=`自动打标：${state.completed}/${state.total} 份完成，${state.running} 份排队或运行，${state.failed} 份需重试。`;
+      if(state.state==='ready'){
+        const exported=await post('/search/auto-tag/export',{});if(generation!==epoch)return;
+        const link=el('a','下载本批 35 列索引表');link.href=exported.assets_url;link.download='assets.csv';
+        tagging.append(el('p','AI 初稿已入索引，审核可后续进行。'),link);taggingBusy=false;tagButton.disabled=false;await refreshLibrary();
+      }else if(state.state==='partial'){
+        taggingBusy=false;tagButton.disabled=false;tagging.append(el('p','再次点击自动打标可续跑失败阶段；成功结果会复用。'));
+      }else setTimeout(()=>refreshTagging(),5000);
+    }catch(error){if(generation!==epoch)return;taggingBusy=false;tagButton.disabled=false;notify(error.message);}
+  }
   const include=input('search-drafts','checkbox'),literal=input('search-literal','checkbox'),visual=input('search-visual-drafts','checkbox');
   include.checked=true;
   actions.append(field('包含未确认 AI 建议',include),field('视觉候选（未校准）',visual),field('仅按原文检索',literal));
@@ -28,7 +57,7 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
   grid.append(field('科室',department),field('器官 / 系统',organ),field('肯定与否定',polarity),field('变化方向',direction));filters.append(grid);
   const summary=el('div');summary.id='search-summary';summary.setAttribute('aria-live','polite');
   const mySubmissions=el('div');mySubmissions.id='my-feedback';mySubmissions.hidden=true;
-  wrapper.append(actions,filters,summary,mySubmissions);$('library').querySelector('.toolbar').after(wrapper);
+  wrapper.append(actions,tagging,filters,summary,mySubmissions);$('library').querySelector('.toolbar').after(wrapper);
   const dialog=el('dialog');dialog.id='feedback-dialog';const form=el('form');const title=el('h2','补充说法');
   const expression=input('feedback-expression');expression.required=true;expression.maxLength=2000;
   const quote=el('textarea');quote.id='feedback-quote';quote.maxLength=2000;
@@ -142,20 +171,23 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     if(getPerson()?.features.review&&linked.can_edit)host.append(button('在标签复核页维护关联',ctx.openReview));panel.append(host);
     const draft=await api('/search/assets/'+data.asset_id+'/ai-draft');if(generation!==assetEpoch||!ctx.isCurrent())return;
     const draftHost=el('div');draftHost.append(el('h3','AI 标签初稿（未确认）'));
-    const stageNames={ocr:'画中文字',face:'人脸抽样观察',clip:'视觉特征'};
-    const stageStates={ready:'已接入',visual_features_ready_classification_missing:'视觉检索可用；分类词表待补',not_requested:'未请求',unavailable:'结果不可用'};
+    const stageNames={ocr:'画中文字',face:'人脸抽样观察',clip:'视觉特征',visual_fields:'画面主体 / 表现形式 / 检索词'};
+    const stageStates={ready:'已接入',visual_features_ready_classification_missing:'视觉检索可用；分类词表待补',not_requested:'未请求',unavailable:'结果不可用',not_applicable:'不适用（没有画面证据）'};
     for(const [name,state] of Object.entries(draft.stages))draftHost.append(el('p',`${stageNames[name]||name}：${stageStates[state]||state}`,'muted'));
-    for(const label of draft.labels.slice(0,100)){
-      const line=el('details',undefined,'evidence-card');line.append(el('summary',label.text),el('p',`模型 ${label.model_revision.slice(0,12)} · 证据 ${label.evidence_id} · 帧 ${label.frame_sha256.slice(0,12)}`));
+    for(const label of [...draft.labels].sort((a,b)=>Number(b.kind==='field_suggestion')-Number(a.kind==='field_suggestion')).slice(0,100)){
+      const line=el('details',undefined,'evidence-card');line.append(el('summary',`${label.field?label.field+'：':''}${label.text}`),el('p',`模型 ${label.model_revision.slice(0,12)} · 证据 ${label.evidence_id} · 帧 ${label.frame_sha256.slice(0,12)}`));
       if(label.confidence!==null)line.append(el('p',`模型分数 ${label.confidence.toFixed(3)}（不是医学概率）`));draftHost.append(line);
     }
     if(draft.labels.length>100)draftHost.append(el('p',`共 ${draft.labels.length} 条；页面显示前 100 条，完整记录可从批次初稿台账查看。`));
+    for(const [field,value] of Object.entries(draft.field_states||{}))if(value.state!=='observed')draftHost.append(el('p',`${field}：${value.state==='no_match'?'模型候选不在模板选项内':value.state==='not_applicable'?'没有适用的画面证据':'画面证据不足'}，保留空值。`,'muted'));
+    for(const note of draft.uncertainties||[])draftHost.append(el('p',`模型记录的不确定性：${note}`,'muted'));
     draftHost.append(el('p','OCR 原文和人脸检测均为模型观察；未检出不证明无人脸，检测到也不表示打码完成。','muted'));panel.append(draftHost);
   }
-  function reset(){epoch++;reviewEpoch++;assetEpoch++;vocabulary=null;result=null;selected=[];selectionVersion=null;editing=null;lastQuery='';summary.replaceChildren();mySubmissions.replaceChildren();mySubmissions.hidden=true;
+  function reset(){epoch++;reviewEpoch++;assetEpoch++;taggingBusy=false;tagging.replaceChildren();vocabulary=null;result=null;selected=[];selectionVersion=null;editing=null;lastQuery='';summary.replaceChildren();mySubmissions.replaceChildren();mySubmissions.hidden=true;
     conceptHost.replaceChildren();expression.value='';quote.value='';target.replaceChildren();department.replaceChildren();organ.replaceChildren();polarity.value='unspecified';direction.value='unspecified';include.checked=true;visual.checked=false;literal.checked=false;aliasCheckbox.checked=false;dialog.close();wrapper.hidden=true;termsUI.reset();}
   return {search,results:renderResult,emptyMessage:()=>searchMessage(result),reviewAsset,assetSummary,reset,
     session(person){wrapper.hidden=!person.features.search;$('search').placeholder=person.features.search?'按常用说法、专业术语或原文查找':'按名称或素材 ID 查找';
+      tagButton.hidden=!person.features.semantic_fields;
       aliasLabel.hidden=!person.features.search;aliasCheckbox.disabled=!person.features.search;
       for(const b of actions.querySelectorAll('button'))b.disabled=person.role==='reader';termsUI.session(person);if(person.features.search)loadVocabulary(true).then(fillOptions).catch(e=>notify(e.message));}};
 }

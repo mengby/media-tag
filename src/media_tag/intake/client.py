@@ -21,7 +21,7 @@ class IntakeClient:
 
     def call(self,method,path,*,payload=None,content=None,headers=None):
         allowed=(method=='GET' and re.fullmatch(r'/(ui/session|ui/library/asset-[a-f0-9]+|uploads/upload-[a-f0-9]+|v1/assets/asset-[a-f0-9]+|jobs/job-[a-f0-9]+|search/assets/asset-[a-f0-9]+/ai-draft)',path)) or (
-            method=='POST' and re.fullmatch(r'(?:/uploads(?:/upload-[a-f0-9]+/complete)?|/review/exports)',path)) or (
+            method=='POST' and re.fullmatch(r'(?:/uploads(?:/upload-[a-f0-9]+/complete)?|/review/exports|/search/assets/asset-[a-f0-9]+/visual-fields|/search/auto-tag(?:/status|/export)?)',path)) or (
             method=='PUT' and re.fullmatch(r'/uploads/upload-[a-f0-9]+/chunks\?offset=[0-9]+',path))
         if not allowed or payload is not None and content is not None:raise IntakeError('untrusted_intake_path')
         data=encode(payload).encode() if payload is not None else content
