@@ -4,7 +4,7 @@
 
 ## 已实现
 
-- 独立media-contracts 0.2.0 wheel；本仓publish可选依赖精确引用，不从兄弟仓源码import。
+- 独立media-contracts 0.3.0 wheel；本仓publish可选依赖精确引用，不从兄弟仓源码import。
 - 显式路径和素材ID选择；SQLite只读连接及backup API构造一致快照，不调用本地应用启动/Router构造/队列恢复/模型推理。
 - 复用现有源权限、衍生隐私门槛、文件/预览/模型报告验证；导出文件、人工有效字段、AI初稿与证据闭包。AI字段保持初稿，医学与许可不自动批准。
 - 原Worker报告在本地验hash，输出可移植证据投影保留原报告摘要、实际源hash和帧引用；含本机路径的原报告不发送。失效报告/帧拒绝生成完整manifest。
@@ -15,7 +15,7 @@
 下面使用Windows仓库目录示例；wheel文件是版本制品。新环境需先按本仓原有锁文件安装基础依赖。
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pip install --no-index --no-deps D:/ai/media-cloud/dist/media_contracts-0.2.0-py3-none-any.whl
+& .\.venv\Scripts\python.exe -m pip install --no-index --no-deps D:/ai/media-cloud/dist/media_contracts-0.3.0-py3-none-any.whl
 & .\.venv\Scripts\python.exe -m media_tag publish build --input D:/private/export.json --destination D:/private/releases/release-001
 & .\.venv\Scripts\python.exe -m media_tag publish push --bundle D:/private/releases/release-001 --config D:/private/publisher.json
 ```

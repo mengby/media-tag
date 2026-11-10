@@ -1,13 +1,13 @@
 # 云收件→本地打标→发布回执（M-011）
 
-media-tag 0.2.0 的 `sync` 可选依赖固定 media-contracts==0.2.0/httpx==0.28.1；云端对应media-cloud 0.3.0。共享包以 `config/media-contracts.lock.json` 的wheel/hash为准，不导入兄弟仓源码。
+media-tag 0.2.0 的 `sync` 可选依赖固定 media-contracts==0.3.0/httpx==0.28.1；云端对应media-cloud 0.3.0。共享包以 `config/media-contracts.lock.json` 的wheel/hash为准，不导入兄弟仓源码。
 
 ## 独立同步进程
 
 桥接主动请求云端，不要求云端连回个人电脑。桥接独立保存游标、收件待办及发布outbox，通过既有本地HTTP上传/验证/入队；不启动Router、不接管Worker、不使用服务器配置构造本地应用。主DB只读用于校验入库绑定、事务内判重结果、实际模型证据和导出快照。
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pip install --no-index --no-deps D:/ai/media-cloud/dist/media_contracts-0.2.0-py3-none-any.whl
+& .\.venv\Scripts\python.exe -m pip install --no-index --no-deps D:/ai/media-cloud/dist/media_contracts-0.3.0-py3-none-any.whl
 & .\.venv\Scripts\python.exe -m media_tag sync once --config D:/private/sync.local.json
 & .\.venv\Scripts\python.exe -m media_tag sync status --config D:/private/sync.local.json
 & .\.venv\Scripts\python.exe -m media_tag sync loop --seconds 60 --config D:/private/sync.local.json
