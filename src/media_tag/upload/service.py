@@ -185,6 +185,10 @@ class UploadService:
                 if current['state'] != 'validating' or current['epoch'] != epoch or current['lease_until'] <= self.clock():
                     raise RevisionConflict('upload finalizer was cancelled or fenced')
                 known = self._known(connection, spec, owner)
+                # Internal bridge classification is decided in the registration transaction.
+                # Do not expose existence of another owner's bytes through the upload API.
+                exists = connection.execute('SELECT 1 FROM blobs WHERE sha256=? AND size_bytes=?', (blob.sha256, blob.size_bytes)).fetchone()
+                validation['content_classification'] = 'duplicate_bytes' if exists else 'new_bytes'
                 validation['processing_history'] = 'registered_variant' if known and known['kind'] == 'derived' else 'known_asset' if known else 'external_unknown'
                 if known:
                     asset_id = known['asset_id']  # Proven upload receipt keeps its own source specification.

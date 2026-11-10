@@ -1,10 +1,11 @@
 {
   "package": "media-contracts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "protocol_version": "media-publication-v1",
-  "wheel": "media_contracts-0.1.0-py3-none-any.whl",
-  "wheel_sha256": "6e0d5ce186ad36c88d2243166a2f81ebff7b96e512cadab8e780a7d2b1ad9043",
+  "intake_protocol_version": "media-intake-v1",
+  "wheel": "media_contracts-0.2.0-py3-none-any.whl",
+  "wheel_sha256": "1d2071f6f2b33a23cc2b333a4011c755239badf47109dd0a8582db9461f3d051",
   "source_date_epoch": 1794225600,
   "provider": "media-cloud",
-  "compatibility": "publication/query first slice; no model query encoder, intake or processing protocol yet"
+  "compatibility": "Additive intake/event/receipt contracts; publication-v1 Manifest.contract_version stays 0.1.0. Online processing and model query encoder remain unavailable."
 }

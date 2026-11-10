@@ -82,7 +82,7 @@ def load_application(path: Path):
             raise ValueError('enabled model root must be an absolute local path')
         require_local_path(model_root)
         if config.models.enabled:
-            router.stages.update(model_stages(ModelRegistry(model_root), clip_device=config.models.clip_device))
+            router.stages.update({kind: definition for kind, definition in model_stages(ModelRegistry(model_root), clip_device=config.models.clip_device).items() if kind in config.models.stages})
         if config.redaction.enabled:
             router.stages.update(redaction_stages(ModelRegistry(model_root),tools))
     if config.retime.enabled:

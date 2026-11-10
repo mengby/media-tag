@@ -1,0 +1,17 @@
+{
+  "state_root": "D:/private/media-sync-test/state",
+  "cloud": {"base_url": "https://media-test.example.com", "token_file": "D:/private/credentials/sync.token"},
+  "owners": {
+    "cloud-person-a": {"local_actor_id": "local-person-a", "client": {"base_url": "http://127.0.0.1:18765", "token_file": "D:/private/credentials/person-a.token"}}
+  },
+  "source": {
+    "database": "D:/private/media-local-test/catalog.db",
+    "object_store": "D:/private/media-local-test/objects",
+    "workspace": "D:/private/media-local-test/workspace",
+    "actor_id": "local-publication-admin", "role": "admin",
+    "producer_revision": "0000000000000000000000000000000000000000",
+    "template_dir": "D:/private/original-templates", "review": {"enabled": true}
+  },
+  "publisher": {"base_url": "https://media-test.example.com", "token_file": "D:/private/credentials/publisher.token", "expected_active_release": null},
+  "required_stages": ["ocr"], "page_size": 50
+}

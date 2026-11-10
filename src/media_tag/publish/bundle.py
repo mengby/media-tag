@@ -185,6 +185,15 @@ def build_bundle(settings, destination):
             for label in projected["labels"]:
                 by_task.setdefault(label["task_id"], []).append(label)
             attempts = {TaskEnvelope.model_validate_json(r["envelope_json"]).task_id: r for r in files._attempts(connection, asset_id)}
+            # A successful observation with no detected text/faces still has real
+            # provenance. Include its report closure even when it emits no labels.
+            seen_stages=set()
+            for task_id,attempt in attempts.items():
+                task=TaskEnvelope.model_validate_json(attempt['envelope_json'])
+                if task.stage in seen_stages:continue
+                seen_stages.add(task.stage)
+                if task.stage in ('ocr','face','clip','visual_fields') and projected['stages'].get(task.stage) in ('ready','visual_features_ready_classification_missing'):
+                    by_task.setdefault(task_id,[])
             for task_id, labels in by_task.items():
                 attempt = attempts[task_id]
                 task = TaskEnvelope.model_validate_json(attempt["envelope_json"])

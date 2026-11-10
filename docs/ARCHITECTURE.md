@@ -1,5 +1,7 @@
 # 素材库设计总览
 
+2026-11-10 M-011：多人云收件→本地主动拉取/事务判重→实际模型初稿→增量发布/云采用回执已实现，隔离验证与范围见[收件同步](cloud-intake-sync.md)。真实OSS/ECS配置后补，本轮不生产部署、不改现有本地实例。下文早期未实现描述保留历史背景，以本补充为准。
+
 2026-11-10双仓首轮更新：用户已授权M-006，media-tag保留本地打标，media-cloud独立维护发布接收/查询下载；当前实现与范围以[双仓发布说明](cloud-publication.md)为准。下文单仓建议保留为历史背景，已由双仓决定替代；首轮不生产部署，真实OSS/ECS、云端处理、收件与企业认证尚待后续。
 
 整理日期：2026-11-07。状态：设计基线，D00～D04、D06、D09～D15工程已验收，见 [D00说明](contracts.md)、[D01说明](catalog-storage.md)、[D02说明](media-evidence.md)、[D03说明](router-queue.md)、[D09说明](upload-variants.md)，D17[文件基础](file-access.md)已实现，公共检索契约也已实现（[说明](asset-search-api.md)），真实跨端业务仍待验收。业务边界见 [REQUIREMENTS.md](REQUIREMENTS.md)；HTTP上传/调度、衍生契约及授权文件基础已实现，[D04模型Worker](model-workers.md)已实现并完成本机推理验证；[D10人脸打码](face-redaction.md)已实现核心/接口与本机验证；[D11固定变速/组合](fixed-retime.md)已实现；D15受权术语检索/反馈/管理页已实现（[说明](search-feedback.md)），D17公共取材语义协议已实现，MCP/剪辑宿主与部署仍待后续，不能把设计图视为运行事实。

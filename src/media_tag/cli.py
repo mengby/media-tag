@@ -8,6 +8,9 @@ import sys
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'sync':
+        from .sync.cli import main as sync_main
+        return sync_main(argv[1:])
     if argv and argv[0] == "publish":
         from .publish.cli import main as publish_main
         return publish_main(argv[1:])

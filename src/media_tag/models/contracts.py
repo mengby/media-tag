@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field,model_validator
 
 from media_tag.contracts.models import ArtifactRef, ContractModel, Identifier, Sha256
 
@@ -28,6 +28,12 @@ class ModelDeployment(ContractModel):
     enabled: bool = False
     model_root: str = 'cache/models/d04'
     clip_device: Literal['cuda', 'cpu'] = 'cuda'
+    stages: Annotated[tuple[Literal['ocr', 'face', 'clip'], ...], Field(min_length=1, max_length=3)] = ('ocr', 'face', 'clip')
+
+    @model_validator(mode='after')
+    def unique_stages(self):
+        if len(set(self.stages))!=len(self.stages):raise ValueError('unique model stages required')
+        return self
 
 
 class DiagnosticCandidate(ContractModel):
