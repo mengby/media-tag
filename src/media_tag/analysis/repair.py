@@ -53,7 +53,7 @@ def _receipt(connection, job_id, principal, request_id, fingerprint):
         return data['result'] | {'reused_request': True}
 
 
-def _stage_state(service, row, desired, source_sha256, content_kind=None):
+def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_revision=None):
     if row is None:
         return 'missing'
     if row['state'] in ('queued', 'leased', 'running', 'retry_wait') or row['released_at'] is None and row['result_json']:
@@ -89,7 +89,13 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None):
             and result.errors and all(error.code == 'unpublished_vocabulary' for error in result.errors))
         if not vocabulary and (row['state'] != 'succeeded' or result.status not in ('succeeded', 'not_applicable')):
             return 'failed'
-        service.router._artifacts(task, result)
+        if task.stage != 'similarity':
+            service.router._artifacts(task, result)
+        if task.stage == 'similarity':
+            from media_tag.similarity.pipeline import verified as verified_similarity
+            if asset_revision is not None and task.asset_revision != asset_revision:
+                return 'incompatible'
+            verified_similarity(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256})
         if task.stage == 'precision':
             from media_tag.precision.projection import verified
             verified(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256}, content_kind)
@@ -142,7 +148,7 @@ def repair(service, asset_id, spec, *, principal):
                     ancestors(parent)
         for key in tuple(selected):
             ancestors(key)
-        states = {key: _stage_state(service, rows.get(key), desired[key], asset['blob_sha256'], intent['content_kind']) for key in sorted(selected)}
+        states = {key: _stage_state(service, rows.get(key), desired[key], asset['blob_sha256'], intent['content_kind'], asset['revision']) for key in sorted(selected)}
         patches = tuple(desired[key] for key, state in states.items() if state in ('missing', 'incompatible', 'failed', 'unavailable'))
         observed_tasks = {key: (row['task_id'], row['state'], row['lease_epoch']) for key, row in rows.items()}
     # Verification above is read-only and can hash media without holding a SQLite writer.

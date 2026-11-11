@@ -6,6 +6,7 @@ from media_tag.catalog import Catalog, Database, Principal
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.precision.contracts import PrecisionDeployment
+from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
 from media_tag.contracts.templates import load_template_bundle
 from media_tag.router.models import RouterOptions
 from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
@@ -61,6 +62,7 @@ class LocalConfig(ContractModel):
     search: SearchOptions = SearchOptions()
     analysis: AnalysisDeployment = AnalysisDeployment()
     precision: PrecisionDeployment = PrecisionDeployment()
+    similarity: SimilarityDeployment = SimilarityDeployment()
 
 
 def load_application(path: Path):
@@ -80,6 +82,9 @@ def load_application(path: Path):
     contract = load_template_bundle(templates, expected_fingerprint=config.template_fingerprint)
     catalog = Catalog(Database(database), FilesystemBackend(objects, writable=True), contract=contract)
     router = Router(catalog, workspace, cpu_stages(tools), options=config.options)
+    if config.similarity.enabled:
+        from media_tag.similarity.pipeline import stage as similarity_stage
+        router.stages['similarity'] = similarity_stage(tools)
     if config.models.enabled or config.redaction.enabled:
         model_root = Path(config.models.model_root)
         if not model_root.is_absolute():
@@ -153,6 +158,10 @@ def executor_from_config(path: Path, worker_id: str):
     principal = Principal(actor_id=worker_id, role="worker")
     config = LocalConfig.model_validate_json(path.read_bytes())
     cpu = CPUHandlers(router, principal, tools)
+    similarity_handler = None
+    if config.similarity.enabled:
+        from media_tag.similarity.pipeline import Handlers as SimilarityHandlers
+        similarity_handler = SimilarityHandlers(router, principal, tools)
     models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device)
     semantic_handler=None
     if config.semantic.enabled:
@@ -172,6 +181,7 @@ def executor_from_config(path: Path, worker_id: str):
     def handle(lease,stopped):
         latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
+        if lease.task.stage == 'similarity' and similarity_handler: return similarity_handler(lease, stopped)
         if lease.task.stage == 'precision' and precision_handler: return precision_handler(lease, stopped)
         if lease.task.stage=='visual_fields' and semantic_handler:return semantic_handler(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)

@@ -27,6 +27,12 @@ class AnalysisService:
         versions = Versions(rules_version=f'sha256:{fingerprint}', preprocess_version='d02-cpu-v1')
         steps = (StepSpec(key='probe', stage='probe', versions=versions,
                           config={'max_pixels': self.options.probe_max_pixels}),)
+        if content_kind is not None and 'similarity' in self.router.stages:
+            from media_tag.similarity.pipeline import VERSION
+            definition = self.router.stages['similarity']
+            steps += (StepSpec(key='similarity', stage='similarity', depends_on=('probe',),
+                versions=Versions(rules_version=versions.rules_version, preprocess_version=VERSION),
+                config={'content_kind': content_kind, 'tool_digest': definition.implementation_version.rsplit(':', 1)[1]}),)
         if content_kind in (None, 'audio'):
             return steps
         steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)

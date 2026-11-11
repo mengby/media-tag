@@ -352,6 +352,8 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         install_reviews(app,reviews,identity,body)
     from media_tag.analysis.http import install as install_analysis
     install_analysis(app, router, identity, analysis_options, body=body, precision_options=precision_options)
+    from media_tag.similarity.http import install as install_similarity
+    install_similarity(app, router, identity, body)
     if web:
         from media_tag.web.http import install
         install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming,reviews=reviews,search=search,local_browser_login=local_browser_login)
