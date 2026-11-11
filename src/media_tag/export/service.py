@@ -99,9 +99,10 @@ class ExportService:
                 if field=='许可状态':result[field]='未核实'
                 issues.append({'asset_id':identifier,'field':field,'code':effective.value.state,'reason':effective.value.reason})
         if include_ai:
+            from media_tag.analysis.contracts import TOPIC_FIELDS
+            from media_tag.drafts.service import DraftIndex
+            draft=DraftIndex(self.router).sync(connection,asset,persist=False)
             if '含人脸' not in values:
-                from media_tag.drafts.service import DraftIndex
-                draft=DraftIndex(self.router).sync(connection,asset,persist=False)
                 faces=[l for l in draft['labels'] if l.get('field')=='含人脸' and l.get('value')=='有-需打码']
                 if faces:
                     result['含人脸']='有-需打码'
@@ -110,7 +111,7 @@ class ExportService:
             # Only current, explicitly requested nonmedical drafts, never over a human decision.
             for record in connection.execute('SELECT * FROM tag_suggestions WHERE asset_id=? ORDER BY created_at,suggestion_id',(identifier,)):
                 field=json.loads(record['payload'])['field']
-                if field in values or field in MEDICAL:continue
+                if field in values or field in MEDICAL or (field in TOPIC_FIELDS and field in draft['field_states']):continue
                 try:
                     suggestion,_,_=self.reviews.suggestion(connection,asset,record['run_id'],record['suggestion_id'])
                     if suggestion.value.state!='observed':
@@ -130,7 +131,31 @@ class ExportService:
                     issues.append({'asset_id':identifier,'field':field,'code':'unconfirmed_ai_draft','run_id':record['run_id'],'suggestion_id':record['suggestion_id']})
                 except (ValueError,RevisionConflict,StorageError,OSError):
                     issues.append({'asset_id':identifier,'field':field,'code':'suggestion_unavailable'})
+            # Topic fields share the current-scope report projection used by search.
+            # Medical suggestions belong only in the quality sidecar, never the CSV
+            # effective-value columns without their separate human confirmation.
+            for field in TOPIC_FIELDS:
+                if field in values:continue
+                labels=[label for label in draft['labels'] if label.get('field')==field]
+                if labels:
+                    suggested=list(dict.fromkeys(label['value'] for label in labels))
+                    if field not in MEDICAL:
+                        definition=self.reviews.policy.asset_fields[field]
+                        self.reviews.policy.validate(definition,FieldValue(state='observed',values=tuple(suggested)))
+                        result[field]=';'.join(suggested)
+                    issues.append({'asset_id':identifier,'field':field,
+                        'code':'unconfirmed_medical_ai_suggestion' if field in MEDICAL else 'unconfirmed_ai_draft',
+                        'suggested_values':suggested,'draft_ids':[label['draft_id'] for label in labels],
+                        'evidence_ids':[label['evidence_id'] for label in labels],
+                        'provenance':draft.get('topic_field_provenance',{}).get(field,draft.get('field_provenance',{}))})
+                else:
+                    state=draft['field_states'].get(field)
+                    if state:
+                        issues.append({'asset_id':identifier,'field':field,'code':'ai_'+state['state'],
+                            'reason':state.get('reason'),'candidates':draft.get('field_candidates',{}).get(field,[])})
         status=index_status(connection,asset,self.reviews.policy)
+        if status=='confirmed' and any(issue.get('asset_id')==identifier and issue.get('code') in
+                ('unconfirmed_ai_draft','unconfirmed_medical_ai_suggestion') for issue in issues):status='ai_draft'
         if status=='confirmed':
             result['标签状态']='已人工确认'
             row=connection.execute("SELECT actor_id FROM index_confirmations WHERE asset_id=? ORDER BY confirmation_id DESC LIMIT 1",(identifier,)).fetchone()
@@ -169,6 +194,9 @@ class ExportService:
             for selection in spec.assets:
                 row=authorize(selection.asset_id,selection.expected_revision,selection.source_sha256)
                 item=self._asset_row(connection,row,principal,spec.include_ai_drafts,issues)
+                if spec.include_ai_drafts:
+                    from media_tag.topic_index.service import TopicIndex
+                    asset_refs[selection.asset_id]['topic_binding']=TopicIndex(self.router).binding(connection,row)
                 if alias_binding:search.aliases.append(connection,row,item,issues,alias_binding)
                 assets.append(item)
             for selection in spec.gaps:
@@ -201,6 +229,9 @@ class ExportService:
         for ref in snapshot['asset_refs']:
             row=self.catalog._authorize(connection,ref['asset_id'],principal)
             if row['revision']!=ref['revision'] or row['blob_sha256']!=ref['sha256'] or self.reviews.files._gate(connection,row):raise RevisionConflict('export snapshot is stale or privacy gated')
+            if 'topic_binding' in ref:
+                from media_tag.topic_index.service import TopicIndex
+                if TopicIndex(self.router).binding(connection,row)!=ref['topic_binding']:raise RevisionConflict('export precision producer changed')
         for ref in snapshot['gap_refs']:
             if self.reviews._gap(connection,ref['gap_id'],principal)['revision']!=ref['revision']:raise RevisionConflict('export gap snapshot is stale')
 

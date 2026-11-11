@@ -31,11 +31,13 @@ class DraftIndex:
         for start in range(0,len(ids),400):
             group=ids[start:start+400];marks=','.join('?' for _ in group)
             for asset_id in group:view.rows[asset_id]=[]
-            rows=c.execute('''SELECT j.asset_id,t.task_id,t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
+            rows=c.execute('''SELECT j.asset_id,t.task_id,t.job_id,t.step_key,t.lease_epoch,t.rowid AS task_order,j.cancelled AS job_cancelled,
+                t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
                 FROM router_tasks t JOIN router_jobs j USING(job_id)
                 LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
-                WHERE j.asset_id IN ('''+marks+''') AND j.cancelled=0 AND t.active=1
-                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields')
+                WHERE j.asset_id IN ('''+marks+''') AND t.active=1
+                AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage')='precision')
+                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision')
                 ORDER BY j.created_at DESC,t.rowid DESC''',group)
             for row in rows:view.rows[row['asset_id']].append(row)
             for row in c.execute('SELECT asset_id,stage,basis_sha256,payload_json FROM ai_draft_documents WHERE asset_id IN ('+marks+')',group):
@@ -137,14 +139,16 @@ class DraftIndex:
         # returned candidate still goes through the same report/frame byte checks.
         if select_document is not None and persist:raise ValueError('search selection must be read-only')
         if read_view is not None and (read_view.connection is not c or persist):raise ValueError('read view requires its original read transaction')
-        rows=read_view.rows[asset['asset_id']] if read_view is not None else c.execute('''SELECT t.task_id,t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
+        rows=read_view.rows[asset['asset_id']] if read_view is not None else c.execute('''SELECT t.task_id,t.job_id,t.step_key,t.lease_epoch,t.rowid AS task_order,j.cancelled AS job_cancelled,
+            t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
             FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
-            WHERE j.asset_id=? AND j.cancelled=0 AND t.active=1
-            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields')
+            WHERE j.asset_id=? AND t.active=1 AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage')='precision')
+            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision')
             ORDER BY j.created_at DESC,t.rowid DESC''',(asset['asset_id'],)).fetchall()
         latest={}
-        for row in rows:latest.setdefault(json.loads(row['spec_json'])['stage'],row)
+        for row in rows:
+            if json.loads(row['spec_json'])['stage']!='precision':latest.setdefault(json.loads(row['spec_json'])['stage'],row)
         documents=[];states={}
         stages=(*STAGES,'visual_fields') if 'visual_fields' in latest or 'visual_fields' in self.router.stages else STAGES
         for stage in stages:
@@ -187,12 +191,28 @@ class DraftIndex:
             if document is not None and (select_document is None or select_document(document)):documents.append(document)
             elif persist:c.execute('DELETE FROM ai_draft_documents WHERE asset_id=? AND stage=?',(asset['asset_id'],stage))
             states[stage]=state
+        from media_tag.topic_index.service import TopicIndex
+        topic,claimed=TopicIndex(self.router).project(c,asset,persist=persist,rows=rows,
+            cached_documents=read_view.documents if read_view is not None else None,select_document=select_document)
+        if topic is not None:
+            # Stronger current scopes mask older local successes even while pending,
+            # failed, cancelled, rejected or damaged. Only their qualified fields return.
+            for document in documents:
+                document['labels']=[label for label in document['labels'] if label.get('field') not in claimed]
+            states['precision']=topic['state'] if topic['state']=='not_selected' else (
+                'ready' if topic['labels'] else 'pending_or_unresolved')
+            documents.append(topic)
+        local_fields=next((d.get('field_states',{}) for d in documents if d['stage']=='visual_fields'),{})
+        topic_fields=topic['field_states'] if topic is not None else {}
+        local_provenance=next((d.get('provenance',{}) for d in documents if d['stage']=='visual_fields'),{})
         return {'schema_version':VERSION,'asset_id':asset['asset_id'],'source_sha256':asset['blob_sha256'],
             'state':'ai_draft','stages':states,'labels':[l for d in documents for l in d['labels']],
             'features':[f for d in documents for f in d['features']],
             'medical_confirmation':False,'privacy_confirmation':False,'license_status':'unverified',
             'effective_values_written':False,'filename_used_as_evidence':False,
-            'field_states':next((d['field_states'] for d in documents if d['stage']=='visual_fields'),{}),
-            'field_provenance':next((d.get('provenance',{}) for d in documents if d['stage']=='visual_fields'),{}),
+            'field_states':{**local_fields,**topic_fields},
+            'field_provenance':local_provenance,
+            'topic_field_provenance':topic.get('provenance',{}) if topic is not None else {},
+            'field_candidates':topic.get('candidates',{}) if topic is not None else {},
             'normalizations':next((d.get('normalizations',[]) for d in documents if d['stage']=='visual_fields'),[]),
             'uncertainties':next((d['uncertainties'] for d in documents if d['stage']=='visual_fields'),[])}
