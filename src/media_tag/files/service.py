@@ -226,6 +226,10 @@ class FileService:
         technical['time_basis'] = {'normalization_origin_seconds': min(starts) if known else None,
                                   'duration_seconds': max(s + d for s, d in zip(starts, durations)) - min(starts) if known else None,
                                   'kind': 'current_file_normalized_seconds'}
+        if not known:
+            from .clock import pcm_wav_sample_clock
+            sample_clock=pcm_wav_sample_clock(data)
+            if sample_clock is not None:technical['time_basis']=sample_clock
         return technical
 
     @staticmethod

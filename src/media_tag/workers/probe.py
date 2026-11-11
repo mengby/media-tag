@@ -126,7 +126,7 @@ class Toolchain:
 
     def probe_run(self, path: Path, *, timeout: float, extra: list[str] | None = None) -> dict:
         args = ["-v", "error", "-threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", FORMAT_WHITELIST,
-                *(extra or ["-show_entries", "format=format_name,duration,start_time:stream=index,codec_name,codec_type,width,height,pix_fmt,avg_frame_rate,r_frame_rate,time_base,start_time,duration,sample_rate,channels,nb_frames,sample_aspect_ratio:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation"]),
+                *(extra or ["-show_entries", "format=format_name,duration,start_time:stream=index,codec_name,codec_type,width,height,pix_fmt,avg_frame_rate,r_frame_rate,time_base,start_time,start_pts,duration,duration_ts,sample_rate,channels,nb_frames,sample_aspect_ratio:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation"]),
                 "-of", "json", str(path)]
         output, _ = run_bounded(self.ffprobe, args, timeout=timeout)
         try:

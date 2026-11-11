@@ -46,6 +46,19 @@ def test_gif_duration_and_partial_alpha_coverage(media_tools, generated_media):
     assert partial.transparency["complete"] is False
 
 
+def test_actual_pcm_wav_probe_keeps_exact_sample_ticks(media_tools,tmp_path):
+    import wave
+    path=tmp_path/'exact-clock.wav'
+    with wave.open(str(path),'wb') as stream:
+        stream.setnchannels(1);stream.setsampwidth(2);stream.setframerate(8000)
+        stream.writeframes(b'\0\0'*4000)
+    result=probe_media(path,media_tools,ProbeOptions())
+    stream=result.raw_metadata['streams'][0]
+    assert result.kind=='audio' and stream['codec_name']=='pcm_s16le'
+    assert stream['duration_ts']==4000 and stream['time_base']=='1/8000'
+    assert stream.get('start_pts') is None and stream.get('start_time') is None
+
+
 def test_audio_presence_is_separate_from_silence(media_tools, generated_media):
     silent = probe_media(generated_media.silent, media_tools, ProbeOptions())
     sound = probe_media(generated_media.sound, media_tools, ProbeOptions())
