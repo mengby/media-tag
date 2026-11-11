@@ -47,7 +47,8 @@ def test_accept_reject_exact_run_human_protection_and_actual_evidence_http(revie
         decision='reject',run_id=newest['run_id'],suggestion_id=newest['suggestion_id'],note='Synthetic rejection'),principal=env.owner)
     assert current(env).effective_values[0].value.values==('Synthetic candidate',)
     path.write_bytes(b'changed')
-    assert env.clients.owner.get(evidence['content']).status_code==422
+    # The newer active field scope already invalidates the old evidence entry.
+    assert env.clients.owner.get(evidence['content']).status_code==409
 
 
 def test_only_declared_choices_are_ingested_and_video_direction_not_from_frame(reviewed):

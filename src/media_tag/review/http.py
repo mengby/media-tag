@@ -51,17 +51,39 @@ def install(app,reviews,identity,body):
     def evidence(asset_id:Identifier,run_id:Identifier,evidence_id:Identifier,sha256:Sha256,principal=Depends(identity)):
         with reviews.database.transaction() as connection:
             asset=reviews._asset(connection,asset_id,principal)
-            row=connection.execute('SELECT suggestion_id FROM tag_suggestions WHERE asset_id=? AND run_id=? LIMIT 1',(asset_id,run_id)).fetchone()
-            if not row:raise NotFound('evidence unavailable')
-            _,_,result=reviews.suggestion(connection,asset,run_id,row[0])
-            ref=next((e.artifact for e in result.evidence if e.evidence_id==evidence_id),None)
-            if ref is None:raise NotFound('evidence unavailable')
+            rows=connection.execute('SELECT suggestion_id FROM tag_suggestions WHERE asset_id=? AND run_id=? ORDER BY suggestion_id',(asset_id,run_id)).fetchall()
+            if not rows:raise NotFound('evidence unavailable')
+            from media_tag.catalog import RevisionConflict
+            from media_tag.models.contracts import ModelFailure
+            from media_tag.storage import StorageError
+            ref=None;unavailable=None;chosen=None
+            # A run can still contain current fields after a newer narrow scope
+            # supersedes its first suggestion. Select evidence through any exact,
+            # currently qualified field rather than an arbitrary first row.
+            for row in rows:
+                try:
+                    suggestion,_,result=reviews.suggestion(connection,asset,run_id,row[0])
+                except (RevisionConflict,ValueError,StorageError,OSError,ModelFailure) as exc:
+                    unavailable=exc;continue
+                if evidence_id in suggestion.evidence_ids:
+                    ref=next((e.artifact for e in result.evidence if e.evidence_id==evidence_id),None)
+                    if ref is not None:
+                        from .qualification import metadata
+                        chosen=(row[0],metadata(reviews,connection,asset,run_id,row[0]).binding)
+                        break
+            if ref is None:
+                if unavailable is not None:raise unavailable
+                raise NotFound('evidence unavailable')
             if ref.sha256!=sha256:raise IntegrityError('evidence hash mismatch')
         reviews.files.authorize(asset_id,asset['blob_sha256'],principal=principal,for_bytes=True)
         from hashlib import sha256 as digest
         with reviews.router.files.open_read(ref.ref) as stream:raw=stream.read(32*1024**2+1)
         if len(raw)>32*1024**2 or digest(raw).hexdigest()!=ref.sha256:raise IntegrityError('evidence changed')
         reviews.files.authorize(asset_id,asset['blob_sha256'],principal=principal,for_bytes=True)
+        with reviews.database.transaction() as connection:
+            latest=reviews._asset(connection,asset_id,principal,asset['blob_sha256'])
+            if metadata(reviews,connection,latest,run_id,chosen[0]).binding!=chosen[1]:
+                raise RevisionConflict('review evidence producer changed while reading')
         png=raw.startswith(b'\x89PNG\r\n\x1a\n')
         return Response(raw,media_type='image/png' if png else 'application/octet-stream',
             headers={} if png else {'Content-Disposition':'attachment; filename="evidence.bin"'})

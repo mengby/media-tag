@@ -9,7 +9,8 @@ from media_tag.catalog.models import SourceInput
 from media_tag.catalog.service import _human, encode
 from media_tag.contracts.models import EffectiveValue, FieldValue, TaskEnvelope, WorkerResult
 from media_tag.files.service import FileService, FileError
-from media_tag.storage import IntegrityError
+from media_tag.storage import IntegrityError,StorageError
+from media_tag.models.contracts import ModelFailure
 from .models import ReviewDeployment
 from .policy import ASSETS, GAPS, MEDICAL, CONTROLLED, ReviewPolicy, basis, index_status
 
@@ -80,19 +81,30 @@ class ReviewService:
         return records
 
     def suggestion(self,connection,asset,run_id,suggestion_id):
-        row=connection.execute('''SELECT s.payload,r.task_json,r.result_json FROM tag_suggestions s JOIN suggestion_runs r USING(run_id)
-            WHERE s.asset_id=? AND s.run_id=? AND s.suggestion_id=?''',(asset['asset_id'],run_id,suggestion_id)).fetchone()
-        if row is None:raise NotFound('suggestion unavailable')
-        task=TaskEnvelope.model_validate_json(row['task_json']);result=WorkerResult.model_validate_json(row['result_json'])
-        live=connection.execute('''SELECT t.active,t.state,t.lease_epoch,j.cancelled,a.released_at FROM router_tasks t
-            JOIN router_jobs j USING(job_id) JOIN router_attempts a USING(task_id) WHERE t.task_id=? AND a.lease_epoch=?''',(task.task_id,task.lease_epoch)).fetchone()
-        if task.input_refs[0].sha256!=asset['blob_sha256'] or live is None or not live['active'] or live['state']!='succeeded' or live['cancelled'] or live['lease_epoch']!=task.lease_epoch or live['released_at'] is None:
-            raise RevisionConflict('suggestion producer or source is no longer current')
-        self.router._artifacts(task,result)
-        from media_tag.contracts.models import TagSuggestion
-        return TagSuggestion.model_validate_json(row['payload']),task,result
+        from .qualification import metadata,verify
+        item=metadata(self,connection,asset,run_id,suggestion_id)
+        verify(self,item,asset)
+        return item.suggestion,item.task,item.result
 
     def decide(self,asset_id,spec,*,principal):
+        prepared=None;producer_dynamic={}
+        if spec.decision in ('accept','reject'):
+            if not spec.run_id or not spec.suggestion_id or spec.value is not None:raise ValueError('exact suggestion selection required')
+            from .qualification import metadata,verify
+            # Evidence byte verification is read-only. A second metadata fence
+            # below prevents stale authority/producer adoption under the writer.
+            with self.database.transaction() as connection:
+                asset=self._asset(connection,asset_id,principal,spec.source_sha256)
+                _,previous=self._previous(connection,principal,spec,'field:'+asset_id)
+                if previous:return previous
+                self.catalog._expected(asset,spec.expected_revision)
+                definition=self.policy.asset_fields.get(spec.field)
+                if not definition or definition.fill_policy=='script' or spec.field in CONTROLLED:raise ValueError('field is controlled by a dedicated workflow')
+                if spec.field in MEDICAL or definition.fill_policy=='ai_candidate_per_field_human_review':self._medical(principal)
+                prepared=metadata(self,connection,asset,spec.run_id,spec.suggestion_id)
+                if prepared.suggestion.field!=spec.field:raise ValueError('suggestion field mismatch')
+                if spec.decision=='accept' and prepared.human_priority:raise RevisionConflict(prepared.human_priority+'; use an explicit manual decision to revise')
+                producer_dynamic=verify(self,prepared,asset)
         with self.database.transaction(write=True) as connection:
             asset=self._asset(connection,asset_id,principal,spec.source_sha256)
             fingerprint,previous=self._previous(connection,principal,spec,'field:'+asset_id)
@@ -104,7 +116,9 @@ class ReviewService:
             suggestion=None
             if spec.decision in ('accept','reject'):
                 if not spec.run_id or not spec.suggestion_id or spec.value is not None:raise ValueError('exact suggestion selection required')
-                suggestion,_,_=self.suggestion(connection,asset,spec.run_id,spec.suggestion_id)
+                current=metadata(self,connection,asset,spec.run_id,spec.suggestion_id)
+                if current.binding!=prepared.binding:raise RevisionConflict('suggestion changed during evidence verification')
+                suggestion=prepared.suggestion
                 if suggestion.field!=spec.field:raise ValueError('suggestion field mismatch')
             elif spec.value is None or spec.run_id or spec.suggestion_id:raise ValueError('manual value required')
             value=spec.value if spec.decision=='manual' else suggestion.value
@@ -117,6 +131,10 @@ class ReviewService:
                 if (spec.field in MEDICAL or definition.fill_policy=='ai_candidate_per_field_human_review') and value.state=='observed':
                     if not any(o['kind'] in ('image','video_segment','audio_segment') and o['viewed'] and o['actor_id']==principal.actor_id for o in observations):raise ValueError('medical value requires actual media observation')
                     if (spec.dynamic or spec.field=='过程/状态' and any('→' in v or '->' in v for v in value.values)) and not any(o['kind']=='video_segment' and o['viewed'] and o['actor_id']==principal.actor_id for o in observations):raise ValueError('process requires continuous video observation')
+                if spec.decision=='accept' and spec.field in producer_dynamic and value.state=='observed':
+                    from .qualification import covers_dynamic_ranges
+                    if not covers_dynamic_ranges(observations,principal.actor_id,producer_dynamic[spec.field]):
+                        raise ValueError('producer dynamic claim requires continuous video observation covering declared evidence ranges')
                 if spec.field in ('来源','原始页面','许可状态','署名文本') and value.state=='observed' and not any(o['kind']=='human_record' for o in observations):
                     raise ValueError('source and license fields require traceable human record')
                 if spec.field=='许可状态' and value.state=='observed' and value.values[0]!='未核实' and not any(o['reference'] for o in observations if o['kind']=='human_record'):
@@ -138,6 +156,10 @@ class ReviewService:
                 connection.execute('''INSERT INTO effective_values VALUES(?,?,?) ON CONFLICT(asset_id,field) DO UPDATE SET payload=excluded.payload''',(asset_id,spec.field,effective.model_dump_json()))
             identifier='decision-'+uuid4().hex
             payload=spec.model_dump(mode='json')|{'effective':effective.model_dump(mode='json') if effective else None,'policy_sha256':self.policy.digest}
+            if prepared is not None:
+                payload.update(producer_dynamic_required=spec.field in producer_dynamic,
+                    producer_observation_ranges=[list(interval) for interval in producer_dynamic.get(spec.field,())],
+                    producer_requirement_basis_sha256=prepared.binding)
             connection.execute('INSERT INTO review_decisions VALUES(?,?,?,?,?,?,?,?,?)',(identifier,asset_id,asset['blob_sha256'],spec.field,spec.decision,principal.actor_id,revision,encode(payload),utc_now()))
             connection.execute('UPDATE assets SET revision=? WHERE asset_id=?',(revision,asset_id))
             self.catalog._event(connection,asset_id,revision,principal,'field_review',{'values':before_values},
@@ -181,15 +203,34 @@ class ReviewService:
         with self.database.transaction() as connection:
             asset=self._asset(connection,asset_id,principal)
             snapshot=self.catalog._snapshot(connection,asset)
-            suggestions=[]
+            suggestions=[];verified_attempts={}
             for row in connection.execute('SELECT * FROM tag_suggestions WHERE asset_id=? ORDER BY created_at,suggestion_id',(asset_id,)):
-                item=json.loads(row['payload'])|{'run_id':row['run_id'],'base_revision':row['base_revision'],'available':True,'evidence':[]}
+                item=json.loads(row['payload'])|{'run_id':row['run_id'],'base_revision':row['base_revision'],
+                    'available':True,'accept_eligible':False,'review_state':'producer_unavailable','evidence':[]}
                 try:
-                    _,task,result=self.suggestion(connection,asset,row['run_id'],row['suggestion_id'])
+                    from .qualification import metadata,verify
+                    qualified=metadata(self,connection,asset,row['run_id'],row['suggestion_id'])
+                    task,result=qualified.task,qualified.result
+                    attempt=(task.task_id,task.lease_epoch,qualified.live['spec_json'],qualified.live['result_json'])
+                    if attempt not in verified_attempts:
+                        verified_attempts[attempt]=verify(self,qualified,asset)
+                    item['producer_dynamic']=item['field'] in verified_attempts[attempt]
+                    item['producer_dynamic_ranges']=[list(interval) for interval in verified_attempts[attempt].get(item['field'],())]
+                    item['requires_continuous_observation']=item['producer_dynamic'] or (
+                        item['field']=='过程/状态' and any('→' in value or '->' in value for value in item['value'].get('values') or ()))
+                    item['accept_eligible']=qualified.human_priority is None
+                    item['review_state']=qualified.human_priority or 'awaiting_human_review'
+                    definition=self.policy.asset_fields.get(item['field'])
+                    medical=item['field'] in MEDICAL or bool(definition and definition.fill_policy=='ai_candidate_per_field_human_review')
+                    item['requires_medical_reviewer']=medical
+                    item['requires_observation']=True
+                    if medical and principal.actor_id not in self.config.reviewers:
+                        item['accept_eligible']=False
+                        if qualified.human_priority is None:item['review_state']='medical_reviewer_required'
                     item['versions']=task.versions.model_dump(mode='json')
                     item['evidence']=[{'evidence_id':e.evidence_id,'kind':e.kind,'start_seconds':e.start_seconds,'end_seconds':e.end_seconds,
                         'sha256':e.artifact.sha256,'content':f'/review/assets/{asset_id}/evidence/{row["run_id"]}/{e.evidence_id}?sha256={e.artifact.sha256}'} for e in result.evidence if e.evidence_id in item['evidence_ids']]
-                except (RevisionConflict,ValueError,IntegrityError,OSError):item['available']=False
+                except (RevisionConflict,ValueError,StorageError,OSError,ModelFailure):item['available']=False
                 item['decisions']=[json.loads(r[0]) for r in connection.execute('SELECT payload_json FROM review_decisions WHERE asset_id=? AND json_extract(payload_json,\'$.run_id\')=? AND json_extract(payload_json,\'$.suggestion_id\')=?',(asset_id,row['run_id'],row['suggestion_id']))]
                 suggestions.append(item)
             return {'asset_id':asset_id,'sha256':asset['blob_sha256'],'revision':asset['revision'],'name':asset['name'],
