@@ -33,8 +33,14 @@
 
 CSV继续原35列表头、AI初稿和人工优先规则；六非医学字段可使用合格建议，四医学字段无人工值时原CSV仍留空、建议仅质量侧表。没有旧模型registry也可按现有导出契约生成当前合格初稿；不等于模型效果验收或业务签收。
 
+现代批量导出使用独立请求ID，由原ExportService在一次完整快照校验后按内容fingerprint去重：相同快照复用原导出，十字段报告失效/修复或当前字段范围更新后可产生新导出，不以旧registry/tag_suggestions的局部摘要复用变更请求；旧四字段请求键保持兼容。
+
 ## 隔离验证
 
 `tests/search/test_topic_batch.py` 使用真实合成PNG/WAV、实际CPUprobe/协议子进程及显式本地模型协议fixture，覆盖现代按钮能力、静态十字段批量/导出、音频和精标状态、缺模型终止待办、范围/owner隔离、损坏probe/静态报告修复与不相容版本不自动重跑。真实权重调用为零，不能据此声称生活场景、医学、贴纸、BGM或音效语义准确。
 
+另覆盖真实POST选择全新WAV后由配置Worker执行CPU probe，再按 `audio_topics.enabled=true`、`auto_dispatch=false/true` 分流：关闭时无音频任务、明确待显式请求且重复轮询不派发，显式HTTP仍可执行；开启时自动生成并采用实际音频协议报告。此为合成桥接端到端接线验证，未运行真实声音模型。
+
 父代理复核：`tests/search/test_topic_batch.py tests/search/test_visual_fields.py tests/web/test_library.py` **39项通过（44.37秒）**；实际Chromium详情/批量状态与旧逻辑回归 **10项通过（1.99秒）**。前端识别实际`audio_segment`和`video_segment`证据类型。私有记录见`jobs/ct-mvp-closeout-20261112-60c7a19e/validation.json`；未启用生产或推送。
+
+追加音频开关与导出更新用例后，批量/旧四字段/音频配置/本地派发/素材库关联 **48项通过（63.10秒）**；父代理对analysis、本地十字段、音频与精标共同状态回归 **166项通过（127.83秒）**。本地或音频已通过共享验真但字段未齐时，摘要为`analysis_needs_review`，不再误报缺音频提供方；逐字段后续动作仍保留，不能据此算语义全项完成。批次有重叠，不相加。

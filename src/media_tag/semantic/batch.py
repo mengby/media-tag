@@ -2,6 +2,7 @@
 from hashlib import sha256
 import json
 from typing import Annotated
+from uuid import uuid4
 from pydantic import Field
 from media_tag.catalog import AccessDenied,CatalogError,RevisionConflict
 from media_tag.catalog.service import encode
@@ -122,10 +123,16 @@ def export(search,spec,*,principal):
     if state['state']!='ready':raise RevisionConflict('auto-tag still running or needs attention')
     rows=selected(search,spec,principal)
     selection=tuple(AssetSelection(**{k:v for k,v in r.items() if k!='job_id'}) for r in rows)
-    registry=getattr(search,'semantic_registry',None)
-    with search.database.transaction() as c:
-        suggestions=[(r['asset_id'],[tuple(v) for v in c.execute('SELECT suggestion_id,payload FROM tag_suggestions WHERE asset_id=? ORDER BY suggestion_id',(r['asset_id'],))]) for r in rows]
-    request='auto-tag-export-'+sha256(encode([rows,registry.revision if registry else None,suggestions]).encode()).hexdigest()
+    if _topic_mode(search):
+        # ExportService verifies the complete current snapshot once and deduplicates
+        # it by fingerprint. Legacy suggestion rows cannot identify newer reports,
+        # invalidation or field scopes; never mint a partial modern snapshot digest.
+        request='auto-tag-export-'+uuid4().hex
+    else:
+        registry=search.semantic_registry
+        with search.database.transaction() as c:
+            suggestions=[(r['asset_id'],[tuple(v) for v in c.execute('SELECT suggestion_id,payload FROM tag_suggestions WHERE asset_id=? ORDER BY suggestion_id',(r['asset_id'],))]) for r in rows]
+        request='auto-tag-export-'+sha256(encode([rows,registry.revision,suggestions]).encode()).hexdigest()
     result=ExportService(search.reviews).create(ExportSubmission(request_id=request,assets=selection,include_ai_drafts=True),principal=principal)
     return result|{'assets_url':'/review/exports/'+result['export_id']+'/content/assets.csv'}
 

@@ -206,7 +206,10 @@ class AnalysisService:
                     topic_analysis['audio_topic_stages'] = projection.audio_topic_states
                     if document.analysis_complete:
                         state = 'analysis_draft_ready'
-                    elif projection.precision_states and any(value == 'verified_precision_draft' for value in projection.precision_states.values()) and runtime and runtime['state'] == 'succeeded':
+                    elif runtime and runtime['state'] == 'succeeded' and any(value in (
+                            'verified_precision_draft', 'verified_local_topic_draft', 'verified_audio_topics_draft')
+                            for states in (projection.precision_states, projection.local_topic_states, projection.audio_topic_states)
+                            for value in states.values()):
                         state = 'analysis_needs_review'
             return {"asset_id": asset_id, "intent_id": row["intent_id"], "state": state,
                     "content_kind": row["content_kind"], "policy_version": row["policy_version"],
