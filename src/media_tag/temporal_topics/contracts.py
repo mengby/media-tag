@@ -4,7 +4,7 @@ import json
 from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
-from media_tag.contracts.models import ContractModel, ArtifactRef, Sha256
+from media_tag.contracts.models import ContractModel, ArtifactRef, Sha256, Versions, Identifier, PositiveInt
 from media_tag.analysis.contracts import AnalysisDocument
 
 
@@ -113,6 +113,7 @@ class Result(ContractModel):
     manifest: ArtifactRef
     raw_report: ArtifactRef
     backend: Literal['local_qwen_video','synthetic_protocol']
+    source_clock_origin: Rational | None = None
     calibration_status: Literal['not_calibrated'] = 'not_calibrated'
     precision_exemption: Literal[False] = False
     medical_confirmation: Literal[False] = False
@@ -127,8 +128,9 @@ class Result(ContractModel):
                 or self.raw_report.kind!='temporal_raw_report'):
             raise ValueError('continuous_document_source_scope_mismatch')
         sample=self.document.evidence[0]
-        if (sample.kind!='video_segment' or sample.artifact!=self.manifest or sample.start_seconds!=0.
-                or sample.end_seconds!=float(self.sequence.duration.fraction())):
+        offset=self.sequence.source_origin.fraction()-self.source_clock_origin.fraction() if self.source_clock_origin is not None else Fraction(0)
+        if (sample.kind!='video_segment' or sample.artifact!=self.manifest or sample.start_seconds!=float(offset)
+                or sample.end_seconds!=float(offset+self.sequence.duration.fraction())):
             raise ValueError('continuous_segment_evidence_mismatch')
         return self
 
@@ -137,3 +139,43 @@ class Pending(ValueError):
     def __init__(self,code):
         self.code=code
         super().__init__(code)
+
+
+class Prepared(ContractModel):
+    source: ArtifactRef
+    sequence: Sequence
+    manifest: ArtifactRef
+
+
+class Deployment(ContractModel):
+    enabled: bool = False
+    model_root: str | None = None
+
+    @model_validator(mode='after')
+    def local_root(self):
+        if self.enabled:
+            from pathlib import Path
+            from media_tag.storage.filesystem import require_local_path
+            if not self.model_root or not Path(self.model_root).is_absolute() or not Path(self.model_root).is_dir():
+                raise ValueError('enabled_temporal_model_root_must_exist_and_be_absolute')
+            require_local_path(Path(self.model_root))
+        return self
+
+
+class TaskOptions(ContractModel):
+    model_revision: Sha256
+    policy_digest: Sha256
+    tool_digest: Sha256
+    content_kind: Literal['video','animation']
+    options: Options = Options()
+
+
+class RouterReport(ContractModel):
+    schema_version: Literal['ct-temporal-router-v1'] = 'ct-temporal-router-v1'
+    task_id: Identifier
+    lease_epoch: PositiveInt
+    input_fingerprint: Sha256
+    versions: Versions
+    tool_digest: Sha256
+    prepared: Prepared
+    result: Result

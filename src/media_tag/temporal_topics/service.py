@@ -8,7 +8,7 @@ from media_tag.analysis.contracts import AnalysisDocument, TOPIC_FIELDS
 from media_tag.contracts.models import ArtifactRef,Evidence,Versions
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.semantic.registry import SemanticRegistry
-from .contracts import Frame,Generation,Options,Pending,Rational,Sequence,Result
+from .contracts import Frame,Generation,Options,Pending,Rational,Sequence,Result,Prepared
 from .decode import animation,video,grid,model_image
 from .native import input_digest
 from .normalizer import assess
@@ -17,8 +17,11 @@ from .prompt import PROMPT_VERSION,PREPROCESS_VERSION,prompts
 
 class TemporalTopicService:
     """Bounded whole selected-stream/cycle visual evidence, no persistence to catalogue."""
-    def __init__(self,workspace,*,policy,generator,tools=None,options=None):
+    def __init__(self,workspace,*,policy,generator,tools=None,options=None,artifact_root=None):
         self.backend=FilesystemBackend(Path(workspace),writable=True)
+        self.artifact_root=Path(artifact_root).resolve() if artifact_root is not None else self.backend.root
+        if self.artifact_root!=self.backend.root and self.artifact_root not in self.backend.root.parents:
+            raise ValueError('artifact_root_must_contain_temporal_workspace')
         self.policy,self.generator,self.tools=policy,generator,tools
         self.options=options or Options()
     def store(self,data,kind):
@@ -28,13 +31,23 @@ class TemporalTopicService:
             with path.open('xb') as stream:stream.write(data)
         except FileExistsError:pass
         with self.backend.open_verified(key,digest,len(data)):pass
-        return ArtifactRef(kind=kind,ref=key,sha256=digest)
+        return ArtifactRef(kind=kind,ref=path.relative_to(self.artifact_root).as_posix(),sha256=digest)
     def run(self,source,source_key,*,expected_source_sha256,asset_id,asset_revision,analysis_id,content_kind):
         if not isinstance(source,FilesystemBackend):raise ValueError('local_source_backend_required')
         if (self.backend.root==source.root or self.backend.root in source.root.parents or source.root in self.backend.root.parents):
             raise ValueError('source_and_output_must_be_disjoint')
         if content_kind not in ('video','animation'):raise ValueError('continuous_video_or_animation_required')
         with source.open_read(source_key) as stream:raw=stream.read(self.options.max_input_bytes+1)
+        if len(raw)>self.options.max_input_bytes or sha256(raw).hexdigest()!=expected_source_sha256:
+            raise ValueError('source_hash_or_byte_budget')
+        prepared,model_frames=self.prepare(raw,expected_source_sha256=expected_source_sha256,content_kind=content_kind)
+        generation=self.generator(frame_bytes=model_frames,fps=prepared.sequence.model_fps,duration=prepared.sequence.duration,
+            input_sha256=prepared.sequence.input_sha256,field_prompts=prompts(self.policy,self.options),options=self.options)
+        return self.finish(prepared,generation,asset_id=asset_id,asset_revision=asset_revision,analysis_id=analysis_id,
+            content_kind=content_kind,expected_model_revision=self.generator.model_revision)
+
+    def prepare(self,raw,*,expected_source_sha256,content_kind):
+        if content_kind not in ('video','animation'):raise ValueError('continuous_video_or_animation_required')
         if len(raw)>self.options.max_input_bytes or sha256(raw).hexdigest()!=expected_source_sha256:
             raise ValueError('source_hash_or_byte_budget')
         try:
@@ -46,7 +59,7 @@ class TemporalTopicService:
             rows,metadata=animation(raw,self.options)
         else:
             if self.tools is None:raise Pending('verified_ffmpeg_toolchain_required')
-            rows,metadata=video(self.backend.root/source_ref.ref,self.tools,self.options)
+            rows,metadata=video(self.artifact_root/source_ref.ref,self.tools,self.options)
         step,mapping=grid([row[2] for row in rows],self.options.max_model_frames)
         fps=Rational.of(1/step);duration=Rational.of(metadata['duration'])
         frames=[];images=[]
@@ -64,22 +77,27 @@ class TemporalTopicService:
             model_fps=fps,input_sha256=digest,decoder_identity=metadata['decoder'],processor_padding_frames=len(mapping)%2)
         manifest=self.store(json.dumps({'sequence':sequence.model_dump(mode='json'),
             'source':source_ref.model_dump(mode='json')},sort_keys=True).encode(),'temporal_input_manifest')
+        return Prepared(source=source_ref,sequence=sequence,manifest=manifest),model_frames
+
+    def finish(self,prepared,generation,*,asset_id,asset_revision,analysis_id,content_kind,expected_model_revision,versions=None,source_clock_origin=None):
+        source_ref,sequence,manifest=prepared.source,prepared.sequence,prepared.manifest
+        digest=sequence.input_sha256;duration=sequence.duration
+        expected_source_sha256=sequence.source_sha256
         questions=prompts(self.policy,self.options)
-        generation=self.generator(frame_bytes=model_frames,fps=fps,duration=duration,input_sha256=digest,
-            field_prompts=questions,options=self.options)
         if (not isinstance(generation,Generation) or generation.input_sha256!=digest
-                or generation.prompt_version!=PROMPT_VERSION or generation.model_revision!=self.generator.model_revision):
+                or generation.prompt_version!=PROMPT_VERSION or generation.model_revision!=expected_model_revision):
             raise ValueError('temporal_generation_binding')
         if generation.backend=='local_qwen_video' and (generation.model_revision!=SemanticRegistry(Path('.')).revision
                 or generation.processor_identity is None):
             raise ValueError('temporal_selected_local_model_binding')
-        versions=Versions(rules_version=self.policy.digest,preprocess_version=PREPROCESS_VERSION,
+        versions=versions or Versions(rules_version=self.policy.digest,preprocess_version=PREPROCESS_VERSION,
             taxonomy_version=self.policy.config.taxonomy_version,model_revision=generation.model_revision)
         evidence_id='continuous_visual_segment'
         fields=tuple(assess(answer,field,policy=self.policy,versions=versions,evidence_id=evidence_id)
             for field,answer in zip(TOPIC_FIELDS,generation.answers,strict=True))
         evidence=Evidence(evidence_id=evidence_id,kind='video_segment',source_sha256=expected_source_sha256,
-            artifact=manifest,start_seconds=0.,end_seconds=float(duration.fraction()))
+            artifact=manifest,start_seconds=float(sequence.source_origin.fraction()-source_clock_origin.fraction()) if source_clock_origin is not None else 0.,
+            end_seconds=float(sequence.source_origin.fraction()-source_clock_origin.fraction()+duration.fraction()) if source_clock_origin is not None else float(duration.fraction()))
         document=AnalysisDocument(analysis_id=analysis_id,asset_id=asset_id,asset_revision=asset_revision,
             content_sha256=expected_source_sha256,content_kind=content_kind,fields=fields,evidence=(evidence,))
         report={'schema_version':'ct-temporal-raw-v1','source':source_ref.model_dump(mode='json'),
@@ -87,7 +105,9 @@ class TemporalTopicService:
             'prompt_version':PROMPT_VERSION,'policy_digest':self.policy.digest,'versions':versions.model_dump(mode='json'),
             'questions':questions,'options':self.options.model_dump(mode='json'),
             'audio_policy':'not_analyzed','medical_confirmation':False,'privacy_confirmation':False,'effective_values_written':False}
+        report['source_clock_origin']=source_clock_origin.model_dump(mode='json') if source_clock_origin is not None else None
         encoded=json.dumps(report,ensure_ascii=False,sort_keys=True).encode()
         if len(encoded)>1024*1024:raise ValueError('temporal_report_budget')
         raw_report=self.store(encoded,'temporal_raw_report')
-        return Result(document=document,sequence=sequence,manifest=manifest,raw_report=raw_report,backend=generation.backend)
+        return Result(document=document,sequence=sequence,manifest=manifest,raw_report=raw_report,backend=generation.backend,
+            source_clock_origin=source_clock_origin)

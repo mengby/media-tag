@@ -46,7 +46,7 @@ result = service.run(FilesystemBackend(original_directory), relative_key,
     content_kind='video')  # 动画填 'animation'；动画不要求 tools
 ```
 
-所有参数是可调用库接口，不是本轮已经运行真实模型的示例。`enabled=False` 拒绝执行，字符串 `'false'` 不能误启用。调用者须协调 GPU 租约和独立进程/硬超时；本独立服务不自行取得 GPU、创建 Worker 或对外服务。FFmpeg/ffprobe 各自有字节/时限边界；模型调用仍需后续有界 Worker 接线。不得与现有生产模型同时抢资源。
+所有参数是可调用库接口，不是本轮已经运行真实模型的示例。`enabled=False` 拒绝执行，字符串 `'false'` 不能误启用。直接调用独立服务仍由调用者协调GPU与执行边界；本轮新增下述Router Worker封装，共享调度/配置注册尚未接入。不得与现有生产模型同时抢资源。
 
 返回 `Result` 包含 `document: AnalysisDocument`、`sequence: Sequence`、`manifest/raw_report: ArtifactRef`。十字段严格为：用途大类、科室、器官/系统、疾病/症状、画面主体、过程/状态、表现形式、中文检索词、英文检索词、情绪/语气。`sequence` 验证所有源帧的完整顺序/时长、选中流 PTS 绑定、展开映射、输入摘要和处理器补齐；文档证据必须是绑定该清单的实际 `video_segment`，覆盖完整选中流或单个周期。
 
@@ -55,6 +55,26 @@ result = service.run(FilesystemBackend(original_directory), relative_key,
 动态方向/过程建议拥有实际连续段证据，仍是 AI 建议；医学四字段保留人工复核，所有建议均未校准、不能因自报信心豁免精标。本服务没有音频输入，报告固定 `audio_policy='not_analyzed'`，问题禁止推断旁白/BGM/声音/语音情绪；明确的听觉类答案退回 `unknown + evidence`，不能把视频有音轨当成已经听过。纯视觉不保证模型永不幻觉，实际正确率仍待真实评测和审核。
 
 完整报告记录：原始输入 SHA、原件快照、实际连续清单/帧摘要、源时钟、输入网格、问题、原答、Qwen manifest revision、prompt/preprocess/policy/词表版本、处理器身份及候选。`synthetic_protocol` 与 `local_qwen_video` 明确区分；本批报告均来自合成协议测试。医学、隐私和有效值写入标志固定 false。后续入库/公开使用须继续经当前权限、FileService、输出隐私与用途检查，不能把私有原件或帧作为已批准预览。
+
+## 已实现的独立Router Worker
+
+隔离交付验证：`.venv\Scripts\python.exe -m pytest -q tests/temporal_topics tests/local_topics/test_router.py tests/analysis`，**119 passed in 91.66s**。随后为源大小预检增加单项回归：`test_runtime.py::test_registered_source_byte_budget_is_checked_before_generic_open` **1 passed in 1.87s**，保证合法超预算源在通用源读取前拒绝。`git diff --check`通过。前述核心验证与该组合有重叠，不累加为业务样本数。没有实际GPU/权重推理、网络、生产服务或配置变更。
+
+`contracts.Deployment` 默认off，启用时模型根目录须绝对、存在且为本地路径；仍使用固定Qwen3-VL-2B版本，不下载模型。`TaskOptions`绑定policy/model/tool摘要、video/animation模态及原`Options`。`runtime.stage(registry,tools)`要求独占GPU槽1、固定prompt/preprocess、十字段范围及真实probe依赖。`TemporalTopicHandlers`是可调用处理器；共享analysis/API/config注册与业务入口仍由后续接线完成，本包不自行启用生产服务。
+
+复制并校验授权lease输入后，`runner`在start gate、ProcessTree和parent watch保护下执行**整个实际解码＋视频模型推理**。解码没有留在不受控的父进程；总时限、取消、日志2MiB及响应1MiB限制都覆盖解码/模型与FFmpeg子孙进程，OS确认进程树停止后才返回释放租约。环境仅继承必要运行项，强制离线，不传服务凭据、原文件名或来源；模型仍local_files_only、不执行远端代码。processor源码指纹通过distribution文件定位，不在父进程导入transformers/torch。
+
+可选`artifact_root`使所有源/模型帧/清单/原答在真实Router workspace中以当前attempt前缀登记，默认独立服务行为保持。没有用拼接虚假前缀替代实际文件。报告/清单/原答分别限2/1/1MiB；源限`Options.max_input_bytes`，每张模型PNG限`model_edge²×4+65536`字节，产物数限源帧预算＋4。先检查实际大小并作有界哈希，不先调用通用无界artifact哈希。
+
+`projection.verified(router,row,asset,tools=None)`返回当前task/result/report/ref，核验active、当前attempt/释放、取消/暂停、源、实际probe模态、当前模型/prompt/policy/tool、全部帧/有理时钟/映射/清单/原答归一化及生产backend。随后在另一个有界**不运行GPU**的child中重解码原源，比较每帧显示RGBA、规范模型图摘要、所有PTS/时长/展开映射与解码器身份；仅忽略独立临时验证目录的物理地址，不忽略内容或时钟，也不把临时地址写成正式证据。最后重验生产者元数据，过程不持SQLite写锁。生产拒绝synthetic_protocol，不能以模拟答案冒充真实推理。
+
+工具必须来自可信bootstrap，显式传`tools`或设置`router.temporal_topic_tools`，不接受任务配置中的可执行文件路径。调用者先做资产/文件授权；本模块没有跨账号或对外查询API。`merge`按当前逐字段范围生成投影，待办/失败/取消/未释放的新范围遮蔽旧成功，保留unknown、failed、动态范围与真实producer。后续统一scopes须加入`temporal_topics`；审核和repair应复用shared verified，不能先绕回generic无界哈希。
+
+## 选定流与人工观察共同时钟
+
+选定视频轨起始PTS与整个文件共同时钟原点可能不同。Worker从实际、哈希绑定的probe读取各轨时钟元数据（不听取/分析音轨），把连续视觉证据映射至现有人工观察的`current_file_normalized_seconds`。例如视频起始5s、音频起始0s，选定视频长0.4s，证据是**5～5.4s**；仅视频且共同原点5s时则是0～0.4s。`Result.source_clock_origin`保留共同原点，`Sequence.source_origin`保留实际选定流原点；未知或无法落入现有公共边界时等待明确时钟，不猜测、不截短。
+
+独立核心默认仍返回选定视觉起点归零的范围；将独立结果用于人工复核前必须完成共同时钟映射。Worker报告已完成该映射，但尚未接入生产审核/检索/API。动态字段仍须人工观察覆盖实际声明范围，标签确认不批准隐私输出、许可或剪辑用途。
 
 ## 验证与待办
 

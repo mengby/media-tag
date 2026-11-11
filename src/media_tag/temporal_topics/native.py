@@ -9,9 +9,10 @@ from .prompt import SYSTEM,PROMPT_VERSION
 
 
 def _processor_identity():
-    from importlib.resources import files
-    from importlib.metadata import version
-    package=files('transformers')
+    from importlib.metadata import distribution,version
+    # Fingerprinting processor source must not import transformers (and torch)
+    # into the API/worker parent or a decode-only verification process.
+    package=Path(distribution('transformers').locate_file('transformers'))
     paths=('models/qwen3_vl/processing_qwen3_vl.py','models/qwen3_vl/video_processing_qwen3_vl.py',
            'video_processing_utils.py','video_utils.py')
     digest=sha256()
