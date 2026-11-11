@@ -60,6 +60,9 @@ def test_private_output_lineage_source_links_no_tags_and_exact_repeat(variants):
             pass
     versions = env.variants.list_versions(item.asset_id, principal=env.owner)
     assert len(versions) == 2 and all(not item['download_available'] for item in versions)
+    from media_tag.analysis.service import AnalysisService
+    state = AnalysisService(env.router).status(item.asset_id, principal=env.owner)
+    assert state['state'] == 'awaiting_file_gate' and not state['analysis_complete']
 
 
 def test_derived_input_requires_explicit_chain_and_records_cumulative_speed(variants):

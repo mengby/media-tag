@@ -1,9 +1,21 @@
 # All-media analysis
 
-CT-02 foundation for the cleaning/tagging implementation. `contracts.py` defines
+CT-02/CT-04 foundations for the cleaning/tagging implementation. `contracts.py` defines
 ten topic-field assessments, source-bound visual/audio evidence, explicit pending
 actions, unapproved cleaning defaults and provider capabilities. It imports no
-model, performs no network/file operations and changes no server defaults.
+model and performs no network/file operations by itself.
+
+`schema.py` adds migration 11 for requester-scoped durable analysis intents.
+`intake.py` records them in the same transaction as a new original, completed
+upload or trusted derived result. It does not merge owners, grant edit rights,
+publish to the library, execute models or claim field completion. `service.py`
+and `http.py` expose authenticated read-only pending state; unsupported or absent
+runtime analysis is not disguised as successful tagging. Router remains the
+execution queue; these records are domain requests awaiting its later dispatch.
+
+Existing databases are not backfilled on read. Old v9/v10 backups remain
+readable and migrate to v11 only when explicitly opened by the current catalogue
+bootstrap. The deployed instance has not been opened or restarted by this work.
 
 These are structural contracts. Artifact hashes, vocabulary options, permissions,
 current leases, reusable producer results and human decisions must still be

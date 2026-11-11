@@ -158,6 +158,8 @@ class Catalog:
             connection.execute("INSERT INTO asset_aliases VALUES(?,?,?,?)", (principal.actor_id, alias.namespace, alias.alias, asset_id))
         connection.execute("INSERT INTO registrations VALUES(?,?,?,?)", (principal.actor_id, request_id, fingerprint, asset_id))
         self._event(connection, asset_id, 1, principal, "register", {}, {"name": name, "source_id": source_id, "aliases": alias_data})
+        from media_tag.analysis.intake import ensure_intent
+        ensure_intent(connection, asset_id, principal.actor_id)
         return self._snapshot(connection, self._authorize(connection, asset_id, principal))
 
     def get_asset(self, asset_id: str, *, principal: Principal) -> AssetSnapshot:

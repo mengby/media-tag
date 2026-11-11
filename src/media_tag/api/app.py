@@ -350,6 +350,8 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     if reviews is not None:
         from media_tag.review.http import install as install_reviews
         install_reviews(app,reviews,identity,body)
+    from media_tag.analysis.http import install as install_analysis
+    install_analysis(app, router, identity)
     if web:
         from media_tag.web.http import install
         install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming,reviews=reviews,search=search,local_browser_login=local_browser_login)

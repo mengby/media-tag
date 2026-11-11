@@ -29,4 +29,4 @@ def test_v8_migration_failure_preserves_old_heads(tmp_path,monkeypatch):
         assert c.execute('PRAGMA user_version').fetchone()[0]==8
         assert c.execute('SELECT epoch FROM terminology_serving_head').fetchone()[0]==0
     monkeypatch.setattr(module,'SEARCH_SCHEMA',valid);Database(path).initialize()
-    with Database(path).transaction() as c:assert c.execute('PRAGMA user_version').fetchone()[0]==10
+    with Database(path).transaction() as c:assert c.execute('PRAGMA user_version').fetchone()[0]==11

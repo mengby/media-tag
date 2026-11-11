@@ -210,7 +210,8 @@ def test_additive_v10_migration_rolls_back_and_retains_v9_data(tmp_path,monkeypa
     # Construct the exact v9 predecessor, without changing its checksums.
     database.initialize()
     with database.transaction(write=True) as c:
-        c.execute('DELETE FROM schema_migrations WHERE version=10');c.execute('PRAGMA user_version=9')
+        c.execute('DROP TABLE analysis_intents')
+        c.execute('DELETE FROM schema_migrations WHERE version>=10');c.execute('PRAGMA user_version=9')
         c.execute("INSERT INTO catalog_metadata VALUES('retained','value')")
     monkeypatch.setattr(module,'DRAFT_SCHEMA',(*original,'invalid synthetic SQL'))
     with pytest.raises(Exception):database.initialize()
@@ -219,5 +220,5 @@ def test_additive_v10_migration_rolls_back_and_retains_v9_data(tmp_path,monkeypa
         assert not c.execute("SELECT 1 FROM sqlite_master WHERE name='ai_draft_documents'").fetchone()
     monkeypatch.setattr(module,'DRAFT_SCHEMA',original);database.initialize();database.initialize()
     with database.transaction() as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0]==10
+        assert c.execute('PRAGMA user_version').fetchone()[0]==11
         assert c.execute("SELECT value FROM catalog_metadata WHERE key='retained'").fetchone()[0]=='value'

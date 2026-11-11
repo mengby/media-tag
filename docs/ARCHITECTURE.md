@@ -1,5 +1,7 @@
 # 素材库设计总览
 
+2026-11-11持久化意图：新增v11`analysis_intents`，由原件/上传完成/受信衍生登记事务共同写入；按实际owner、请求人和文件哈希绑定，不转移权限。新增受权只读`GET /analysis/assets/{asset_id}`，仅暴露本请求人待办，仍由Router承担后续执行。新分析尚未派发，旧v9/v10备份兼容及旧迁移摘要保持，见[实现边界](all-media-analysis-intake.md)。
+
 2026-11-11执行基础：`analysis/contracts.py`新增独立十字段评估、待处理动作、实际源证据关联、模态约束、未批准清洗策略与提供方能力声明；不更改旧WorkerResult/Evidence/接口或运行服务。结构校验不替代文件完整性、权限、租约、词表或人工决定的服务验证，实际接入进度见[执行记录](cleaning-and-topic-tagging-execution.md)。
 
 2026-11-11任务设计补充（仅文档）：[分阶段实施任务](cleaning-and-topic-tagging-tasks.md)明确复用UploadService/Catalog/Router、D10/D11、四字段VLM、审核/索引/导出及云同步基础；统一处理用途后台打标、真实裁剪、图片/贴纸打码、水印、连续输入、音频分析及字段级分流仍需扩展/新增。现有segment注记不裁剪，现有VLM只读首帧，音频格式支持不等于音频语义能力；未修改任何运行实现。

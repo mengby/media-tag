@@ -17,6 +17,7 @@ from media_tag.terminology.lexicon.schema import TERMINOLOGY_SCHEMA
 from media_tag.terminology.embedding.schema import TEXT_INDEX_SCHEMA
 from media_tag.search.schema import SEARCH_SCHEMA
 from media_tag.drafts.schema import DRAFT_SCHEMA
+from media_tag.analysis.schema import ANALYSIS_SCHEMA
 
 
 class CatalogError(Exception):
@@ -138,11 +139,12 @@ class Database:
                       (7, TERMINOLOGY_SCHEMA, sha256("\n".join(TERMINOLOGY_SCHEMA).encode()).hexdigest()),
                       (8, TEXT_INDEX_SCHEMA, sha256("\n".join(TEXT_INDEX_SCHEMA).encode()).hexdigest()),
                       (9, SEARCH_SCHEMA, sha256("\n".join(SEARCH_SCHEMA).encode()).hexdigest()),
-                      (10, DRAFT_SCHEMA, sha256("\n".join(DRAFT_SCHEMA).encode()).hexdigest()))
+                      (10, DRAFT_SCHEMA, sha256("\n".join(DRAFT_SCHEMA).encode()).hexdigest()),
+                      (11, ANALYSIS_SCHEMA, sha256("\n".join(ANALYSIS_SCHEMA).encode()).hexdigest()))
         connection = self._connect()
         try:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
                 raise CatalogError("unsupported database schema version")
             if version == 0 and connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone():
                 raise CatalogError("refusing to initialize an unversioned, nonempty database")
@@ -160,7 +162,7 @@ class Database:
                 connection.execute("INSERT INTO schema_migrations VALUES(1,?,?)", (SCHEMA_CHECKSUM, utc_now()))
                 connection.execute("PRAGMA user_version=1")
                 version = 1
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
                 raise CatalogError("unsupported database schema version")
             for number, statements, checksum in migrations:
                 if number > version:

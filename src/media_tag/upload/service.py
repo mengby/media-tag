@@ -196,6 +196,8 @@ class UploadService:
                     asset_id = self.catalog._register_blob_tx(connection, blob, source_key=f'jobs/{upload_id}/{name}', source_backend_id='upload-workspace',
                         principal=Principal(actor_id=owner), request_id=upload_id, name=spec.filename, source=spec.source).asset_id
                 connection.execute("UPDATE uploads SET state='completed',asset_id=?,validation_json=? WHERE upload_id=?", (asset_id, encode(validation), upload_id))
+                from media_tag.analysis.intake import ensure_intent
+                ensure_intent(connection, asset_id, owner, content_kind=validation['kind'])
                 # Reused derived outputs retain their privacy gate and never re-enter the original pipeline.
                 if not known or known['kind'] == 'original':
                     connection.execute('INSERT INTO upload_outbox(event_id,upload_id,asset_id,owner_id,purpose) VALUES(?,?,?,?,?)',
