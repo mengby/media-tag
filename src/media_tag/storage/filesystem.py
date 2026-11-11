@@ -111,11 +111,16 @@ class FilesystemBackend:
     @contextmanager
     def open_verified(self, key: str, expected_sha256: str, size_bytes: int) -> Iterator[BinaryIO]:
         with self.open_read(key) as stream:
+            expected_size = os.fstat(stream.fileno()).st_size
+            if expected_size != size_bytes:
+                raise IntegrityError("stored content does not match its registered hash/size")
             digest, size = sha256(), 0
-            while chunk := stream.read(CHUNK_SIZE):
-                digest.update(chunk)
+            while chunk := stream.read(min(CHUNK_SIZE, expected_size - size + 1)):
                 size += len(chunk)
-            if size != size_bytes or digest.hexdigest() != expected_sha256:
+                if size > expected_size:
+                    raise IntegrityError("stored content does not match its registered hash/size")
+                digest.update(chunk)
+            if size != expected_size or os.fstat(stream.fileno()).st_size != expected_size or digest.hexdigest() != expected_sha256:
                 raise IntegrityError("stored content does not match its registered hash/size")
             stream.seek(0)
             yield stream
