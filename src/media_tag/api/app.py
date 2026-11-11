@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None,local_browser_login=None,analysis_options=None,precision_options=None,processing=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None,local_browser_login=None,analysis_options=None,precision_options=None,processing=None,audio_topics_options=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -351,7 +351,8 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         from media_tag.review.http import install as install_reviews
         install_reviews(app,reviews,identity,body)
     from media_tag.analysis.http import install as install_analysis
-    install_analysis(app, router, identity, analysis_options, body=body, precision_options=precision_options)
+    install_analysis(app, router, identity, analysis_options, body=body, precision_options=precision_options,
+        audio_topics_options=audio_topics_options)
     from media_tag.similarity.http import install as install_similarity
     install_similarity(app, router, identity, body)
     from media_tag.processing_queue.http import install as install_processing

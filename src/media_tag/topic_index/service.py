@@ -22,7 +22,7 @@ def _value(state,reason):
 class TopicIndex:
     def __init__(self,router,*,stage='precision'):
         self.router=router
-        if stage not in ('precision','local_topics'):raise ValueError('supported topic stage required')
+        if stage not in ('precision','local_topics','audio_topics'):raise ValueError('supported topic stage required')
         self.stage=stage
 
     @staticmethod
@@ -31,7 +31,7 @@ class TopicIndex:
             a.envelope_json,a.result_json,a.result_digest,a.released_at
             FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
-            WHERE j.asset_id=? AND t.active=1 AND json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics')
+            WHERE j.asset_id=? AND t.active=1 AND json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics','audio_topics')
             ORDER BY t.rowid DESC''',(asset_id,)).fetchall()
 
     def _private_value(self,value,task,report,result):
@@ -100,9 +100,12 @@ class TopicIndex:
             if gate or row['job_cancelled'] or row['state']!='succeeded' or row['released_at'] is None or not row['result_json']:
                 continue
             try:
-                if self.stage=='precision':
+                if self.stage in ('precision','audio_topics'):
                     options=PrecisionOptions.model_validate_json(json.dumps(spec.config))
-                    task,result,report,ref=verified(self.router,row,asset,options.content_kind)
+                    if self.stage=='audio_topics':
+                        task,result,report,ref=verified(self.router,row,asset,options.content_kind,layer='local_audio')
+                    else:
+                        task,result,report,ref=verified(self.router,row,asset,options.content_kind)
                     topic_document=report.document
                     prompt_version=report.prompt_version
                 else:

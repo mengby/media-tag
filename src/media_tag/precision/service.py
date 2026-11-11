@@ -92,8 +92,11 @@ def request_provider(analysis, deployment, asset_id, spec, *, principal, stage):
         return result
 
 
-def dispatch_pending(analysis, deployment, *, principal):
+def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
     """Opt-in escalation only after local tasks stop; failed precision work is not looped."""
+    if stage not in ('precision','audio_topics'):
+        raise ValueError('supported provider stage required')
+    local_audio = stage == 'audio_topics'
     if not deployment.enabled or not deployment.auto_dispatch or not analysis.options.enabled:
         return []
     if principal.role not in ('editor', 'admin'):
@@ -102,7 +105,7 @@ def dispatch_pending(analysis, deployment, *, principal):
     if policy is None:
         return []
     kinds, signatures = [], []
-    for kind in ('image', 'video', 'animation', 'audio'):
+    for kind in (('audio',) if local_audio else ('image', 'video', 'animation', 'audio')):
         try:
             provider = provider_for(deployment, kind)
         except ModelFailure:
@@ -112,7 +115,7 @@ def dispatch_pending(analysis, deployment, *, principal):
     if not kinds:
         return []
     seed = sha256(encode([signatures, policy.digest]).encode()).hexdigest()
-    cursor_key = 'ct_precision_scan:'+sha256(principal.actor_id.encode()).hexdigest()
+    cursor_key = ('ct_audio_topics_scan:' if local_audio else 'ct_precision_scan:')+sha256(principal.actor_id.encode()).hexdigest()
     with analysis.database.transaction() as connection:
         cursor = connection.execute('SELECT value FROM catalog_metadata WHERE key=?', (cursor_key,)).fetchone()
         cursor = json.loads(cursor[0]) if cursor else {}
@@ -130,15 +133,15 @@ def dispatch_pending(analysis, deployment, *, principal):
             AND EXISTS (SELECT 1 FROM router_tasks t JOIN router_attempts z ON z.task_id=t.task_id AND z.lease_epoch=t.lease_epoch
                 WHERE t.job_id=j.job_id AND t.active=1 AND t.step_key='probe' AND t.state='succeeded' AND z.released_at IS NOT NULL)
             AND NOT EXISTS (SELECT 1 FROM router_tasks t LEFT JOIN router_attempts z ON z.task_id=t.task_id AND z.lease_epoch=t.lease_epoch
-                WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage')!='precision'
+                WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage')!=?
                 AND (t.state NOT IN ('succeeded','failed','needs_attention','cancelled') OR t.lease_epoch>0 AND z.released_at IS NULL))
             AND EXISTS (SELECT 1 FROM json_each(p.value,'$.fields') f WHERE NOT EXISTS (
                 SELECT 1 FROM router_tasks t JOIN json_each(t.spec_json,'$.target_fields') tf
-                WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage')='precision' AND tf.value=f.value))
+                WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage') IN (?,?) AND tf.value=f.value))
             ORDER BY i.rowid LIMIT ?'''
         def scan(after):
             return connection.execute(query, (encode(kinds), principal.actor_id, INTAKE_POLICY, after,
-                principal.role, principal.actor_id, principal.actor_id, deployment.dispatch_limit)).fetchall()
+                principal.role, principal.actor_id, principal.actor_id, stage, stage, 'precision', deployment.dispatch_limit)).fetchall()
         rows = scan(position)
         if not rows and position:
             rows = scan(0)
@@ -158,22 +161,22 @@ def dispatch_pending(analysis, deployment, *, principal):
                 if policy is None:
                     continue
                 tasks = connection.execute('SELECT * FROM router_tasks WHERE job_id=? AND active=1', (state['runtime']['job_id'],)).fetchall()
-                covered = {field for row in tasks if json.loads(row['spec_json'])['stage'] == 'precision'
+                covered = {field for row in tasks if json.loads(row['spec_json'])['stage'] in ((stage,'precision') if local_audio else (stage,))
                     for field in json.loads(row['spec_json'])['target_fields']}
                 fields = tuple(field for field in TOPIC_FIELDS if field not in covered
                     and (state['content_kind'] != 'audio' or field not in ('画面主体', '表现形式')))
                 if not fields:
                     continue
-                locals_ = [row for row in tasks if json.loads(row['spec_json'])['stage'] != 'precision']
+                locals_ = [row for row in tasks if json.loads(row['spec_json'])['stage'] != stage]
                 if any(row['state'] not in ('succeeded', 'failed', 'needs_attention', 'cancelled') for row in locals_):
                     continue
                 probe = next((row for row in tasks if row['step_key'] == 'probe'), None)
                 if probe is None or probe['state'] != 'succeeded':
                     continue
             token = sha256(encode([state['runtime']['job_id'], provider.revision, policy.digest, fields]).encode()).hexdigest()[:40]
-            spec = PrecisionSubmission(request_id='auto-precision-'+token, source_sha256=asset['blob_sha256'],
+            spec = PrecisionSubmission(request_id=('auto-audio-' if local_audio else 'auto-precision-')+token, source_sha256=asset['blob_sha256'],
                 expected_asset_revision=asset['revision'], expected_job_revision=state['runtime']['revision'], fields=fields)
-            outcomes.append(request_precision(analysis, deployment, candidate['asset_id'], spec, principal=principal))
+            outcomes.append(request_provider(analysis, deployment, candidate['asset_id'], spec, principal=principal, stage=stage))
         except (CatalogError, ModelFailure, ValueError):
-            outcomes.append({'asset_id': candidate['asset_id'], 'state': 'precision_waiting'})
+            outcomes.append({'asset_id': candidate['asset_id'], 'state': stage+'_waiting'})
     return outcomes

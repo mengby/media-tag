@@ -14,6 +14,7 @@ from .runtime import duration, read_json, suggestions
 WAITING = {
     'precision_provider_unavailable': 'provider', 'precision_configuration_changed': 'provider',
     'precision_verified_probe_required': 'evidence', 'precision_verified_duration_required': 'evidence',
+    'precision_common_source_clock_required': 'evidence',
     'precision_track_selection_required': 'human', 'precision_duration_budget': 'provider',
     'precision_input_budget': 'provider', 'precision_request_budget': 'provider',
 }
@@ -57,11 +58,13 @@ def verified(router, row, asset, kind, *, layer='precision'):
     info = read_json(router, probes[0])
     if {'gif': 'animation'}.get(info['kind'], info['kind']) != kind:
         raise ValueError('precision input modality changed')
-    span = duration(info, kind)
+    from .runtime import evidence_window
+    window_start,window_end = evidence_window(info, kind)
+    span = None if window_start is None else window_end-window_start
     expected_kind = 'image' if span is None else 'audio_segment' if kind == 'audio' else 'video_segment'
     if (sample.artifact.kind != 'precision_input' or sample.artifact.sha256 != asset['blob_sha256']
-            or sample.kind != expected_kind or sample.start_seconds != (None if span is None else 0.0)
-            or sample.end_seconds != span):
+            or sample.kind != expected_kind or sample.start_seconds != window_start
+            or sample.end_seconds != window_end):
         raise ValueError('precision evidence is not the complete bounded source')
     selected = {item.field: item for item in document.fields if item.field in task.target_fields}
     if layer == 'local_audio' and report.reply is None:
@@ -84,15 +87,18 @@ def verified(router, row, asset, kind, *, layer='precision'):
     return task, result, report, refs[0]
 
 
-def merge(router, connection, asset, kind, job, fields, evidence, producers):
+def merge(router, connection, asset, kind, job, fields, evidence, producers, *, layer='precision'):
     from media_tag.analysis.scopes import latest_topic_fields
+    if layer not in ('precision','local_audio'):
+        raise ValueError('supported analysis layer required')
+    stage = 'precision' if layer=='precision' else 'audio_topics'
     winners = latest_topic_fields(connection, job_id=job['job_id'])
     states, claimed = {}, set()
     evidence, producers = list(evidence), list(producers)
     rows = connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
         FROM router_tasks t LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
-        WHERE t.job_id=? AND t.active=1 AND json_extract(t.spec_json,'$.stage')='precision'
-        ORDER BY t.rowid DESC''', (job['job_id'],)).fetchall()
+        WHERE t.job_id=? AND t.active=1 AND json_extract(t.spec_json,'$.stage')=?
+        ORDER BY t.rowid DESC''', (job['job_id'],stage)).fetchall()
     for row in rows:
         spec = StepSpec.model_validate_json(row['spec_json'])
         selected = {field for field in spec.target_fields if winners.get(field) == row['task_id']}-claimed
@@ -100,23 +106,23 @@ def merge(router, connection, asset, kind, job, fields, evidence, producers):
             continue
         claimed |= selected
         for field in selected:
-            fields[field] = FieldAssessment(field=field, value=FieldValue(state='unknown', reason='precision_task_pending'),
-                next_step='precision', reason='precision_task_pending')
+            fields[field] = FieldAssessment(field=field, value=FieldValue(state='unknown', reason=stage+'_task_pending'),
+                next_step='precision' if layer=='precision' else 'local', reason=stage+'_task_pending')
         states[row['step_key']] = row['state']
         if row['state'] != 'succeeded' or row['released_at'] is None or not row['result_json']:
             if row['state'] in ('failed', 'needs_attention', 'cancelled'):
                 for field in selected:
                     code = row['error_code']
-                    reason = code if code in WAITING else 'precision_task_failed'
+                    reason = code if code in WAITING else stage+'_task_failed'
                     fields[field] = FieldAssessment(field=field,
                         value=FieldValue(state='unknown' if code in WAITING else 'failed', reason=reason),
-                        next_step=WAITING.get(code, 'precision'), reason=reason)
+                        next_step=WAITING.get(code, 'precision' if layer=='precision' else 'local'), reason=reason)
             continue
         try:
-            task, result, report, ref = verified(router, row, asset, kind)
+            task, result, report, ref = verified(router, row, asset, kind, layer=layer)
             document = report.document
             producer_id = f'{task.task_id}.{task.lease_epoch}'
-            mapping = {item.evidence_id: 'precision-'+sha256(f'{producer_id}:{item.evidence_id}'.encode()).hexdigest()[:32]
+            mapping = {item.evidence_id: stage+'-'+sha256(f'{producer_id}:{item.evidence_id}'.encode()).hexdigest()[:32]
                 for item in document.evidence}
             adopted = tuple(item.model_copy(update={'evidence_id': mapping[item.evidence_id]}) for item in document.evidence)
             for item in document.fields:
@@ -128,10 +134,10 @@ def merge(router, connection, asset, kind, job, fields, evidence, producers):
                 result_sha256=sha256(row['result_json'].encode()).hexdigest(), report=ref, versions=task.versions,
                 prompt_version=PROMPT, evidence_ids=tuple(item.evidence_id for item in adopted)))
             evidence.extend(adopted)
-            states[row['step_key']] = 'verified_precision_draft'
+            states[row['step_key']] = 'verified_'+stage+'_draft'
         except (StorageError, OSError, ValueError, KeyError, TypeError, StopIteration, ModelFailure):
             for field in selected:
-                fields[field] = FieldAssessment(field=field, value=FieldValue(state='failed', reason='precision_evidence_unavailable'),
-                    next_step='evidence', reason='precision_evidence_unavailable')
+                fields[field] = FieldAssessment(field=field, value=FieldValue(state='failed', reason=stage+'_evidence_unavailable'),
+                    next_step='evidence', reason=stage+'_evidence_unavailable')
             states[row['step_key']] = 'unavailable'
     return fields, tuple(evidence), tuple(producers), states

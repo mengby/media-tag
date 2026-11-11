@@ -150,12 +150,15 @@ def test_audio_request_rechecks_actor_and_source_job_revisions(precise):
     assert p.analysis.status(asset.asset_id, principal=p.env.owner)['runtime']['revision'] == spec.expected_job_revision
 
 
-def test_audio_task_enforces_input_budget_without_adopting_suggestions(precise):
+def test_audio_task_enforces_input_budget_without_adopting_suggestions(precise, monkeypatch):
     p = precise
     setup(p)
     asset = audio(p)
     deploy = p.deployment(max_input_bytes=1024)
     accepted = request_audio_topics(p.analysis, deploy, asset.asset_id, submission(p, asset), principal=p.env.owner)
+    def forbidden_open(*args, **kwargs):
+        raise AssertionError('oversized registered source must be rejected before storage hashing')
+    monkeypatch.setattr(p.env.router, 'open_input', forbidden_open)
     LocalExecutor(p.env.router, p.env.worker, AudioTopicHandlers(p.env.router, p.env.worker, deploy)).run_once()
     row, _ = rows(p, asset.asset_id, accepted['task_id'])
     result = json.loads(row['result_json'])

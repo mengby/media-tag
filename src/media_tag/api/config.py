@@ -64,6 +64,7 @@ class LocalConfig(ContractModel):
     search: SearchOptions = SearchOptions()
     analysis: AnalysisDeployment = AnalysisDeployment()
     precision: PrecisionDeployment = PrecisionDeployment()
+    audio_topics: PrecisionDeployment = PrecisionDeployment()
     similarity: SimilarityDeployment = SimilarityDeployment()
     local_topics: LocalTopicDeployment = LocalTopicDeployment()
     processing: ProcessingDeployment = ProcessingDeployment()
@@ -118,6 +119,11 @@ def load_application(path: Path):
             raise ValueError('precision drafts require the template validation policy')
         from media_tag.precision.runtime import stage as precision_stage
         router.stages['precision'] = precision_stage()
+    if config.audio_topics.enabled:
+        if not config.review.enabled:
+            raise ValueError('local audio drafts require the template validation policy')
+        from media_tag.audio_topics.runtime import stage as audio_topic_stage
+        router.stages['audio_topics'] = audio_topic_stage()
     if config.semantic.enabled:
         if not config.review.enabled:raise ValueError('semantic drafts require the template validation policy; no reviewer assignment required')
         from media_tag.semantic.registry import SemanticRegistry
@@ -162,7 +168,7 @@ def load_application(path: Path):
         search.visual_encoder=VisualEncoder(ModelRegistry(Path(config.models.model_root)),router.workspace)
     if config.local_browser_login is not None and not config.web_enabled:raise ValueError('local browser login requires web UI')
     processing = ProcessingService(router, tools, options=config.processing) if config.processing.enabled else None
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis,precision_options=config.precision,processing=processing)
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis,precision_options=config.precision,audio_topics_options=config.audio_topics,processing=processing)
     return app, router, tools
 
 
@@ -192,6 +198,7 @@ def executor_from_config(path: Path, worker_id: str):
     retime_handler=RedactionHandlers(retiming) if retiming else None
     terms=TerminologyHandlers(app.state.resolver) if config.text.enabled else None
     precision_handler = None
+    audio_topic_handler = None
     local_topic_handler = None
     if config.local_topics.enabled:
         from media_tag.local_topics.runtime import LocalTopicHandlers
@@ -199,6 +206,9 @@ def executor_from_config(path: Path, worker_id: str):
     if config.precision.enabled:
         from media_tag.precision.runtime import PrecisionHandlers
         precision_handler = PrecisionHandlers(router, principal, config.precision)
+    if config.audio_topics.enabled:
+        from media_tag.audio_topics.runtime import AudioTopicHandlers
+        audio_topic_handler = AudioTopicHandlers(router, principal, config.audio_topics)
     latest_asset=[None]
     def handle(lease,stopped):
         latest_asset[0]=lease.task.asset_id
@@ -208,6 +218,7 @@ def executor_from_config(path: Path, worker_id: str):
         if lease.task.stage == 'similarity' and similarity_handler: return similarity_handler(lease, stopped)
         if lease.task.stage == 'local_topics' and local_topic_handler: return local_topic_handler(lease, stopped)
         if lease.task.stage == 'precision' and precision_handler: return precision_handler(lease, stopped)
+        if lease.task.stage == 'audio_topics' and audio_topic_handler: return audio_topic_handler(lease, stopped)
         if lease.task.stage=='visual_fields' and semantic_handler:return semantic_handler(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
         if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
@@ -233,6 +244,9 @@ def executor_from_config(path: Path, worker_id: str):
         for requester in config.credentials.values():
             if requester.role in ('editor', 'admin') and requester.actor_id not in seen:
                 app.state.analysis.dispatch_pending(principal=requester)
+                if config.audio_topics.enabled:
+                    from media_tag.audio_topics.service import dispatch_pending as dispatch_audio_topics
+                    dispatch_audio_topics(app.state.analysis, config.audio_topics, principal=requester)
                 if config.precision.enabled:
                     from media_tag.precision.service import dispatch_pending
                     dispatch_pending(app.state.analysis, config.precision, principal=requester)

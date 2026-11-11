@@ -16,11 +16,12 @@ from .projection import TopicProjection
 
 
 class AnalysisService:
-    def __init__(self, router, options=None, precision_deployment=None):
+    def __init__(self, router, options=None, precision_deployment=None, audio_deployment=None):
         self.router, self.catalog, self.database = router, router.catalog, router.database
         self.files = FileService(router)
         self.options = options or AnalysisDeployment()
         self.precision_deployment = precision_deployment
+        self.audio_deployment = audio_deployment
         self._dispatch_positions = {}
 
     def _steps(self, fingerprint, content_kind):
@@ -203,6 +204,7 @@ class AnalysisService:
                     topic_analysis = projection.public(document, local_state)
                     topic_analysis['precision_stages'] = projection.precision_states
                     topic_analysis['local_topic_stages'] = projection.local_topic_states
+                    topic_analysis['audio_topic_stages'] = projection.audio_topic_states
                     if document.analysis_complete:
                         state = 'analysis_draft_ready'
                     elif projection.precision_states and any(value == 'verified_precision_draft' for value in projection.precision_states.values()) and runtime and runtime['state'] == 'succeeded':

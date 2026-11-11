@@ -63,7 +63,7 @@ def metadata(reviews, connection, asset, run_id, suggestion_id):
     priority='human_effective_value' if effective else 'human_rejected_suggestion' if rejected else None
     definition=reviews.router.stages.get(task.stage)
     if definition is None:raise RevisionConflict('suggestion stage is no longer configured')
-    if task.stage in ('precision','local_topics') and (
+    if task.stage in ('precision','local_topics','audio_topics') and (
             definition.required_model_revision is not None and definition.required_model_revision!=task.versions.model_revision
             or definition.required_preprocess_version is not None and definition.required_preprocess_version!=task.versions.preprocess_version):
         raise RevisionConflict('suggestion model or preprocessing is no longer configured')
@@ -85,12 +85,13 @@ def verify(reviews, item, asset) -> Mapping[str, tuple[tuple[float, float], ...]
 
 
 def _verify(reviews, item, asset):
-    if item.task.stage=='precision':
+    if item.task.stage in ('precision','audio_topics'):
         from media_tag.precision.projection import verified
         from media_tag.precision.contracts import PrecisionOptions
         import json
         options=PrecisionOptions.model_validate_json(json.dumps(json.loads(item.live['spec_json'])['config']))
-        task,result,report,_=verified(reviews.router,item.live,asset,options.content_kind)
+        task,result,report,_=verified(reviews.router,item.live,asset,options.content_kind,
+            layer='local_audio' if item.task.stage=='audio_topics' else 'precision')
         document=report.document
     elif item.task.stage=='local_topics':
         from media_tag.local_topics.projection import verified

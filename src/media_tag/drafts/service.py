@@ -36,8 +36,8 @@ class DraftIndex:
                 FROM router_tasks t JOIN router_jobs j USING(job_id)
                 LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
                 WHERE j.asset_id IN ('''+marks+''') AND t.active=1
-                AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics'))
-                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision','local_topics')
+                AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics','audio_topics'))
+                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision','local_topics','audio_topics')
                 ORDER BY j.created_at DESC,t.rowid DESC''',group)
             for row in rows:view.rows[row['asset_id']].append(row)
             for row in c.execute('SELECT asset_id,stage,basis_sha256,payload_json FROM ai_draft_documents WHERE asset_id IN ('+marks+')',group):
@@ -143,12 +143,12 @@ class DraftIndex:
             t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
             FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
-            WHERE j.asset_id=? AND t.active=1 AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics'))
-            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision','local_topics')
+            WHERE j.asset_id=? AND t.active=1 AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics','audio_topics'))
+            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision','local_topics','audio_topics')
             ORDER BY j.created_at DESC,t.rowid DESC''',(asset['asset_id'],)).fetchall()
         latest={}
         for row in rows:
-            if json.loads(row['spec_json'])['stage'] not in ('precision','local_topics'):latest.setdefault(json.loads(row['spec_json'])['stage'],row)
+            if json.loads(row['spec_json'])['stage'] not in ('precision','local_topics','audio_topics'):latest.setdefault(json.loads(row['spec_json'])['stage'],row)
         documents=[];states={}
         stages=(*STAGES,'visual_fields') if 'visual_fields' in latest or 'visual_fields' in self.router.stages else STAGES
         for stage in stages:
@@ -197,7 +197,7 @@ class DraftIndex:
             states[stage]=state
         from media_tag.topic_index.service import TopicIndex
         topics=[]
-        for topic_stage in ('local_topics','precision'):
+        for topic_stage in ('local_topics','audio_topics','precision'):
             topic,claimed=TopicIndex(self.router,stage=topic_stage).project(c,asset,persist=persist,rows=rows,
                 cached_documents=read_view.documents if read_view is not None else None,select_document=select_document)
             if topic is not None:

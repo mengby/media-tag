@@ -58,12 +58,12 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_
         return 'missing'
     if row['state'] in ('queued', 'leased', 'running', 'retry_wait') or row['released_at'] is None and row['result_json']:
         return 'pending'
-    if desired.stage == 'precision':
+    if desired.stage in ('precision','audio_topics'):
         from media_tag.precision.runtime import provider_for
         from media_tag.precision.contracts import PROMPT
         policy = getattr(service.catalog, 'review_policy', None)
         try:
-            deployment = getattr(service, 'precision_deployment', None)
+            deployment = getattr(service, 'audio_deployment' if desired.stage=='audio_topics' else 'precision_deployment', None)
             provider = provider_for(deployment, content_kind) if deployment is not None else None
         except ModelFailure:
             provider = None
@@ -72,7 +72,7 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_
                 or desired.config.get('provider_id') != provider.provider_id or desired.prompt_version != PROMPT
                 or desired.versions.rules_version != 'sha256:'+policy.digest
                 or desired.versions.taxonomy_version != policy.config.taxonomy_version):
-            return 'awaiting_current_precision_configuration'
+            return 'awaiting_current_'+desired.stage+'_configuration'
     if StepSpec.model_validate_json(row['spec_json']) != desired:
         return 'incompatible'
     if not row['result_json']:
@@ -99,9 +99,12 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_
             if asset_revision is not None and task.asset_revision != asset_revision:
                 return 'incompatible'
             verified_similarity(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256})
-        if task.stage == 'precision':
+        if task.stage in ('precision','audio_topics'):
             from media_tag.precision.projection import verified
-            verified(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256}, content_kind)
+            if task.stage=='audio_topics':
+                verified(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256}, content_kind,layer='local_audio')
+            else:
+                verified(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256}, content_kind)
         if task.stage in ('ocr', 'face', 'clip', 'visual_fields') and result.status != 'not_applicable':
             index = DraftIndex(service.router)
             ref, report = index._report(task, result)
@@ -135,10 +138,10 @@ def repair(service, asset_id, spec, *, principal):
         rows = {row['step_key']: row for row in connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
             FROM router_tasks t LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE t.job_id=? AND t.active=1''', (job['job_id'],))}
-        if 'precision' in service.router.stages:
+        if 'precision' in service.router.stages or 'audio_topics' in service.router.stages:
             for key, row in rows.items():
                 spec_row = StepSpec.model_validate_json(row['spec_json'])
-                if spec_row.stage == 'precision':
+                if spec_row.stage in ('precision','audio_topics') and spec_row.stage in service.router.stages:
                     desired[key] = spec_row
         selected = {key for key, step in desired.items() if not spec.fields or set(step.target_fields) & set(spec.fields)}
         requested = set(spec.fields or TOPIC_FIELDS)

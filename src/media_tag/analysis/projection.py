@@ -22,6 +22,7 @@ class TopicProjection:
         self.drafts = DraftIndex(router)
         self.precision_states = {}
         self.local_topic_states = {}
+        self.audio_topic_states = {}
 
     def build(self, connection, asset, content_kind, job=None):
         fields = {field: pending(field, 'local_topic_capability_not_configured') for field in TOPIC_FIELDS}
@@ -97,6 +98,9 @@ class TopicProjection:
         if job is not None and not job['cancelled']:
             from media_tag.local_topics.projection import merge as merge_local_topics
             fields, evidence, producers, self.local_topic_states = merge_local_topics(self.router, connection, asset,
+                content_kind, job, fields, evidence, producers)
+            from media_tag.audio_topics.projection import merge as merge_audio_topics
+            fields, evidence, producers, self.audio_topic_states = merge_audio_topics(self.router, connection, asset,
                 content_kind, job, fields, evidence, producers)
             from media_tag.precision.projection import merge
             fields, evidence, producers, self.precision_states = merge(self.router, connection, asset, content_kind, job,
