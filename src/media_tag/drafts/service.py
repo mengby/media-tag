@@ -36,8 +36,8 @@ class DraftIndex:
                 FROM router_tasks t JOIN router_jobs j USING(job_id)
                 LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
                 WHERE j.asset_id IN ('''+marks+''') AND t.active=1
-                AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage')='precision')
-                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision')
+                AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics'))
+                AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision','local_topics')
                 ORDER BY j.created_at DESC,t.rowid DESC''',group)
             for row in rows:view.rows[row['asset_id']].append(row)
             for row in c.execute('SELECT asset_id,stage,basis_sha256,payload_json FROM ai_draft_documents WHERE asset_id IN ('+marks+')',group):
@@ -143,17 +143,21 @@ class DraftIndex:
             t.state,t.spec_json,a.envelope_json,a.result_json,a.result_digest,a.released_at
             FROM router_tasks t JOIN router_jobs j USING(job_id)
             LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
-            WHERE j.asset_id=? AND t.active=1 AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage')='precision')
-            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision')
+            WHERE j.asset_id=? AND t.active=1 AND (j.cancelled=0 OR json_extract(t.spec_json,'$.stage') IN ('visual_fields','precision','local_topics'))
+            AND json_extract(t.spec_json,'$.stage') IN ('ocr','face','clip','visual_fields','precision','local_topics')
             ORDER BY j.created_at DESC,t.rowid DESC''',(asset['asset_id'],)).fetchall()
         latest={}
         for row in rows:
-            if json.loads(row['spec_json'])['stage']!='precision':latest.setdefault(json.loads(row['spec_json'])['stage'],row)
+            if json.loads(row['spec_json'])['stage'] not in ('precision','local_topics'):latest.setdefault(json.loads(row['spec_json'])['stage'],row)
         documents=[];states={}
         stages=(*STAGES,'visual_fields') if 'visual_fields' in latest or 'visual_fields' in self.router.stages else STAGES
         for stage in stages:
             row=latest.get(stage)
             state='not_requested' if row is None else row['state'];document=None
+            if row and row['job_cancelled']:
+                states[stage]='cancelled'
+                if persist:c.execute('DELETE FROM ai_draft_documents WHERE asset_id=? AND stage=?',(asset['asset_id'],stage))
+                continue
             if row and row['released_at'] is not None and row['result_json']:
                 try:
                     task=TaskEnvelope.model_validate_json(row['envelope_json']);result=WorkerResult.model_validate_json(row['result_json'])
@@ -192,18 +196,20 @@ class DraftIndex:
             elif persist:c.execute('DELETE FROM ai_draft_documents WHERE asset_id=? AND stage=?',(asset['asset_id'],stage))
             states[stage]=state
         from media_tag.topic_index.service import TopicIndex
-        topic,claimed=TopicIndex(self.router).project(c,asset,persist=persist,rows=rows,
-            cached_documents=read_view.documents if read_view is not None else None,select_document=select_document)
-        if topic is not None:
-            # Stronger current scopes mask older local successes even while pending,
-            # failed, cancelled, rejected or damaged. Only their qualified fields return.
-            for document in documents:
-                document['labels']=[label for label in document['labels'] if label.get('field') not in claimed]
-            states['precision']=topic['state'] if topic['state']=='not_selected' else (
-                'ready' if topic['labels'] else 'pending_or_unresolved')
-            documents.append(topic)
+        topics=[]
+        for topic_stage in ('local_topics','precision'):
+            topic,claimed=TopicIndex(self.router,stage=topic_stage).project(c,asset,persist=persist,rows=rows,
+                cached_documents=read_view.documents if read_view is not None else None,select_document=select_document)
+            if topic is not None:
+                # Stronger current scopes mask older successes even while pending,
+                # failed, cancelled, rejected or damaged. Human values remain separate.
+                for document in documents:
+                    document['labels']=[label for label in document['labels'] if label.get('field') not in claimed]
+                states[topic_stage]=topic['state'] if topic['state']=='not_selected' else (
+                    'ready' if topic['labels'] else 'pending_or_unresolved')
+                documents.append(topic);topics.append(topic)
         local_fields=next((d.get('field_states',{}) for d in documents if d['stage']=='visual_fields'),{})
-        topic_fields=topic['field_states'] if topic is not None else {}
+        topic_fields={key:value for item in topics for key,value in item['field_states'].items()}
         local_provenance=next((d.get('provenance',{}) for d in documents if d['stage']=='visual_fields'),{})
         return {'schema_version':VERSION,'asset_id':asset['asset_id'],'source_sha256':asset['blob_sha256'],
             'state':'ai_draft','stages':states,'labels':[l for d in documents for l in d['labels']],
@@ -212,7 +218,7 @@ class DraftIndex:
             'effective_values_written':False,'filename_used_as_evidence':False,
             'field_states':{**local_fields,**topic_fields},
             'field_provenance':local_provenance,
-            'topic_field_provenance':topic.get('provenance',{}) if topic is not None else {},
-            'field_candidates':topic.get('candidates',{}) if topic is not None else {},
+            'topic_field_provenance':{key:value for item in topics for key,value in item.get('provenance',{}).items()},
+            'field_candidates':{key:value for item in topics for key,value in item.get('candidates',{}).items()},
             'normalizations':next((d.get('normalizations',[]) for d in documents if d['stage']=='visual_fields'),[]),
             'uncertainties':next((d['uncertainties'] for d in documents if d['stage']=='visual_fields'),[])}

@@ -7,6 +7,7 @@ from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.precision.contracts import PrecisionDeployment
 from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
+from media_tag.local_topics.contracts import LocalTopicDeployment
 from media_tag.contracts.templates import load_template_bundle
 from media_tag.router.models import RouterOptions
 from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
@@ -63,6 +64,7 @@ class LocalConfig(ContractModel):
     analysis: AnalysisDeployment = AnalysisDeployment()
     precision: PrecisionDeployment = PrecisionDeployment()
     similarity: SimilarityDeployment = SimilarityDeployment()
+    local_topics: LocalTopicDeployment = LocalTopicDeployment()
 
 
 def load_application(path: Path):
@@ -97,6 +99,16 @@ def load_application(path: Path):
     if config.retime.enabled:
         router.stages.update(retime_stages(tools))
     semantic_registry=None
+    if config.local_topics.enabled:
+        if not config.review.enabled:
+            raise ValueError('local topic drafts require the template validation policy')
+        from media_tag.semantic.registry import SemanticRegistry
+        from media_tag.local_topics.runtime import stage as local_topic_stage
+        root = Path(config.local_topics.model_root)
+        if not root.is_absolute():
+            raise ValueError('enabled local topic model root must be absolute')
+        require_local_path(root)
+        router.stages['local_topics'] = local_topic_stage(SemanticRegistry(root))
     if config.precision.enabled:
         if not config.review.enabled:
             raise ValueError('precision drafts require the template validation policy')
@@ -174,6 +186,10 @@ def executor_from_config(path: Path, worker_id: str):
     retime_handler=RedactionHandlers(retiming) if retiming else None
     terms=TerminologyHandlers(app.state.resolver) if config.text.enabled else None
     precision_handler = None
+    local_topic_handler = None
+    if config.local_topics.enabled:
+        from media_tag.local_topics.runtime import LocalTopicHandlers
+        local_topic_handler = LocalTopicHandlers(router, principal, config.local_topics)
     if config.precision.enabled:
         from media_tag.precision.runtime import PrecisionHandlers
         precision_handler = PrecisionHandlers(router, principal, config.precision)
@@ -182,6 +198,7 @@ def executor_from_config(path: Path, worker_id: str):
         latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
         if lease.task.stage == 'similarity' and similarity_handler: return similarity_handler(lease, stopped)
+        if lease.task.stage == 'local_topics' and local_topic_handler: return local_topic_handler(lease, stopped)
         if lease.task.stage == 'precision' and precision_handler: return precision_handler(lease, stopped)
         if lease.task.stage=='visual_fields' and semantic_handler:return semantic_handler(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)

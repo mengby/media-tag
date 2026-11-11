@@ -89,8 +89,11 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_
             and result.errors and all(error.code == 'unpublished_vocabulary' for error in result.errors))
         if not vocabulary and (row['state'] != 'succeeded' or result.status not in ('succeeded', 'not_applicable')):
             return 'failed'
-        if task.stage != 'similarity':
+        if task.stage not in ('similarity', 'local_topics'):
             service.router._artifacts(task, result)
+        if task.stage == 'local_topics':
+            from media_tag.local_topics.projection import verified as verified_local_topics
+            verified_local_topics(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256})
         if task.stage == 'similarity':
             from media_tag.similarity.pipeline import verified as verified_similarity
             if asset_revision is not None and task.asset_revision != asset_revision:

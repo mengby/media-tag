@@ -70,6 +70,8 @@ def verified(router, row, asset, kind):
 
 
 def merge(router, connection, asset, kind, job, fields, evidence, producers):
+    from media_tag.analysis.scopes import latest_topic_fields
+    winners = latest_topic_fields(connection, job_id=job['job_id'])
     states, claimed = {}, set()
     evidence, producers = list(evidence), list(producers)
     rows = connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
@@ -78,7 +80,7 @@ def merge(router, connection, asset, kind, job, fields, evidence, producers):
         ORDER BY t.rowid DESC''', (job['job_id'],)).fetchall()
     for row in rows:
         spec = StepSpec.model_validate_json(row['spec_json'])
-        selected = set(spec.target_fields)-claimed
+        selected = {field for field in spec.target_fields if winners.get(field) == row['task_id']}-claimed
         if not selected:
             continue
         claimed |= selected

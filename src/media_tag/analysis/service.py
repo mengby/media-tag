@@ -35,8 +35,24 @@ class AnalysisService:
                 config={'content_kind': content_kind, 'tool_digest': definition.implementation_version.rsplit(':', 1)[1]}),)
         if content_kind in (None, 'audio'):
             return steps
+        if content_kind == 'image' and 'local_topics' in self.router.stages:
+            from media_tag.local_topics.contracts import LocalTopicOptions
+            from media_tag.local_topics.prompt import PROMPT_VERSION
+            from media_tag.local_topics.service import PREPROCESS_VERSION
+            definition = self.router.stages['local_topics']
+            policy = getattr(self.catalog, 'review_policy', None)
+            if policy is None:
+                raise ValueError('local topic drafts require published validation policy')
+            steps += (StepSpec(key='local_topics', stage='local_topics', depends_on=('probe',),
+                config=LocalTopicOptions(model_revision=definition.required_model_revision, policy_digest=policy.digest).model_dump(mode='json'),
+                versions=Versions(rules_version='sha256:'+policy.digest, preprocess_version=PREPROCESS_VERSION,
+                    taxonomy_version=policy.config.taxonomy_version, model_revision=definition.required_model_revision),
+                target_fields=TOPIC_FIELDS, prompt_version=PROMPT_VERSION,
+                limits=TaskLimits(gpu_slots=1, timeout_seconds=min(240, self.router.options.max_timeout_seconds))),)
         steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)
         for kind in ('ocr', 'face', 'clip', 'visual_fields'):
+            if kind == 'visual_fields' and content_kind == 'image' and 'local_topics' in self.router.stages:
+                continue
             definition = self.router.stages.get(kind)
             if definition and definition.required_model_revision:
                 steps += (StepSpec(key=kind, stage=kind, depends_on=('evidence',),
@@ -186,6 +202,7 @@ class AnalysisService:
                     document, local_state = projection.build(connection, asset, row['content_kind'], job)
                     topic_analysis = projection.public(document, local_state)
                     topic_analysis['precision_stages'] = projection.precision_states
+                    topic_analysis['local_topic_stages'] = projection.local_topic_states
                     if document.analysis_complete:
                         state = 'analysis_draft_ready'
                     elif projection.precision_states and any(value == 'verified_precision_draft' for value in projection.precision_states.values()) and runtime and runtime['state'] == 'succeeded':
