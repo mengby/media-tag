@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None,local_browser_login=None,analysis_options=None,precision_options=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None,local_browser_login=None,analysis_options=None,precision_options=None,processing=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -59,7 +59,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     @app.middleware('http')
     async def private_file_responses(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/v1/','/redaction/','/retime/','/review/','/terminology/','/search/')):
+        if request.url.path.startswith(('/v1/','/redaction/','/retime/','/review/','/terminology/','/search/','/processing/')):
             response.headers.update({'Cache-Control': 'private, no-store', 'Vary': 'Authorization',
                                      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer'})
         return response
@@ -354,6 +354,8 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     install_analysis(app, router, identity, analysis_options, body=body, precision_options=precision_options)
     from media_tag.similarity.http import install as install_similarity
     install_similarity(app, router, identity, body)
+    from media_tag.processing_queue.http import install as install_processing
+    install_processing(app, processing, identity, body)
     if web:
         from media_tag.web.http import install
         install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming,reviews=reviews,search=search,local_browser_login=local_browser_login)

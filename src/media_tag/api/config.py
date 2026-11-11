@@ -8,6 +8,7 @@ from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.precision.contracts import PrecisionDeployment
 from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
 from media_tag.local_topics.contracts import LocalTopicDeployment
+from media_tag.processing_queue import ProcessingDeployment, ProcessingHandlers, ProcessingService, stages as processing_stages
 from media_tag.contracts.templates import load_template_bundle
 from media_tag.router.models import RouterOptions
 from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
@@ -65,6 +66,7 @@ class LocalConfig(ContractModel):
     precision: PrecisionDeployment = PrecisionDeployment()
     similarity: SimilarityDeployment = SimilarityDeployment()
     local_topics: LocalTopicDeployment = LocalTopicDeployment()
+    processing: ProcessingDeployment = ProcessingDeployment()
 
 
 def load_application(path: Path):
@@ -84,6 +86,8 @@ def load_application(path: Path):
     contract = load_template_bundle(templates, expected_fingerprint=config.template_fingerprint)
     catalog = Catalog(Database(database), FilesystemBackend(objects, writable=True), contract=contract)
     router = Router(catalog, workspace, cpu_stages(tools), options=config.options)
+    if config.processing.enabled:
+        router.stages.update(processing_stages(tools))
     if config.similarity.enabled:
         from media_tag.similarity.pipeline import stage as similarity_stage
         router.stages['similarity'] = similarity_stage(tools)
@@ -157,7 +161,8 @@ def load_application(path: Path):
         from media_tag.drafts.visual import VisualEncoder
         search.visual_encoder=VisualEncoder(ModelRegistry(Path(config.models.model_root)),router.workspace)
     if config.local_browser_login is not None and not config.web_enabled:raise ValueError('local browser login requires web UI')
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis,precision_options=config.precision)
+    processing = ProcessingService(router, tools, options=config.processing) if config.processing.enabled else None
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis,precision_options=config.precision,processing=processing)
     return app, router, tools
 
 
@@ -170,6 +175,7 @@ def executor_from_config(path: Path, worker_id: str):
     principal = Principal(actor_id=worker_id, role="worker")
     config = LocalConfig.model_validate_json(path.read_bytes())
     cpu = CPUHandlers(router, principal, tools)
+    processing_handler = ProcessingHandlers(router, principal, tools, options=config.processing) if config.processing.enabled else None
     similarity_handler = None
     if config.similarity.enabled:
         from media_tag.similarity.pipeline import Handlers as SimilarityHandlers
@@ -197,6 +203,8 @@ def executor_from_config(path: Path, worker_id: str):
     def handle(lease,stopped):
         latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
+        if lease.task.stage in ('cleaning_output','image_mask_output') and processing_handler:
+            return processing_handler(lease, stopped)
         if lease.task.stage == 'similarity' and similarity_handler: return similarity_handler(lease, stopped)
         if lease.task.stage == 'local_topics' and local_topic_handler: return local_topic_handler(lease, stopped)
         if lease.task.stage == 'precision' and precision_handler: return precision_handler(lease, stopped)
