@@ -26,7 +26,7 @@ test('topic detail renders current content evidence, legacy frames, and absent m
     await page.setContent('<nav aria-label="主导航"></nav><main id="workspace"></main><div id="library"><div class="toolbar"></div></div><div id="review-editor"></div><label><input id="export-ai"></label><input id="search"><section id="details"></section>');
     const labels=[
       {text:'静态十字段',field:'画面主体',evidence_kind:'image',content_evidence_sha256:'a'.repeat(64),frame_sha256:'f'.repeat(64),model_revision:'model-image',evidence_id:'image-evidence',confidence:null},
-      {text:'音频八字段',field:'情绪/氛围',evidence_kind:'audio',content_evidence_sha256:'b'.repeat(64),model_revision:'model-audio',evidence_id:'audio-evidence',confidence:.7},
+      {text:'音频八字段',field:'情绪/语气',evidence_kind:'audio_segment',content_evidence_sha256:'b'.repeat(64),model_revision:'model-audio',evidence_id:'audio-evidence',confidence:.7},
       {text:'完整内容',evidence_kind:'other',content_evidence_sha256:'c'.repeat(64),model_revision:'model-content',evidence_id:'content-evidence'},
       {text:'旧帧标签',frame_sha256:'d'.repeat(64),model_revision:'model-legacy',evidence_id:'frame-evidence',confidence:0},
       {text:'缺元数据 <img src=x onerror=alert(1)>'},

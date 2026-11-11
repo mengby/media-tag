@@ -179,7 +179,7 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     for(const label of [...draft.labels].sort((a,b)=>Number(b.kind==='field_suggestion')-Number(a.kind==='field_suggestion')).slice(0,100)){
       const short=value=>typeof value==='string'&&value.length?value.slice(0,12):'未提供';
       const contentHash=label.content_evidence_sha256||label.frame_sha256;
-      const evidenceName=({image:'图像',audio:'音频',video:'视频',frame:'帧'})[label.evidence_kind]||(label.frame_sha256&&!label.content_evidence_sha256?'帧':'内容');
+      const evidenceName=({image:'图像',audio:'音频',audio_segment:'音频',video:'视频',video_segment:'视频',frame:'帧'})[label.evidence_kind]||(label.frame_sha256&&!label.content_evidence_sha256?'帧':'内容');
       const line=el('details',undefined,'evidence-card');line.append(el('summary',`${label.field?label.field+'：':''}${label.text}`),el('p',`模型 ${short(label.model_revision)} · 证据 ${label.evidence_id||'未提供'} · ${evidenceName} SHA256 ${short(contentHash)}`));
       if(Number.isFinite(label.confidence))line.append(el('p',`模型分数 ${label.confidence.toFixed(3)}（不是医学概率）`));draftHost.append(line);
     }

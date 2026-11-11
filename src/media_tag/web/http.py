@@ -91,7 +91,7 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
         if principal.role not in ('editor','reader','admin'):
             raise HTTPException(403, 'personnel credential required')
         return {'actor_id':principal.actor_id, 'role':principal.role, 'people':people,
-            'features':{'upload':uploads is not None, 'redaction':redactions is not None, 'retime':retiming is not None,'review':reviews is not None,'search':search is not None,'semantic_fields':'visual_fields' in router.stages},
+            'features':{'upload':uploads is not None, 'redaction':redactions is not None, 'retime':retiming is not None,'review':reviews is not None,'search':search is not None,'semantic_fields':any(stage in router.stages for stage in ('visual_fields','local_topics','audio_topics','precision')) or bool(getattr(getattr(app.state,'analysis',None),'options',None) and app.state.analysis.options.enabled)},
             'terminology_capabilities':{'manage':bool(search and principal.actor_id in search.terminology.config.managers and principal.role!='reader'),
                 'publish':bool(search and principal.actor_id in search.terminology.config.publishers and principal.role!='reader')},
             'reviewer':{'redaction':bool(principal.role!='reader' and redactions and principal.actor_id in redactions.reviewers),

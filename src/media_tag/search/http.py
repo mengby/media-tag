@@ -62,18 +62,21 @@ def install(app,search,identity,body):
     async def auto_tag(request:Request,principal=Depends(identity)):
         from media_tag.semantic.batch import AutoTagScope,submit
         spec=await body(request,AutoTagScope)
+        search.analysis_service=getattr(app.state,'analysis',None)
         return await run_in_threadpool(submit,search,spec,principal=principal)
 
     @app.post('/search/auto-tag/status')
     async def auto_tag_status(request:Request,principal=Depends(identity)):
         from media_tag.semantic.batch import AutoTagScope,progress
         spec=await body(request,AutoTagScope)
+        search.analysis_service=getattr(app.state,'analysis',None)
         return await run_in_threadpool(progress,search,spec,principal=principal)
 
     @app.post('/search/auto-tag/export')
     async def auto_tag_export(request:Request,principal=Depends(identity)):
         from media_tag.semantic.batch import AutoTagScope,export
         spec=await body(request,AutoTagScope)
+        search.analysis_service=getattr(app.state,'analysis',None)
         return await run_in_threadpool(export,search,spec,principal=principal)
 
     @app.get('/search/assets/{asset_id}/concepts')
