@@ -75,3 +75,21 @@ D11新增40项，项目环境及普通wheel环境全量382项通过。覆盖六�
 合成标记验证不等于真实业务素材的A05试听/画质签收，也不替代A04全片人脸输出复核；这些需提供授权素材和指定人员，经D12/D07完成。
 
 主要实现依据：[FFmpeg滤镜](https://www.ffmpeg.org/ffmpeg-filters.html)、[帧时间选项](https://www.ffmpeg.org/ffmpeg-all.html)、[setts位流滤镜](https://ffmpeg.org/ffmpeg-bitstream-filters.html)。
+
+## 清洗裁剪输出继续变速（2026-11-12）
+
+已批准的 `ct-processing-variant-v1` 清洗视频可作为旧固定变速的输入。默认未传
+segments 时按契约类型分派：新清洗的裁剪已经体现在实际文件中，其真实 source/output
+映射不转换成旧 named annotation，不伪造 SourceSegment 或 FixedTimeMap；没有旧命名
+annotation 时继承列表为空。随后旧变速以当前真实文件建立自己的源时钟和新计划。
+旧视频契约的命名片段继承保持原行为。
+
+必要功能回归使用真实合成 8 秒红/蓝源，先裁剪 2～6 秒并登记为 4 秒派生视频，分别按
+合成配置批准质量/隐私，再显式链式 2 倍生成实际 2 秒蓝色视频。验证当前源 SHA、4 秒
+源时钟、累计 2 倍、空 annotation、同请求不叠加、原件不变及新输出独立隐私门槛；上游
+质量撤销后下游下载重新阻断。该验证不包含模型、综合故障/负载、迁移切换或真实业务
+素材签收。
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests/retime/test_processing_input.py -q
+```

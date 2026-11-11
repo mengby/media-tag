@@ -19,6 +19,13 @@ def tempo_chain(speed):
 
 
 def mapped_segments(contract):
+    if str(contract.get('schema_version','')).startswith('ct-processing-variant-'):
+        from media_tag.catalog.service import encode
+        from media_tag.processing_queue.derived_contracts import ProcessingVariantContract
+        ProcessingVariantContract.model_validate_json(encode(contract))
+        # The cleaning crop already exists in the current source bytes. Its
+        # real source/output map is not the legacy named annotation contract.
+        return []
     speed=contract['time_map']['speed']
     return [dict(segment_id=s['segment_id'],source_start_seconds=s['start_seconds'],source_end_seconds=s['end_seconds'],
                  output_start_seconds=s['start_seconds']/speed,output_end_seconds=s['end_seconds']/speed)
