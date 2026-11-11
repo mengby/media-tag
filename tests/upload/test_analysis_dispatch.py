@@ -9,8 +9,19 @@ from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.analysis.service import AnalysisService
 from media_tag.catalog import AccessDenied, Principal
 from media_tag.router.runtime import CPUHandlers, LocalExecutor
+from media_tag.storage.filesystem import FilesystemBackend
+from media_tag.contracts.models import WorkerResult
 from media_tag.upload.models import UploadSpec
 from .conftest import upload
+
+
+@pytest.fixture
+def intake(intake):
+    # Router's generic fixture has an unrelated synthetic.bin registration.
+    # Each dispatch case creates the actual media inputs it intends to exercise.
+    with intake.database.transaction(write=True) as connection:
+        connection.execute('DELETE FROM analysis_intents WHERE asset_id=?', (intake.asset.asset_id,))
+    return intake
 
 
 def service(env, **kwargs):
@@ -141,5 +152,93 @@ def test_bounded_scan_does_not_let_blocked_record_starve_later_intents(intake, m
     assert analysis.dispatch_pending(principal=env.owner)[0]['state'] == 'awaiting_file_gate'
     assert analysis.dispatch_pending(principal=env.owner)[0]['state'] == 'dispatched'
     assert analysis.status(second['asset_id'], principal=env.owner)['runtime_dispatched']
-    assert analysis.dispatch_pending(principal=env.owner) == []
     assert analysis.dispatch_pending(principal=env.owner)[0]['state'] == 'awaiting_file_gate'
+
+
+def register_unknown_image(env):
+    # Misleading filename deliberately disagrees with the real PNG bytes.
+    path = env.originals / 'synthetic-not-audio.wav'
+    path.write_bytes(env.data)
+    asset = env.catalog.register_file(FilesystemBackend(env.originals), path.name,
+        source_backend_id='synthetic-direct', principal=env.owner,
+        request_id='direct-unknown-media', name='synthetic direct media')
+    return asset, path
+
+
+def test_direct_registration_probes_actual_bytes_and_preserves_probe_after_replan_ack_loss(intake, tools, monkeypatch):
+    env = intake
+    asset, source = register_unknown_image(env)
+    original = sha256(source.read_bytes()).hexdigest()
+    analysis = service(env)
+    job_id = analysis.dispatch_pending(principal=env.owner)[0]['job_id']
+    assert analysis.status(asset.asset_id, principal=env.owner)['content_kind'] is None
+    job = env.router.get_job(job_id, principal=env.owner)
+    probe_id = job['tasks'][0]['task_id']
+    executor = LocalExecutor(env.router, env.workers[0], CPUHandlers(env.router, env.workers[0], tools))
+    assert executor.run_once()['accepted']
+    assert analysis.status(asset.asset_id, principal=env.owner)['state'] == 'awaiting_probe_adoption'
+    replan = env.router.replan
+    def lose_replan_ack(*args, **kwargs):
+        replan(*args, **kwargs)
+        raise RuntimeError('synthetic replan acknowledgement loss')
+    monkeypatch.setattr(env.router, 'replan', lose_replan_ack)
+    with pytest.raises(RuntimeError, match='acknowledgement'):
+        analysis.dispatch_pending(principal=env.owner)
+    monkeypatch.setattr(env.router, 'replan', replan)
+    reopened = service(env)
+    assert reopened.dispatch_pending(principal=env.owner)[0]['state'] == 'probe_adopted'
+    state = reopened.status(asset.asset_id, principal=env.owner)
+    assert state['content_kind'] == 'image' and state['runtime']['revision'] == 2
+    assert executor.run_once()['accepted'] and executor.run_once() is None
+    probe = next(t for t in env.router.get_job(job_id, principal=env.owner)['tasks'] if t['stage'] == 'probe')
+    assert probe['task_id'] == probe_id and probe['attempt'] == 1
+    assert sha256(source.read_bytes()).hexdigest() == original
+    assert not reopened.status(asset.asset_id, principal=env.owner)['analysis_complete']
+
+
+def test_corrupt_probe_report_is_not_used_to_classify_or_expand_job(intake, tools):
+    env = intake
+    asset, _ = register_unknown_image(env)
+    analysis = service(env)
+    job_id = analysis.dispatch_pending(principal=env.owner)[0]['job_id']
+    executor = LocalExecutor(env.router, env.workers[0], CPUHandlers(env.router, env.workers[0], tools))
+    assert executor.run_once()['accepted']
+    with env.database.transaction() as connection:
+        row = connection.execute('''SELECT result_json FROM router_attempts JOIN router_tasks USING(task_id)
+            WHERE job_id=? AND active=1''', (job_id,)).fetchone()
+    result = WorkerResult.model_validate_json(row['result_json'])
+    (env.workspace / result.artifacts[0].ref).write_text('{"kind":"audio"}')
+    assert analysis.dispatch_pending(principal=env.owner)[0]['state'] == 'dispatch_unavailable'
+    state = analysis.status(asset.asset_id, principal=env.owner)
+    assert state['content_kind'] is None and not state['analysis_complete']
+    assert len(state['runtime']['tasks']) == 1
+
+
+def test_unknown_cancelled_job_is_not_expanded_or_restarted(intake, tools):
+    env = intake
+    asset, _ = register_unknown_image(env)
+    analysis = service(env)
+    job_id = analysis.dispatch_pending(principal=env.owner)[0]['job_id']
+    executor = LocalExecutor(env.router, env.workers[0], CPUHandlers(env.router, env.workers[0], tools))
+    executor.run_once()
+    env.router.cancel(job_id, principal=env.owner)
+    assert service(env).dispatch_pending(principal=env.owner)[0]['state'] == 'cancelled'
+    state = analysis.status(asset.asset_id, principal=env.owner)
+    assert state['content_kind'] is None and len(state['runtime']['tasks']) == 1
+
+
+def test_invalid_registered_bytes_keep_probe_failure_without_false_type_or_retry_loop(intake, tools):
+    env = intake
+    env.data = b'synthetic invalid media, not audio or image'
+    asset, _ = register_unknown_image(env)
+    analysis = service(env)
+    analysis.dispatch_pending(principal=env.owner)
+    executor = LocalExecutor(env.router, env.workers[0], CPUHandlers(env.router, env.workers[0], tools))
+    assert executor.run_once()['accepted']
+    for _ in range(3):
+        outcome = analysis.dispatch_pending(principal=env.owner)
+        assert outcome[0]['state'] in ('failed', 'needs_attention')
+        assert executor.run_once() is None
+    state = analysis.status(asset.asset_id, principal=env.owner)
+    assert state['content_kind'] is None and not state['analysis_complete']
+    assert state['runtime']['tasks'][0]['attempt'] == 1

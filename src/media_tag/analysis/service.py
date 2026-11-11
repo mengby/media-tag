@@ -1,12 +1,16 @@
 """Read authorized, requester-scoped intake state without declaring analysis complete."""
 
+from hashlib import sha256
+import json
+
 from media_tag.catalog import AccessDenied, CatalogError
-from media_tag.contracts.models import TaskLimits, Versions
+from media_tag.contracts.models import TaskEnvelope, TaskLimits, Versions, WorkerResult
 from media_tag.files.service import FileService
 from media_tag.router.models import JobSpec, StepSpec
+from media_tag.storage import StorageError
 
 from .contracts import TOPIC_FIELDS
-from .intake import INTAKE_POLICY
+from .intake import INTAKE_POLICY, KINDS, ensure_intent
 from .deployment import AnalysisDeployment
 
 
@@ -21,7 +25,7 @@ class AnalysisService:
         versions = Versions(rules_version=f'sha256:{fingerprint}', preprocess_version='d02-cpu-v1')
         steps = (StepSpec(key='probe', stage='probe', versions=versions,
                           config={'max_pixels': self.options.probe_max_pixels}),)
-        if content_kind == 'audio':
+        if content_kind in (None, 'audio'):
             return steps
         steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)
         for kind in ('ocr', 'face', 'clip', 'visual_fields'):
@@ -35,25 +39,82 @@ class AnalysisService:
                     limits=TaskLimits(gpu_slots=definition.required_gpu_slots)),)
         return steps
 
+    def _adopt_probe(self, intent, job_id, fingerprint, principal):
+        """Classify only from a current, released, source-bound real probe artifact.
+
+        Adding missing downstream stages preserves the successful probe. If replanning
+        commits but its acknowledgement is lost, the next scan verifies the same plan
+        and finishes adoption without adding another generation or re-running probe.
+        """
+        with self.database.transaction() as connection:
+            job = self.router._job_auth(connection, job_id, principal)
+            if job['cancelled'] or job['paused']:
+                return {'intent_id': intent['intent_id'], 'state': 'cancelled' if job['cancelled'] else 'paused'}
+            row = connection.execute('''SELECT a.envelope_json,a.result_json FROM router_tasks t
+                JOIN router_attempts a USING(task_id) WHERE t.job_id=? AND t.step_key='probe'
+                AND t.active=1 AND t.state='succeeded' AND a.lease_epoch=t.lease_epoch
+                AND a.released_at IS NOT NULL AND a.result_json IS NOT NULL''', (job_id,)).fetchone()
+            if row is None:
+                state = self.router._view(connection, job)['state']
+                return {'intent_id': intent['intent_id'], 'state': state if state in ('failed', 'needs_attention') else 'awaiting_probe'}
+            task = TaskEnvelope.model_validate_json(row['envelope_json'])
+            result = WorkerResult.model_validate_json(row['result_json'])
+            if (task.stage != 'probe' or task.job_id != job_id or result.status != 'succeeded'
+                    or task.asset_id != intent['asset_id'] or task.input_refs[0].sha256 != intent['source_sha256']):
+                raise ValueError('probe source changed')
+            self.router._artifacts(task, result)
+            reports = [ref for ref in result.artifacts if ref.kind == 'technical_report']
+            if len(reports) != 1:
+                raise ValueError('one verified probe report required')
+            with self.router.files.open_read(reports[0].ref) as stream:
+                data = stream.read(1024*1024+1)
+            if len(data) > 1024*1024 or sha256(data).hexdigest() != reports[0].sha256:
+                raise ValueError('probe report integrity changed')
+            info = json.loads(data)
+            kind = KINDS.get(info.get('kind')) if isinstance(info, dict) else None
+            if kind is None:
+                raise ValueError('unsupported probe kind')
+            expected = {step.key: step for step in self._steps(fingerprint, kind)}
+            current = {row['step_key']: StepSpec.model_validate_json(row['spec_json']) for row in
+                connection.execute('SELECT step_key,spec_json FROM router_tasks WHERE job_id=? AND active=1', (job_id,))}
+            if any(key not in expected or spec != expected[key] for key, spec in current.items()):
+                raise ValueError('bound analysis plan changed')
+            patches = tuple(spec for key, spec in expected.items() if key not in current)
+            revision = job['revision']
+        if patches:
+            self.router.replan(job_id, patches, expected_revision=revision, principal=principal)
+        with self.database.transaction(write=True) as connection:
+            asset = self.catalog._authorize(connection, intent['asset_id'], principal, 'edit')
+            if self.files._gate(connection, asset):
+                return {'intent_id': intent['intent_id'], 'state': 'awaiting_file_gate'}
+            ensure_intent(connection, intent['asset_id'], principal.actor_id, content_kind=kind)
+        return {'intent_id': intent['intent_id'], 'state': 'probe_adopted', 'job_id': job_id}
+
     def dispatch_pending(self, *, principal):
         """Dispatch only this authenticated requester, using Router's durable request binding.
 
         Explicit cancellation, failure, or configuration changes never silently replace a
-        bound job. Unknown media kinds still require a verified probe before this pipeline.
+        bound job. Unknown media kinds first run probe, then add missing visual stages.
         """
         if principal.role not in ('editor', 'admin'):
             raise AccessDenied('human analysis requester required')
         if not self.options.enabled:
             return []
         with self.database.transaction() as connection:
-            rows = connection.execute('''SELECT i.*, i.rowid AS scan_position FROM analysis_intents i
-                WHERE requested_by=? AND policy_version=? AND content_kind IS NOT NULL
+            query = '''SELECT i.*, i.rowid AS scan_position, r.job_id AS bound_job_id
+                FROM analysis_intents i LEFT JOIN router_requests r
+                ON r.owner_id=i.requested_by AND r.request_id=i.intent_id
+                WHERE requested_by=? AND policy_version=?
                 AND i.rowid>?
-                AND NOT EXISTS (SELECT 1 FROM router_requests r
-                    WHERE r.owner_id=i.requested_by AND r.request_id=i.intent_id)
-                ORDER BY i.rowid LIMIT ?''',
-                (principal.actor_id, INTAKE_POLICY, self._dispatch_positions.get(principal.actor_id, 0),
-                 self.options.dispatch_limit)).fetchall()
+                AND (i.content_kind IS NULL OR r.job_id IS NULL)
+                ORDER BY i.rowid LIMIT ?'''
+            position = self._dispatch_positions.get(principal.actor_id, 0)
+            def scan(after):
+                return connection.execute(query, (principal.actor_id, INTAKE_POLICY, after,
+                    self.options.dispatch_limit)).fetchall()
+            rows = scan(position)
+            if not rows and position:
+                rows = scan(0)
             fingerprint = connection.execute("SELECT value FROM catalog_metadata WHERE key='template_fingerprint'").fetchone()[0]
         outcomes = []
         self._dispatch_positions[principal.actor_id] = rows[-1]['scan_position'] if rows else 0
@@ -66,11 +127,14 @@ class AnalysisService:
                     if self.files._gate(connection, asset):
                         outcomes.append({'intent_id': intent['intent_id'], 'state': 'awaiting_file_gate'})
                         continue
+                if intent['bound_job_id']:
+                    outcomes.append(self._adopt_probe(intent, intent['bound_job_id'], fingerprint, principal))
+                    continue
                 job = self.router.submit(JobSpec(asset_id=intent['asset_id'],
                     steps=self._steps(fingerprint, intent['content_kind'])),
                     request_id=intent['intent_id'], principal=principal)
                 outcomes.append({'intent_id': intent['intent_id'], 'state': 'dispatched', 'job_id': job['job_id']})
-            except (CatalogError, ValueError):
+            except (CatalogError, StorageError, ValueError):
                 outcomes.append({'intent_id': intent['intent_id'], 'state': 'dispatch_unavailable'})
         return outcomes
 
@@ -104,7 +168,11 @@ class AnalysisService:
                     self.router._source(connection, job)
                     view = self.router._view(connection, job)
                     runtime = {key: view[key] for key in ('job_id', 'revision', 'state', 'tasks')}
-                    state = ('awaiting_audio_provider' if row['content_kind'] == 'audio' else 'awaiting_topic_analysis') if view['state'] == 'succeeded' else view['state']
+                    if view['state'] == 'succeeded':
+                        state = ('awaiting_probe_adoption' if row['content_kind'] is None else
+                            'awaiting_audio_provider' if row['content_kind'] == 'audio' else 'awaiting_topic_analysis')
+                    else:
+                        state = view['state']
             return {"asset_id": asset_id, "intent_id": row["intent_id"], "state": state,
                     "content_kind": row["content_kind"], "policy_version": row["policy_version"],
                     "topic_fields": list(TOPIC_FIELDS), "analysis_complete": False,

@@ -14,7 +14,9 @@ enabled (off by default), the configured worker dispatches known media types usi
 trusted credential principals and Router's durable request bindings. Processing's
 fast job stays independent; compatible library jobs coalesce through Router.
 Audio gets only a probe until actual audio providers are added. Unknown media types
-still await verified probe integration. Cancelled/failed bindings are not silently
+first get a real probe; source/report verification precedes type adoption and adding
+missing stages to that job, preserving the probe even after replan ACK loss.
+Cancelled/failed bindings are not silently
 replaced. Technical success never claims ten-field or human-review completion.
 
 Existing databases are not backfilled on read. Old v9/v10 backups remain

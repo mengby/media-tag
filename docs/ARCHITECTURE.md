@@ -1,5 +1,7 @@
 # 素材库设计总览
 
+2026-11-11 CT-04探测追加：未知类型沿原Router先probe，仅采用当前成功且已释放、源/报告哈希正确的结果；同作业追加缺少阶段并保持probe，追加确认丢失可恢复，不新增迁移。暂停/取消及不一致规格不自动采用，见[实现边界](all-media-analysis-intake.md)。
+
 2026-11-11 CT-04派发追加：复用Router请求表持久绑定意图，不增执行队列或迁移；Worker取任务前有界轮转扫描真实凭证用户待办，library同规格作业可复用，暂停/取消/失败不重建。音频只probe，未知类型仍待探测，状态接口不触发执行，详见[实现边界](all-media-analysis-intake.md)。
 
 2026-11-11持久化意图：新增v11`analysis_intents`，由原件/上传完成/受信衍生登记事务共同写入；按实际owner、请求人和文件哈希绑定，不转移权限。新增受权只读`GET /analysis/assets/{asset_id}`，仅暴露本请求人待办，仍由Router承担后续执行。新分析尚未派发，旧v9/v10备份兼容及旧迁移摘要保持，见[实现边界](all-media-analysis-intake.md)。
