@@ -12,3 +12,5 @@
 `visual-fields-browser.mjs`读取本地私有上下文，对真实运行实例只读验证四字段详情、初稿检索命中及批量入口可见；不点击扩大素材范围，不上传图像，截图保存在被忽略的结果目录。
 
 `test_draft_search_speed.py`验证当前投影筛选与完整校验结果相同、篡改/撤权/取消/改版即时失效、缺失投影回退、只读事务视图隔离及视觉候选仍完整校验。`validate_search_speed.py`对真实本机实例和数据库副本做剖析、四类查询/公共API指纹对照、全部表和415份原件复验；实际数据/报告忽略Git，命令见 `docs/draft-search-performance.md`。
+
+`node --test tests/search/topic-evidence-browser.mjs` 使用本机现有 Chromium/Playwright 和合成 API 回复做实际 DOM 回归，检查十字段/音频内容摘要、旧帧摘要、缺失元数据与未确认初稿展示，以及批量执行结束/缺模型待补、失败停止和旧 ready 响应兼容。不读取生产配置或素材，不调用模型。现有安装路径可由 `MEDIA_TAG_TEST_CHROME` / `MEDIA_TAG_TEST_PLAYWRIGHT` 显式指定。

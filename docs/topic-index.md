@@ -39,3 +39,11 @@
 父代理复核追加：精标依赖probe被改时的`ModelFailure`现在归为当前建议不可用，检索撤下候选，不向外抛处理异常；原技术CSV门槛仍拒绝损坏probe。已新增实际探测报告篡改回归。
 
 父代理最终联合回归：`tests/similarity tests/analysis tests/upload/test_analysis_repair.py tests/topic_index tests/export tests/search/test_ai_drafts.py tests/search/test_draft_search_speed.py` **157项通过（95.15秒）**。此前178项关联回归与本批重叠，不相加；私有证据`jobs/ct-similarity-topic-index-20261111-892e6c41/validation.json`，六份原模板及旧契约/依赖锁摘要保持。
+
+## 首版详情页证据兼容
+
+素材详情页读取新十字段/音频/精标建议的 `content_evidence_sha256`，同时兼容旧四字段 `frame_sha256`。两者同时存在时优先内容证据摘要；缺少摘要、模型或证据ID时明确显示“未提供”，不拼造值。图像、音频、视频分别按实际 `evidence_kind` 命名，其他整份内容使用“内容”；旧帧摘要仍标作帧。音频/不适用字段不再一律描述成画面证据。所有这些内容仍显示为未确认 AI 初稿，医学、许可和隐私审核独立。
+
+批量进度兼容原响应，并使用新增的 `execution_complete` / `semantic_complete` 区分执行结束与字段覆盖；缺模型、待补字段分别显示，执行终止可导出当前合格 AI 初稿，不把未选择精标或音频模型伪装成成功调用。执行失败终止时停止轮询，保留修复后重试入口，不自动导出。
+
+实际本机 Chromium DOM 回归 `node --test tests/search/topic-evidence-browser.mjs` **6项通过**，仅本机临时HTTP与合成API回复，不连接素材库、生产服务或模型；覆盖新旧摘要优先级、音频/整份内容命名、缺失元数据、零分数兼容、纯文本显示，以及新待配置/失败终止和旧 ready 响应。原前端逻辑回归 `node --test tests/web/logic.test.mjs` **4项通过**；两者联合运行 **10项通过，1.99秒**。浏览器脚本默认复用本机已安装 Chrome/Playwright，可用 `MEDIA_TAG_TEST_CHROME`、`MEDIA_TAG_TEST_PLAYWRIGHT` 显式指定现有安装路径；不会下载依赖。

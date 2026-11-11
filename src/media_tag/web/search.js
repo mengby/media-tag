@@ -36,12 +36,14 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     try{
       const state=await post('/search/auto-tag/status',{});
       if(generation!==epoch)return;
-      tagging.textContent=`自动打标：${state.completed}/${state.total} 份完成，${state.running} 份排队或运行，${state.failed} 份需重试。`;
+      const modern=typeof state.execution_complete==='boolean';
+      tagging.textContent=`自动打标：${state.completed}/${state.total} 份${modern?'已结束处理':'完成'}，${state.running} 份排队或运行，${state.failed} 份需重试。`;
+      if(modern&&state.semantic_complete===false)tagging.append(el('p',`仍有 ${state.waiting||0} 份待处理，${state.pending_capability||0} 份待模型配置，${state.pending_fields||0} 个字段待补充。审核、医学确认、许可和隐私复核分别保留。`));
       if(state.state==='ready'){
         const exported=await post('/search/auto-tag/export',{});if(generation!==epoch)return;
         const link=el('a','下载本批 35 列索引表');link.href=exported.assets_url;link.download='assets.csv';
-        tagging.append(el('p','AI 初稿已入索引，审核可后续进行。'),link);taggingBusy=false;tagButton.disabled=false;await refreshLibrary();
-      }else if(state.state==='partial'){
+        tagging.append(el('p',modern&&state.semantic_complete===false?'执行已结束，仍有待模型/复核字段；当前合格结果可导出为 AI 初稿。':'AI 初稿已入索引，审核可后续进行。'),link);taggingBusy=false;tagButton.disabled=false;await refreshLibrary();
+      }else if(state.state==='partial'||state.execution_complete===true){
         taggingBusy=false;tagButton.disabled=false;tagging.append(el('p','再次点击自动打标可续跑失败阶段；成功结果会复用。'));
       }else setTimeout(()=>refreshTagging(),5000);
     }catch(error){if(generation!==epoch)return;taggingBusy=false;tagButton.disabled=false;notify(error.message);}
@@ -171,15 +173,18 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     if(getPerson()?.features.review&&linked.can_edit)host.append(button('在标签复核页维护关联',ctx.openReview));panel.append(host);
     const draft=await api('/search/assets/'+data.asset_id+'/ai-draft');if(generation!==assetEpoch||!ctx.isCurrent())return;
     const draftHost=el('div');draftHost.append(el('h3','AI 标签初稿（未确认）'));
-    const stageNames={ocr:'画中文字',face:'人脸抽样观察',clip:'视觉特征',visual_fields:'画面主体 / 表现形式 / 检索词'};
+    const stageNames={ocr:'画中文字',face:'人脸抽样观察',clip:'视觉特征',visual_fields:'画面主体 / 表现形式 / 检索词',local_topics:'本地十字段初稿',audio_topics:'本地音频初稿',precision:'精细打标初稿'};
     const stageStates={ready:'已接入',visual_features_ready_classification_missing:'视觉检索可用；分类词表待补',not_requested:'未请求',unavailable:'结果不可用',not_applicable:'不适用（没有画面证据）'};
     for(const [name,state] of Object.entries(draft.stages))draftHost.append(el('p',`${stageNames[name]||name}：${stageStates[state]||state}`,'muted'));
     for(const label of [...draft.labels].sort((a,b)=>Number(b.kind==='field_suggestion')-Number(a.kind==='field_suggestion')).slice(0,100)){
-      const line=el('details',undefined,'evidence-card');line.append(el('summary',`${label.field?label.field+'：':''}${label.text}`),el('p',`模型 ${label.model_revision.slice(0,12)} · 证据 ${label.evidence_id} · 帧 ${label.frame_sha256.slice(0,12)}`));
-      if(label.confidence!==null)line.append(el('p',`模型分数 ${label.confidence.toFixed(3)}（不是医学概率）`));draftHost.append(line);
+      const short=value=>typeof value==='string'&&value.length?value.slice(0,12):'未提供';
+      const contentHash=label.content_evidence_sha256||label.frame_sha256;
+      const evidenceName=({image:'图像',audio:'音频',video:'视频',frame:'帧'})[label.evidence_kind]||(label.frame_sha256&&!label.content_evidence_sha256?'帧':'内容');
+      const line=el('details',undefined,'evidence-card');line.append(el('summary',`${label.field?label.field+'：':''}${label.text}`),el('p',`模型 ${short(label.model_revision)} · 证据 ${label.evidence_id||'未提供'} · ${evidenceName} SHA256 ${short(contentHash)}`));
+      if(Number.isFinite(label.confidence))line.append(el('p',`模型分数 ${label.confidence.toFixed(3)}（不是医学概率）`));draftHost.append(line);
     }
     if(draft.labels.length>100)draftHost.append(el('p',`共 ${draft.labels.length} 条；页面显示前 100 条，完整记录可从批次初稿台账查看。`));
-    for(const [field,value] of Object.entries(draft.field_states||{}))if(value.state!=='observed')draftHost.append(el('p',`${field}：${value.state==='no_match'?'模型候选不在模板选项内':value.state==='not_applicable'?'没有适用的画面证据':'画面证据不足'}，保留空值。`,'muted'));
+    for(const [field,value] of Object.entries(draft.field_states||{}))if(value.state!=='observed')draftHost.append(el('p',`${field}：${value.state==='no_match'?'模型候选不在模板选项内':value.state==='not_applicable'?'该字段不适用':'内容证据不足'}，保留空值。`,'muted'));
     for(const note of draft.uncertainties||[])draftHost.append(el('p',`模型记录的不确定性：${note}`,'muted'));
     draftHost.append(el('p','OCR 原文和人脸检测均为模型观察；未检出不证明无人脸，检测到也不表示打码完成。','muted'));panel.append(draftHost);
   }
