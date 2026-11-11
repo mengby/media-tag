@@ -20,6 +20,7 @@ fields只能选择原十字段；空列表表示检查全部已配置阶段，�
 | 规格/模型/预处理/规则配置不兼容 | incompatible，按当前已配置规格重排 |
 | 失败或实际报告/帧缺失、哈希不符、来源不符 | failed/unavailable，重排失效根阶段及其依赖 |
 | CLIP仅因未发布词表而partial，实际特征仍校验有效 | awaiting_vocabulary，保留特征，不无效重复推理 |
+| 精标的提供方/词表/规则配置已变 | awaiting_current_precision_configuration，要求新的明确precision请求，不重试旧规格 |
 
 复用资格按当前意图的同一实际文件、阶段规格/版本、当前尝试及实际artifact校验判断；视觉模型报告额外复用原报告/帧/建议绑定检查，visual_fields不能用not_applicable掩盖缺少视觉初稿。没有从文件名或OCR补造语义。
 
@@ -39,4 +40,4 @@ request_id按当前actor和绑定job限定，指纹包含asset与完整修复请
 
 隔离测试覆盖实际合成图片CPU probe/evidence、有效阶段保留、损坏probe/evidence依赖树修复、预处理规格变化、请求重开幂等、回执写入失败原子回滚、已有待执行阶段不重启、合成能力声明补缺、HTTP认证/CAS/请求校验、隐私门槛，以及CLIP未发布词表不重跑。合成能力声明只证明派发协议，不证明模型推理。
 
-命令和结果见[执行记录](cleaning-and-topic-tagging-execution.md)。后续仍须实现跨来源/账号的合格字段复用、片段/时间范围及词表版本资格、人工拒绝补标和更多模态；不得把本轮阶段补缺计作全量字段复用或完整精标接入。
+精标阶段已追加共用资格与同配置修复，见[桥接说明](precision-adapters.md)；配置已变不循环重试旧版本。命令和结果见[执行记录](cleaning-and-topic-tagging-execution.md)。后续仍须实现跨来源/账号字段复用、片段资格、人工拒绝补标和实际模型验收，不能把阶段补缺计作全量复用或完整精标验收。

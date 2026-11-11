@@ -1,6 +1,6 @@
 # 十字段分析状态汇总与首轮分流
 
-2026-11-11。CT-04/CT-12/CT-17的部分工程接入，**不是本地十字段推理、大模型精标或整体验收完成**。本轮只采用已有四字段Worker的真实当前结果；其余能力显式保留待办。未选择、下载或调用新的语义模型，也未启用生产配置。
+2026-11-11。CT-04/CT-12/CT-17的部分工程接入，**不是本地十字段推理、实际大模型或整体验收完成**。已有四字段Worker结果之外，追加[可替换精标桥接](precision-adapters.md)的逐字段采用和失效遮蔽；具体模型仍未选，协议测试不代替真实能力验收，生产配置未启用。
 
 ## 读取路径与真实证据
 
@@ -31,7 +31,7 @@ HTTP视图使用独立`ct-topic-analysis-view-v1`，同时声明内部`ct-topic-
 
 目前没有校准通过的自动免精标规则，`precision_exemption_calibrated=false`；没有任何字段由本模块发起大模型调用。后续CT-17须接完整本地能力、字段适用性、词表、独立校准和精标能力；CT-18/19须接实际可替换提供方。不能把上述保守待办规则当作CT-17完整验收。
 
-科室、器官/系统、疾病/症状、过程/状态显式`requires_field_review=true`，AI初稿不批准这些字段。整个视图的analysis_complete当前为false，medical_confirmation、privacy_confirmation、effective_values_written也为false。有效值、字段审核、输出隐私审核和许可状态仍由原服务分别负责。
+科室、器官/系统、疾病/症状、过程/状态显式requires_field_review=true，AI初稿不批准这些字段。默认四字段流程analysis_complete=false；精标全部适用字段解决后可为true，仅表示AI初稿覆盖，medical_confirmation、privacy_confirmation、effective_values_written仍false。有效值、字段审核、输出隐私审核和许可状态由原服务分别负责。
 
 ## 验证范围与后续
 

@@ -8,6 +8,7 @@ from media_tag.catalog import AccessDenied, RevisionConflict
 from media_tag.catalog.service import encode
 from media_tag.contracts.models import ContractModel, Identifier, PositiveInt, Sha256, TaskEnvelope, WorkerResult
 from media_tag.drafts.service import DraftIndex
+from media_tag.models.contracts import ModelFailure
 from media_tag.router.models import StepSpec
 from media_tag.storage import StorageError
 
@@ -57,6 +58,21 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None):
         return 'missing'
     if row['state'] in ('queued', 'leased', 'running', 'retry_wait') or row['released_at'] is None and row['result_json']:
         return 'pending'
+    if desired.stage == 'precision':
+        from media_tag.precision.runtime import provider_for
+        from media_tag.precision.contracts import PROMPT
+        policy = getattr(service.catalog, 'review_policy', None)
+        try:
+            deployment = getattr(service, 'precision_deployment', None)
+            provider = provider_for(deployment, content_kind) if deployment is not None else None
+        except ModelFailure:
+            provider = None
+        if (provider is None or policy is None or desired.config.get('policy_digest') != policy.digest
+                or desired.config.get('provider_revision') != provider.revision
+                or desired.config.get('provider_id') != provider.provider_id or desired.prompt_version != PROMPT
+                or desired.versions.rules_version != 'sha256:'+policy.digest
+                or desired.versions.taxonomy_version != policy.config.taxonomy_version):
+            return 'awaiting_current_precision_configuration'
     if StepSpec.model_validate_json(row['spec_json']) != desired:
         return 'incompatible'
     if not row['result_json']:
@@ -74,6 +90,9 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None):
         if not vocabulary and (row['state'] != 'succeeded' or result.status not in ('succeeded', 'not_applicable')):
             return 'failed'
         service.router._artifacts(task, result)
+        if task.stage == 'precision':
+            from media_tag.precision.projection import verified
+            verified(service.router, row, {'asset_id': task.asset_id, 'blob_sha256': source_sha256}, content_kind)
         if task.stage in ('ocr', 'face', 'clip', 'visual_fields') and result.status != 'not_applicable':
             index = DraftIndex(service.router)
             ref, report = index._report(task, result)
@@ -83,7 +102,7 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None):
                 if sample.kind not in ('image', 'frame') or content_kind == 'image' and sample.kind != 'image':
                     raise ValueError('caption input modality changed')
         return 'awaiting_vocabulary' if vocabulary else 'valid'
-    except (StorageError, OSError, ValueError, KeyError, TypeError, StopIteration):
+    except (StorageError, OSError, ValueError, KeyError, TypeError, StopIteration, ModelFailure):
         return 'unavailable'
 
 
@@ -107,6 +126,11 @@ def repair(service, asset_id, spec, *, principal):
         rows = {row['step_key']: row for row in connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
             FROM router_tasks t LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE t.job_id=? AND t.active=1''', (job['job_id'],))}
+        if 'precision' in service.router.stages:
+            for key, row in rows.items():
+                spec_row = StepSpec.model_validate_json(row['spec_json'])
+                if spec_row.stage == 'precision':
+                    desired[key] = spec_row
         selected = {key for key, step in desired.items() if not spec.fields or set(step.target_fields) & set(spec.fields)}
         requested = set(spec.fields or TOPIC_FIELDS)
         inapplicable = requested & {'画面主体', '表现形式'} if intent['content_kind'] == 'audio' else set()

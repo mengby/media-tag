@@ -16,10 +16,11 @@ from .projection import TopicProjection
 
 
 class AnalysisService:
-    def __init__(self, router, options=None):
+    def __init__(self, router, options=None, precision_deployment=None):
         self.router, self.catalog, self.database = router, router.catalog, router.database
         self.files = FileService(router)
         self.options = options or AnalysisDeployment()
+        self.precision_deployment = precision_deployment
         self._dispatch_positions = {}
 
     def _steps(self, fingerprint, content_kind):
@@ -178,9 +179,14 @@ class AnalysisService:
                     projection = TopicProjection(self.router)
                     document, local_state = projection.build(connection, asset, row['content_kind'], job)
                     topic_analysis = projection.public(document, local_state)
+                    topic_analysis['precision_stages'] = projection.precision_states
+                    if document.analysis_complete:
+                        state = 'analysis_draft_ready'
+                    elif projection.precision_states and any(value == 'verified_precision_draft' for value in projection.precision_states.values()) and runtime and runtime['state'] == 'succeeded':
+                        state = 'analysis_needs_review'
             return {"asset_id": asset_id, "intent_id": row["intent_id"], "state": state,
                     "content_kind": row["content_kind"], "policy_version": row["policy_version"],
-                    "topic_fields": list(TOPIC_FIELDS), "analysis_complete": False,
+                    "topic_fields": list(TOPIC_FIELDS), "analysis_complete": bool(topic_analysis and topic_analysis['analysis_complete']),
                     "runtime_dispatched": runtime is not None, "runtime": runtime,
                     "topic_analysis": topic_analysis,
                     "dispatch_enabled": self.options.enabled, "medical_confirmation": False,

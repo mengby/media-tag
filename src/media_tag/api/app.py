@@ -49,7 +49,7 @@ class VariantSubmission(ContractModel):
     spec: PlanSpec
 
 
-def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None,local_browser_login=None,analysis_options=None) -> FastAPI:
+def create_app(router: Router, credentials: dict[str, Principal], *, max_body_bytes=1024 * 1024, uploads=None, variants=None, redactions=None,retiming=None, web=False, reviews=None, terminology=None, resolver=None, search=None,local_browser_login=None,analysis_options=None,precision_options=None) -> FastAPI:
     if not credentials or any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in credentials):
         raise ValueError("configure SHA256 bearer digests mapped to trusted principals")
     identities = dict(credentials)
@@ -351,7 +351,7 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
         from media_tag.review.http import install as install_reviews
         install_reviews(app,reviews,identity,body)
     from media_tag.analysis.http import install as install_analysis
-    install_analysis(app, router, identity, analysis_options, body=body)
+    install_analysis(app, router, identity, analysis_options, body=body, precision_options=precision_options)
     if web:
         from media_tag.web.http import install
         install(app,router,identity,body,identities,uploads=uploads,redactions=redactions,retiming=retiming,reviews=reviews,search=search,local_browser_login=local_browser_login)

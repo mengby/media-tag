@@ -5,6 +5,7 @@ from pathlib import Path
 from media_tag.catalog import Catalog, Database, Principal
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
+from media_tag.precision.contracts import PrecisionDeployment
 from media_tag.contracts.templates import load_template_bundle
 from media_tag.router.models import RouterOptions
 from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
@@ -59,6 +60,7 @@ class LocalConfig(ContractModel):
     text: ResolveOptions = ResolveOptions()
     search: SearchOptions = SearchOptions()
     analysis: AnalysisDeployment = AnalysisDeployment()
+    precision: PrecisionDeployment = PrecisionDeployment()
 
 
 def load_application(path: Path):
@@ -90,6 +92,11 @@ def load_application(path: Path):
     if config.retime.enabled:
         router.stages.update(retime_stages(tools))
     semantic_registry=None
+    if config.precision.enabled:
+        if not config.review.enabled:
+            raise ValueError('precision drafts require the template validation policy')
+        from media_tag.precision.runtime import stage as precision_stage
+        router.stages['precision'] = precision_stage()
     if config.semantic.enabled:
         if not config.review.enabled:raise ValueError('semantic drafts require the template validation policy; no reviewer assignment required')
         from media_tag.semantic.registry import SemanticRegistry
@@ -133,7 +140,7 @@ def load_application(path: Path):
         from media_tag.drafts.visual import VisualEncoder
         search.visual_encoder=VisualEncoder(ModelRegistry(Path(config.models.model_root)),router.workspace)
     if config.local_browser_login is not None and not config.web_enabled:raise ValueError('local browser login requires web UI')
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis)
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis,precision_options=config.precision)
     return app, router, tools
 
 
@@ -157,10 +164,15 @@ def executor_from_config(path: Path, worker_id: str):
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     retime_handler=RedactionHandlers(retiming) if retiming else None
     terms=TerminologyHandlers(app.state.resolver) if config.text.enabled else None
+    precision_handler = None
+    if config.precision.enabled:
+        from media_tag.precision.runtime import PrecisionHandlers
+        precision_handler = PrecisionHandlers(router, principal, config.precision)
     latest_asset=[None]
     def handle(lease,stopped):
         latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
+        if lease.task.stage == 'precision' and precision_handler: return precision_handler(lease, stopped)
         if lease.task.stage=='visual_fields' and semantic_handler:return semantic_handler(lease,stopped)
         if lease.task.stage in ('face_track','redaction_render') and transform: return transform(lease,stopped)
         if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
@@ -180,6 +192,9 @@ def executor_from_config(path: Path, worker_id: str):
         for requester in config.credentials.values():
             if requester.role in ('editor', 'admin') and requester.actor_id not in seen:
                 app.state.analysis.dispatch_pending(principal=requester)
+                if config.precision.enabled:
+                    from media_tag.precision.service import dispatch_pending
+                    dispatch_pending(app.state.analysis, config.precision, principal=requester)
                 seen.add(requester.actor_id)
     return LocalExecutor(router,principal,handle,after_release=adopt,
                          before_acquire=dispatch_analysis if config.analysis.enabled else None)
