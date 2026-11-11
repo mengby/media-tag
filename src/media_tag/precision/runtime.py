@@ -143,7 +143,8 @@ class PrecisionHandlers:
         if len(probes) != 1:
             raise ModelFailure('precision_verified_probe_required')
         info = read_json(self.router, probes[0])
-        kind = {'gif': 'animation'}.get(info['kind'], info['kind'])
+        from media_tag.analysis.probe import semantic_content_kind
+        kind = semantic_content_kind(info)
         if kind != options.content_kind:
             raise ModelFailure('precision_modality_changed')
         window_start, window_end = evidence_window(info, kind)

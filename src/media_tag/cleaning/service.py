@@ -291,7 +291,8 @@ class CleaningService:
         info = probe_media(source, self.tools, options).as_dict()
         timings['probe_seconds'] = time.monotonic()-stage_started
         stage_started = time.monotonic()
-        actual = {'gif': 'animation'}.get(info['kind'], info['kind'])
+        from media_tag.analysis.probe import semantic_content_kind
+        actual = semantic_content_kind(info)
         if actual != recipe.content_kind:
             raise CleaningError('actual source kind differs from explicit recipe')
         quality = {'width': info['width'], 'height': info['height'], 'has_audio': info['has_audio'],

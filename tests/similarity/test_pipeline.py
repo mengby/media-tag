@@ -285,3 +285,26 @@ def test_appended_artifact_rejected_before_read_and_repair_avoids_unbounded_hash
     repaired = repair(a.analysis, source.asset_id, RepairSubmission(request_id='oversize-repair',
         expected_asset_revision=asset['revision'], source_sha256=asset['blob_sha256'], expected_job_revision=runtime['revision']), principal=e.owner)
     assert repaired['patched_roots'] == ['similarity'] and not reads
+
+
+def test_existing_bound_single_gif_animation_intent_is_not_automatically_reinterpreted(queued):
+    from io import BytesIO
+    from PIL import Image
+    from media_tag.analysis.intake import ensure_intent
+    a=queued
+    stream=BytesIO();Image.new('RGB',(20,20),'red').save(stream,format='GIF',duration=100,loop=0)
+    source=a.prepare(stream.getvalue(),'legacy-single.gif',kind='animation');a.execute()
+    descriptor,state,_=a.query.load(source.asset_id,principal=a.env.owner)
+    assert state=='ready' and descriptor.media_kind=='image'
+    with a.env.database.transaction() as connection:
+        row=connection.execute('''SELECT a.result_json FROM router_tasks t JOIN router_jobs j USING(job_id)
+            JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
+            WHERE j.asset_id=? AND t.active=1 AND json_extract(t.spec_json,'$.stage')='probe' ORDER BY t.rowid DESC LIMIT 1''',(source.asset_id,)).fetchone()
+        count=connection.execute('SELECT count(*) FROM router_tasks').fetchone()[0]
+    ref=next(item for item in json.loads(row[0])['artifacts'] if item['kind']=='technical_report')
+    with a.env.router.files.open_read(ref['ref']) as original:info=json.load(original)
+    with a.env.database.transaction(write=True) as connection:
+        identifier=ensure_intent(connection,source.asset_id,a.env.owner.actor_id,content_kind='gif',probe_info=info)
+        assert connection.execute('SELECT content_kind FROM analysis_intents WHERE intent_id=?',(identifier,)).fetchone()[0]=='animation'
+        assert connection.execute('SELECT count(*) FROM router_tasks').fetchone()[0]==count
+    assert a.query.load(source.asset_id,principal=a.env.owner)[1]=='ready'

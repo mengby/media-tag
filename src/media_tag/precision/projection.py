@@ -56,7 +56,8 @@ def verified(router, row, asset, kind, *, layer='precision'):
     if len(probes) != 1:
         raise ValueError('one verified precision probe required')
     info = read_json(router, probes[0])
-    if {'gif': 'animation'}.get(info['kind'], info['kind']) != kind:
+    from media_tag.analysis.probe import semantic_content_kind
+    if semantic_content_kind(info) != kind:
         raise ValueError('precision input modality changed')
     from .runtime import evidence_window
     window_start,window_end = evidence_window(info, kind)

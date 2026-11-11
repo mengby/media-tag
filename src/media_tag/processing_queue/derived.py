@@ -153,7 +153,7 @@ class ProcessingDerivedService:
                 self.catalog._event(connection,asset_id,1,principal,'register_processing_variant',{},
                     {'plan_id':plan_id,'contract_version':CONTRACT_VERSION,'output_sha256':blob.sha256,'tag_origin':'not_inherited','license_confirmation':False})
                 from media_tag.analysis.intake import ensure_intent
-                ensure_intent(connection,asset_id,config.requester_id,content_kind=validation['kind'])
+                ensure_intent(connection,asset_id,config.requester_id,content_kind=validation['kind'],probe_info=validation)
         return self.status(asset_id,principal=principal)
 
     def adopt_ready(self,*,principals=(),limit=8):

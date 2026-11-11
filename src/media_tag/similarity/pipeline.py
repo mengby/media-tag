@@ -74,8 +74,9 @@ class Handlers:
         probes = [ref for ref in task.input_refs if ref.kind == 'technical_report']
         if len(probes) != 1:
             raise ModelFailure('similarity_verified_probe_required')
-        kind = read_json(self.router, probes[0])['kind']
-        if {'gif': 'animation'}.get(kind, kind) != options.content_kind:
+        from media_tag.analysis.probe import probe_kind_matches
+        info = read_json(self.router, probes[0])
+        if not probe_kind_matches(info,options.content_kind,allow_legacy_single_gif=True):
             raise ModelFailure('similarity_modality_changed')
         chunks, size = [], 0
         with self.router.open_input(task.task_id, task.lease_epoch, principal=self.principal) as stream:
@@ -176,8 +177,8 @@ def verified(router, row, asset):
     if len(probes) != 1:
         raise ValueError('current verified similarity probe required')
     info = read_json(router, probes[0])
-    kind = info['kind']
-    if {'gif': 'animation'}.get(kind, kind) != options.content_kind:
+    from media_tag.analysis.probe import is_single_frame_gif,probe_kind_matches
+    if not probe_kind_matches(info,options.content_kind,allow_legacy_single_gif=True):
         raise ValueError('similarity input modality changed')
     descriptor = report.descriptor
     expected_algorithm = AUDIO_VERSION if options.content_kind == 'audio' else VISUAL_VERSION
@@ -189,7 +190,7 @@ def verified(router, row, asset):
             or isinstance(descriptor, AudioFingerprint) != (options.content_kind == 'audio')):
         raise ValueError('similarity source or algorithm binding changed')
     if isinstance(descriptor, VisualFingerprint) and descriptor.media_kind != options.content_kind:
-        single_gif = (kind == 'gif' and info.get('raw_metadata', {}).get('image_metadata', {}).get('frame_count') == 1 and options.content_kind == 'animation'
+        single_gif = (is_single_frame_gif(info) and options.content_kind == 'animation'
             and descriptor.media_kind == 'image' and descriptor.coverage == 'complete_image' and len(descriptor.frames) == 1)
         if not single_gif:
             raise ValueError('similarity visual modality changed')

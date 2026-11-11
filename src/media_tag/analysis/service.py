@@ -10,7 +10,8 @@ from media_tag.router.models import JobSpec, StepSpec
 from media_tag.storage import StorageError
 
 from .contracts import TOPIC_FIELDS
-from .intake import INTAKE_POLICY, KINDS, ensure_intent
+from .intake import INTAKE_POLICY, ensure_intent
+from .probe import semantic_content_kind
 from .deployment import AnalysisDeployment
 from .projection import TopicProjection
 
@@ -96,9 +97,7 @@ class AnalysisService:
             if len(data) > 1024*1024 or sha256(data).hexdigest() != reports[0].sha256:
                 raise ValueError('probe report integrity changed')
             info = json.loads(data)
-            kind = KINDS.get(info.get('kind')) if isinstance(info, dict) else None
-            if kind is None:
-                raise ValueError('unsupported probe kind')
+            kind = semantic_content_kind(info)
             expected = {step.key: step for step in self._steps(fingerprint, kind)}
             current = {row['step_key']: StepSpec.model_validate_json(row['spec_json']) for row in
                 connection.execute('SELECT step_key,spec_json FROM router_tasks WHERE job_id=? AND active=1', (job_id,))}
@@ -112,7 +111,7 @@ class AnalysisService:
             asset = self.catalog._authorize(connection, intent['asset_id'], principal, 'edit')
             if self.files._gate(connection, asset):
                 return {'intent_id': intent['intent_id'], 'state': 'awaiting_file_gate'}
-            ensure_intent(connection, intent['asset_id'], principal.actor_id, content_kind=kind)
+            ensure_intent(connection, intent['asset_id'], principal.actor_id, content_kind=info['kind'], probe_info=info)
         return {'intent_id': intent['intent_id'], 'state': 'probe_adopted', 'job_id': job_id}
 
     def dispatch_pending(self, *, principal):

@@ -225,7 +225,7 @@ class VariantService:
             self.catalog._event(connection, asset_id, 1, principal, 'register_variant', {},
                                 {'plan_id': plan_id, 'source_sha256': plan['source_sha256'], 'output_sha256': blob.sha256, 'tag_origin': 'not_inherited'})
             from media_tag.analysis.intake import ensure_intent
-            ensure_intent(connection, asset_id, plan['owner_id'], content_kind=validation['kind'])
+            ensure_intent(connection, asset_id, plan['owner_id'], content_kind=validation['kind'],probe_info=validation)
             return self.catalog._snapshot(connection, self.catalog._authorize(connection, asset_id, principal))
 
     def list_versions(self, asset_id, *, principal):
