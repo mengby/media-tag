@@ -24,7 +24,7 @@ HTTP视图使用独立`ct-topic-analysis-view-v1`，同时声明内部`ct-topic-
 | 视频/动画的首帧初稿 | 保留抽样初稿，next_step=evidence | 首帧不能证明完整变化，连续片段分析仍待CT-13 |
 | 表现形式未匹配锁定选项 | no_match，next_step=vocabulary | 不自动扩枚举、不把未匹配当不适用；原Worker已丢弃的原始候选不编造恢复 |
 | 本地模型输出未知 | 保留unknown，按模态等待precision或连续证据 | 不自动填词或写已完成 |
-| 四字段任务未完成/失败 | unknown或failed，next_step=local；损坏报告/帧为evidence | 不使用旧成功回退；完整补缺调度与修复仍待CT-05 |
+| 四字段任务未完成/失败 | unknown或failed，next_step=local；损坏报告/帧为evidence | 不使用旧成功回退；已有[阶段修复入口](analysis-repair.md)，完整字段级复用/补缺仍待CT-05 |
 | 尚未接本地能力的其余六字段 | unknown，next_step=local | 不从OCR、文件名、人脸检测或CLIP向量补医学/用途/情绪语义 |
 | 纯音频的画面主体/表现形式 | not_applicable，next_step=none | 只表示没有视觉内容，不表示免打标 |
 | 纯音频其余八字段 | unknown，next_step=provider | 真实音频语义能力尚未接入，不用封面或名称代替声音 |

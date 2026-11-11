@@ -180,3 +180,14 @@ def test_http_projection_is_authenticated_requester_scoped_and_never_dispatches(
     assert 'jobs/' not in response.text and str(v.env.workspace) not in response.text
     with v.env.database.transaction() as connection:
         assert connection.execute('SELECT COUNT(*) FROM router_jobs').fetchone()[0] == before
+
+
+def test_partial_clip_features_wait_for_vocabulary_instead_of_repeated_execution(topic):
+    from media_tag.analysis.repair import _stage_state
+    v = topic
+    with v.env.database.transaction() as connection:
+        row = connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
+            FROM router_tasks t JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
+            WHERE t.job_id=? AND t.active=1 AND t.step_key='clip' ''', (v.m.job['job_id'],)).fetchone()
+    desired = StepSpec.model_validate_json(row['spec_json'])
+    assert _stage_state(v.analysis, row, desired, v.m.sought.asset.sha256, 'image') == 'awaiting_vocabulary'

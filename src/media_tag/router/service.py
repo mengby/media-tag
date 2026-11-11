@@ -500,39 +500,43 @@ class Router:
             self._event(connection, job_id, None, principal.actor_id, "cancel", {})
 
     def replan(self, job_id: str, patches: tuple[StepSpec, ...], *, expected_revision: int, principal: Principal):
+        with self.database.transaction(write=True) as connection:
+            return self._replan_tx(connection, job_id, patches, expected_revision=expected_revision, principal=principal)
+
+    def _replan_tx(self, connection, job_id, patches, *, expected_revision, principal):
+        """Trusted transaction boundary for atomic domain operations and audit receipts."""
         self._validate_steps(patches)
         if not patches or len({step.key for step in patches}) != len(patches):
             raise ValueError("replan requires unique step patches")
-        with self.database.transaction(write=True) as connection:
-            job = self._job_auth(connection, job_id, principal)
-            self._source(connection, job)
-            if job["revision"] != expected_revision or job["cancelled"]:
-                raise RouterConflict("job revision changed or job was cancelled")
-            old = {row["step_key"]: row for row in connection.execute("SELECT * FROM router_tasks WHERE job_id=? AND active=1", (job_id,))}
-            specs = {key: StepSpec.model_validate_json(row["spec_json"]) for key, row in old.items()}
-            specs.update({step.key: step for step in patches})
-            JobSpec(asset_id=job["asset_id"], steps=tuple(specs.values()))
-            for spec in specs.values():
-                self._task_source(connection, job, spec)
-            changed = {step.key for step in patches}
-            while True:
-                more = {key for key, spec in specs.items() if set(spec.depends_on) & changed}
-                if more <= changed:
-                    break
-                changed |= more
-            ids = {key: row["task_id"] for key, row in old.items() if key not in changed}
-            for key in changed:
-                prior = old.get(key)
-                if prior:
-                    connection.execute("UPDATE router_tasks SET active=0,state=CASE WHEN state IN ('leased','running','queued','retry_wait') THEN 'cancelled' ELSE state END WHERE task_id=?", (prior["task_id"],))
-                    connection.execute("UPDATE router_holds SET quarantined=1 WHERE task_id=?", (prior["task_id"],))
-                ids[key] = self._new_task(connection, job_id, specs[key], prior["generation"] + 1 if prior else 1)
-            for key in changed:
-                for parent in specs[key].depends_on:
-                    connection.execute("INSERT INTO router_dependencies VALUES(?,?)", (ids[key], ids[parent]))
-            connection.execute("UPDATE router_jobs SET revision=revision+1 WHERE job_id=?", (job_id,))
-            self._event(connection, job_id, None, principal.actor_id, "replan", {"changed_keys": sorted(changed)})
-            return self._view(connection, self._job_auth(connection, job_id, principal))
+        job = self._job_auth(connection, job_id, principal)
+        self._source(connection, job)
+        if job["revision"] != expected_revision or job["cancelled"]:
+            raise RouterConflict("job revision changed or job was cancelled")
+        old = {row["step_key"]: row for row in connection.execute("SELECT * FROM router_tasks WHERE job_id=? AND active=1", (job_id,))}
+        specs = {key: StepSpec.model_validate_json(row["spec_json"]) for key, row in old.items()}
+        specs.update({step.key: step for step in patches})
+        JobSpec(asset_id=job["asset_id"], steps=tuple(specs.values()))
+        for spec in specs.values():
+            self._task_source(connection, job, spec)
+        changed = {step.key for step in patches}
+        while True:
+            more = {key for key, spec in specs.items() if set(spec.depends_on) & changed}
+            if more <= changed:
+                break
+            changed |= more
+        ids = {key: row["task_id"] for key, row in old.items() if key not in changed}
+        for key in changed:
+            prior = old.get(key)
+            if prior:
+                connection.execute("UPDATE router_tasks SET active=0,state=CASE WHEN state IN ('leased','running','queued','retry_wait') THEN 'cancelled' ELSE state END WHERE task_id=?", (prior["task_id"],))
+                connection.execute("UPDATE router_holds SET quarantined=1 WHERE task_id=?", (prior["task_id"],))
+            ids[key] = self._new_task(connection, job_id, specs[key], prior["generation"] + 1 if prior else 1)
+        for key in changed:
+            for parent in specs[key].depends_on:
+                connection.execute("INSERT INTO router_dependencies VALUES(?,?)", (ids[key], ids[parent]))
+        connection.execute("UPDATE router_jobs SET revision=revision+1 WHERE job_id=?", (job_id,))
+        self._event(connection, job_id, None, principal.actor_id, "replan", {"changed_keys": sorted(changed)})
+        return self._view(connection, self._job_auth(connection, job_id, principal))
 
     @contextmanager
     def open_input(self, task_id: str, epoch: int, *, principal: Principal) -> Iterator:

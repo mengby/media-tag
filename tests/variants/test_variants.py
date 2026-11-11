@@ -69,6 +69,13 @@ def test_private_output_lineage_source_links_no_tags_and_exact_repeat(variants):
     outcomes = analysis.dispatch_pending(principal=env.owner)
     assert any(row['intent_id'] == state['intent_id'] and row['state'] == 'awaiting_file_gate' for row in outcomes)
     assert not analysis.status(item.asset_id, principal=env.owner)['runtime_dispatched']
+    from media_tag.analysis.repair import RepairSubmission, repair
+    from media_tag.catalog import RevisionConflict
+    pending_asset = env.catalog.get_asset(item.asset_id, principal=env.owner)
+    with pytest.raises(RevisionConflict):
+        repair(analysis, item.asset_id, RepairSubmission(request_id='pending-privacy-repair',
+            expected_asset_revision=pending_asset.revision, source_sha256=pending_asset.sha256,
+            expected_job_revision=1), principal=env.owner)
 
 
 def test_derived_input_requires_explicit_chain_and_records_cumulative_speed(variants):

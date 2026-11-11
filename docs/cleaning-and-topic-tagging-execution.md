@@ -34,6 +34,14 @@
 
 实际执行`tests/analysis tests/contracts tests/router tests/upload tests/variants tests/review tests/search tests/export tests/files tests/maintenance`411项通过；最终HTTP/租约释放/视图版本与补充分流检查`tests/search/test_topic_analysis.py tests/analysis tests/upload/test_analysis_dispatch.py tests/variants/test_variants.py`86项通过，批次有重叠不相加。使用合成VLM协议响应和实际落盘报告/帧，不是实际VLM或医学准确率验收。私有证据`jobs/ct-topic-projection-20261111-4c680e25/validation.json`；未新增迁移、操作生产或推送。
 
+## 显式阶段复用与补缺修复
+
+CT-05已有[受权修复入口](analysis-repair.md)：检查本请求绑定作业的当前规格和实际产物，保留有效阶段，只重排缺失/不兼容/失败/损坏的根阶段及依赖树。查询不修复，暂停/取消不自动恢复；CLIP仅缺词表时保留有效特征，不反复执行。未接的字段能力仍列待办，不编造标签。
+
+重排与幂等回执通过原Router事件表同一事务写入，不新增迁移或执行队列。已验证确认后重试不重复重排、回执失败整体回滚、预处理规格变化、认证/CAS/当前文件门槛和哈希读取不占SQLite写锁。当前只是阶段复用；跨来源/账号字段级复用和人工拒绝补标仍未完成，也不等于精标接入完成。
+
+关联命令`tests/router tests/upload tests/variants tests/analysis tests/search/test_topic_analysis.py tests/files tests/maintenance tests/review tests/export`266项通过；最终补充`tests/upload/test_analysis_repair.py tests/search/test_topic_analysis.py tests/variants/test_variants.py`42项通过，批次有重叠不相加。实际合成图片CPU处理/修复及合成视觉协议已验证，不是实际VLM或医学准确率验收。证据`jobs/ct-analysis-repair-20261111-710d9e46/validation.json`，未操作生产或推送。
+
 ## 逐任务实际状态
 
 | 子任务 | 状态 | 实际边界/下一步 |
@@ -42,7 +50,7 @@
 | CT-02 | 进行中 | 十字段/证据/待办/能力结构及实际生产者关联已接只读汇总；清洗配方/片段/名称映射和后续服务衔接待扩展 |
 | CT-03 | 进行中 | 契约/模板/旧代码基线及v9/v10备份还原、v11事务迁移隔离验证已建立；最终迁移/切换仍待后续整体验证，未打开生产数据库 |
 | CT-04 | 进行中 | 登记/可选派发/未知类型探测已接；十字段视图采用四项真实初稿并列出其余缺口，完整十字段分析与入库闭环待补 |
-| CT-05 | 未开始实现 | 精确结果复用/补缺仍待服务层实现 |
+| CT-05 | 进行中，阶段复用/修复 | 已实现受权显式补缺、兼容/实际证据校验、保留成功阶段、失效依赖树重排与原子幂等回执；跨来源字段级复用和人工拒绝补标仍待扩展 |
 | CT-06 | 未开始实现 | 近似关系及核对接口待实现，未接实际匹配器 |
 | CT-07 | 未开始实现 | 未运行新质检、标准副本或命名 |
 | CT-08 | 未开始实现 | 未实现真实裁剪/自动选段/目标时长流程 |

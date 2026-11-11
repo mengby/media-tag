@@ -38,3 +38,11 @@ These are structural contracts. Artifact hashes, vocabulary options, permissions
 current leases, reusable producer results and human decisions must still be
 verified by their owning services before adoption. Schema validation is neither
 actual inference nor a privacy/medical approval.
+
+`repair.py` provides explicit CAS/permission/file-gated repair of configured stages.
+Valid current stages are retained; damaged/incompatible/missing roots and their
+dependants use Router replan. Hash checks precede the write transaction, which
+rechecks task state and atomically records replan plus idempotent audit receipt.
+Unpublished CLIP vocabulary waits instead of repeatedly regenerating features.
+No schema migration, automatic retry-on-read, cross-owner tag copying or human
+approval is introduced. Field-level/cross-source reuse remains incomplete.
