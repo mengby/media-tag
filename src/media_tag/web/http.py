@@ -7,11 +7,11 @@ import threading
 import time
 from typing import Literal
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, Query
 from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
-from media_tag.catalog import Principal, AccessDenied, RevisionConflict
+from media_tag.catalog import Principal, AccessDenied, RevisionConflict, NotFound
 from media_tag.catalog.service import _human
 from media_tag.contracts.models import Identifier, Sha256
 from media_tag.files.http import transfer
@@ -79,7 +79,8 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
 
     for url, name, mime in [('/ui/','index.html','text/html'),('/ui/app.js','app.js','text/javascript'),
                             ('/ui/sha256.js','sha256.js','text/javascript'),('/ui/review.js','review.js','text/javascript'),
-                            ('/ui/search.js','search.js','text/javascript'),('/ui/terms.js','terms.js','text/javascript'),('/ui/style.css','style.css','text/css')]:
+        ('/ui/search.js','search.js','text/javascript'),('/ui/terms.js','terms.js','text/javascript'),('/ui/style.css','style.css','text/css'),
+        ('/ui/processing','processing.html','text/html'),('/ui/processing.js','processing.js','text/javascript'),('/ui/processing.css','processing.css','text/css')]:
         def make_resource(name, mime):
             def resource():
                 return Response(files('media_tag.web').joinpath(name).read_bytes(), media_type=mime)
@@ -128,6 +129,79 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
     @app.get('/ui/session')
     def current(principal=Depends(identity)):
         return who(principal)
+
+    def processing_service():
+        service=getattr(app.state,'processing_derived',None)
+        if service is None or not service.options.enabled:raise HTTPException(503,'processing_disabled')
+        return service
+
+    def processing_item(asset_id,principal,*,detail=False):
+        _human(principal)
+        service=processing_service()
+        status=service.status(asset_id,principal=principal)
+        with router.database.transaction() as connection:
+            asset,variant,contract=service._record(connection,asset_id,principal)
+            actor=Principal(actor_id=principal.actor_id)
+            try:
+                router.catalog._authorize(connection,asset_id,actor,'edit');editable=True
+            except AccessDenied:editable=False
+            try:
+                service._review_access(connection,asset,principal)
+                comparable=service.review_files()._gate(connection,asset,review_asset_id=asset_id) is None
+            except (AccessDenied,RevisionConflict,NotFound):comparable=False
+            required={'quality':True,'watermark':contract.review_requirements.watermark,'privacy':contract.review_requirements.privacy}
+            configured={name:bool(getattr(service.options.reviewers,name)) for name in required}
+            assigned={name:principal.actor_id in getattr(service.options.reviewers,name) for name in required}
+            capabilities={name:{'required':required[name],'configured':configured[name],
+                'can_approve':required[name] and assigned[name] and editable and comparable,
+                'can_revoke':required[name] and assigned[name] and editable} for name in required}
+            item={key:status[key] for key in ('asset_id','revision','output_sha256','recipe_hash','contract_version','content_kind',
+                'reviews','state','file_access','output_download_available','download_manifest')}
+            item.update(name=asset['name'],can_compare=comparable,capabilities=capabilities)
+            if detail:
+                mapping=contract.time_map.mapping
+                validation=json.loads(variant['validation_json'])
+                item['summary']={'operation':contract.operation,'time_applicable':mapping is not None,
+                    'actual_duration_seconds':validation.get('duration_seconds'),
+                    'source_start_seconds':mapping.get('source_start_seconds') if mapping else None,
+                    'source_end_seconds':mapping.get('source_end_seconds') if mapping else None,
+                    'requested_start_seconds':mapping.get('requested_start_seconds') if mapping else None,
+                    'requested_end_seconds':mapping.get('requested_end_seconds') if mapping else None,
+                    'speed':mapping.get('speed') if mapping else None,'cumulative_speed':contract.cumulative_speed,
+                    'output_duration_seconds':mapping.get('output_duration_seconds') if mapping else None,
+                    'audio_policy':contract.recipe.get('audio_policy') if contract.content_kind=='video' else None,
+                    'has_output_audio':bool(mapping and mapping.get('audio')),
+                    'region_counts':{name:sum(region.get('purpose')==name for region in contract.recipe.get('regions',[])) for name in ('face','watermark','other')},
+                    'audio_voice_privacy_reviewed':False,'license_confirmation':False}
+        if detail:
+            item['comparison']=service.comparison(asset_id,principal=principal) if comparable else None
+            if item['comparison']:
+                # The page needs exact immutable URLs, not large per-frame maps or raw recipes.
+                item['comparison']={key:item['comparison'][key] for key in ('source_preview','output_preview','source_sha256','output_sha256')}
+        return item
+
+    def processing_outputs(principal,after,limit,query):
+        _human(principal);processing_service()
+        with router.database.transaction() as connection:
+            rows=connection.execute('''SELECT a.asset_id FROM assets a JOIN processing_derivations p USING(asset_id)
+                WHERE a.deleted_at IS NULL AND a.asset_id>? AND
+                (a.owner_id=? OR EXISTS(SELECT 1 FROM asset_permissions g WHERE g.asset_id=a.asset_id AND g.subject_id=? AND g.permission IN ('read','edit')))
+                AND (?='' OR instr(lower(a.name),lower(?))>0 OR instr(a.asset_id,?)>0)
+                ORDER BY a.asset_id LIMIT ?''',(after or '',principal.actor_id,principal.actor_id,query,query,query,limit+1)).fetchall()
+        items=[]
+        for row in rows[:limit]:
+            try:items.append(processing_item(row['asset_id'],principal))
+            except (AccessDenied,NotFound):continue
+        return {'items':items,'next':rows[limit-1]['asset_id'] if len(rows)>limit else None,'limit':limit}
+
+    @app.get('/ui/processing/outputs')
+    async def processing_list(principal=Depends(identity),after:Identifier|None=None,
+            limit:int=Query(default=20,ge=1,le=50),query:str=Query(default='',max_length=100)):
+        return await run_in_threadpool(processing_outputs,principal,after,limit,query)
+
+    @app.get('/ui/processing/outputs/{asset_id}')
+    async def processing_detail(asset_id:Identifier,principal=Depends(identity)):
+        return await run_in_threadpool(processing_item,asset_id,principal,detail=True)
 
     @app.delete('/ui/session')
     def logout(request: Request):

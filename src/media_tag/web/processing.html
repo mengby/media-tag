@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>清洗输出复核 · 素材处理</title><link rel="stylesheet" href="/ui/processing.css"><script type="module" src="/ui/processing.js"></script></head>
+<body><header><a href="/ui/">← 返回素材库</a><span id="actor">正在检查会话</span></header>
+<main><div class="heading"><div><p class="eyebrow">素材处理</p><h1>清洗输出复核</h1><p>对照原件和实际结果，分别记录质量、水印和隐私决定。</p></div><button id="refresh" type="button">刷新状态</button></div>
+<p id="notice" role="status" aria-live="polite"></p>
+<div class="layout"><aside><section class="panel"><h2>处理结果</h2><form id="filter"><label for="query">按名称查找</label><div class="row"><input id="query" maxlength="100" type="search"><button>查找</button></div></form><div id="outputs"></div><button id="more" type="button" hidden>下一页</button></section><section class="panel"><h2>近期处理任务</h2><div id="tasks"></div></section></aside>
+<section id="detail" class="panel" hidden><h2 id="title"></h2><p id="status"></p><dl id="summary"></dl><details><summary>核对文件与配方</summary><dl id="identity"></dl></details>
+<div class="comparison"><section><h3>原件</h3><div id="source-media" class="media"></div></section><section><h3>实际结果</h3><div id="output-media" class="media"></div></section></div>
+<p id="media-note" class="muted"></p><p id="audio-note" class="muted" hidden>纯音频不适用真人脸复核；这不表示声源隐私或许可已经批准。</p>
+<div id="reviews" class="reviews"></div><div class="actions"><a id="download" class="button" hidden>下载已批准的此版本</a></div><p class="muted">输出复核与语义标签、医学审核、素材许可及当前剪辑用途分别核查。</p></section></div></main></body></html>

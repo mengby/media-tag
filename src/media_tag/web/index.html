@@ -3,7 +3,7 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>素材库 · Media Tag</title><link rel="stylesheet" href="/ui/style.css"><script type="module" src="/ui/app.js"></script></head>
 <body>
 <aside class="sidebar"><a class="brand" href="#library"><span class="mark">M</span>素材库<span class="edition">工作空间</span></a>
-<nav aria-label="主导航"><button data-page="library" class="active">▦ <span>素材库</span></button><button data-page="process">◫ <span>视频处理</span></button><button data-page="tasks">≡ <span>我的任务</span></button><button id="review-nav" data-page="review" hidden>✓ <span>标签复核与导出</span></button></nav>
+<nav aria-label="主导航"><button data-page="library" class="active">▦ <span>素材库</span></button><button data-page="process">◫ <span>视频处理</span></button><a href="/ui/processing" class="editor">清洗输出复核</a><button data-page="tasks">≡ <span>我的任务</span></button><button id="review-nav" data-page="review" hidden>✓ <span>标签复核与导出</span></button></nav>
 <div class="sidebar-note">原件留存 · 版本可追溯<br>AI 建议与人工确认分开记录</div><div class="identity"><span id="actor">未登录</span><button id="logout" hidden>退出</button></div></aside>
 <main>
 <section id="login" class="login panel"><span class="eyebrow">MEDIA WORKSPACE</span><h1>连接你的素材库</h1><p id="login-intro">正在连接工作空间。</p><p id="local-login-status" hidden>请从桌面“素材处理”入口打开，系统会自动登录，无需输入访问凭证。</p><form id="login-form" hidden><label>访问凭证<input id="credential" type="password" autocomplete="off" required></label><button class="primary" type="submit">进入工作空间</button></form><p class="muted">会话仅在当前浏览器生效，最长 8 小时。</p></section>
