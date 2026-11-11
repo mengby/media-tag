@@ -27,14 +27,21 @@ class PrecisionSubmission(RepairSubmission):
 
 
 def request_precision(analysis, deployment, asset_id, spec, *, principal):
+    return request_provider(analysis,deployment,asset_id,spec,principal=principal,stage='precision')
+
+
+def request_provider(analysis, deployment, asset_id, spec, *, principal, stage):
+    if stage not in ('precision','audio_topics'):
+        raise ValueError('supported provider stage required')
+    action = 'precision_request' if stage=='precision' else 'audio_topics_request'
     if not spec.fields or len(set(spec.fields)) != len(spec.fields) or not set(spec.fields) <= set(TOPIC_FIELDS):
         raise ValueError('unique original topic fields required')
     fingerprint = sha256(encode({'asset_id': asset_id, 'request': spec.model_dump(mode='json')}).encode()).hexdigest()
     with analysis.database.transaction(write=True) as connection:
         asset, intent, job = _context(analysis, connection, asset_id, spec, principal)
         receipt = connection.execute('''SELECT detail_json FROM router_events WHERE job_id=? AND actor_id=?
-            AND action='precision_request' AND json_extract(detail_json,'$.request_id')=? ORDER BY event_id DESC LIMIT 1''',
-            (job['job_id'], principal.actor_id, spec.request_id)).fetchone()
+            AND action=? AND json_extract(detail_json,'$.request_id')=? ORDER BY event_id DESC LIMIT 1''',
+            (job['job_id'], principal.actor_id, action, spec.request_id)).fetchone()
         if receipt:
             previous = json.loads(receipt[0])
             if previous['fingerprint'] != fingerprint:
@@ -43,6 +50,8 @@ def request_precision(analysis, deployment, asset_id, spec, *, principal):
         if (asset['revision'] != spec.expected_asset_revision or job['revision'] != spec.expected_job_revision
                 or job['cancelled'] or job['paused'] or intent['content_kind'] is None or not analysis.options.enabled):
             raise RevisionConflict('current active typed analysis required')
+        if stage=='audio_topics' and intent['content_kind']!='audio':
+            raise RevisionConflict('local audio stage requires actual audio content')
         try:
             provider = provider_for(deployment, intent['content_kind'])
         except ModelFailure:
@@ -58,9 +67,10 @@ def request_precision(analysis, deployment, asset_id, spec, *, principal):
         if probe is None or json.loads(probe['spec_json'])['stage'] != 'probe':
             raise RevisionConflict('verified probe dependency required')
         key = task_key(provider, policy, intent['content_kind'], fields)
+        if stage!='precision':key='audio-'+key.removeprefix('precision-')
         config = {'provider_id': provider.provider_id, 'provider_revision': provider.revision,
             'policy_digest': policy.digest, 'content_kind': intent['content_kind']}
-        step = StepSpec(key=key, stage='precision', depends_on=('probe',), config=config, target_fields=fields,
+        step = StepSpec(key=key, stage=stage, depends_on=('probe',), config=config, target_fields=fields,
             versions=Versions(rules_version='sha256:'+policy.digest, preprocess_version=VERSION,
                 taxonomy_version=policy.config.taxonomy_version, model_revision=provider.revision),
             limits=TaskLimits(timeout_seconds=min(deployment.timeout_seconds, analysis.router.options.max_timeout_seconds),
@@ -77,7 +87,7 @@ def request_precision(analysis, deployment, asset_id, spec, *, principal):
             'accepted_job_revision': view['revision'], 'provider_id': provider.provider_id,
             'fields': list(fields), 'reused_stage': reusable, 'reused_request': False,
             'model_capability_acceptance': False, 'medical_confirmation': False, 'effective_values_written': False}
-        analysis.router._event(connection, job['job_id'], None, principal.actor_id, 'precision_request',
+        analysis.router._event(connection, job['job_id'], None, principal.actor_id, action,
             {'request_id': spec.request_id, 'fingerprint': fingerprint, 'result': result})
         return result
 

@@ -19,7 +19,9 @@ WAITING = {
 }
 
 
-def verified(router, row, asset, kind):
+def verified(router, row, asset, kind, *, layer='precision'):
+    if layer not in ('precision','local_audio'):
+        raise ValueError('supported analysis layer required')
     task = TaskEnvelope.model_validate_json(row['envelope_json'])
     result = WorkerResult.model_validate_json(row['result_json'])
     spec = StepSpec.model_validate_json(row['spec_json'])
@@ -40,7 +42,9 @@ def verified(router, row, asset, kind):
             or report.provider.revision != task.versions.model_revision or options.provider_revision != report.provider.revision
             or document.content_sha256 != asset['blob_sha256'] or document.content_kind != kind
             or document.asset_id != asset['asset_id'] or document.asset_revision != task.asset_revision
-            or report.request_id != 'precision-'+task.input_fingerprint or report.prompt_version != PROMPT
+            or report.analysis_layer != layer
+            or task.stage != ('precision' if layer=='precision' else 'audio_topics')
+            or report.request_id != ('precision-' if layer=='precision' else 'local-audio-')+task.input_fingerprint or report.prompt_version != PROMPT
             or result.evidence != document.evidence or result.suggestions != suggestions(document, task)
             or any(item.artifact not in result.artifacts for item in document.evidence)):
         raise ValueError('precision report/source/policy binding changed')
@@ -60,10 +64,21 @@ def verified(router, row, asset, kind):
             or sample.end_seconds != span):
         raise ValueError('precision evidence is not the complete bounded source')
     selected = {item.field: item for item in document.fields if item.field in task.target_fields}
+    if layer == 'local_audio' and report.reply is None:
+        raise ValueError('local audio requires the actual provider reply')
+    if report.reply is not None:
+        from .assessment import assessments
+        reply = report.reply
+        if (reply.request_id != report.request_id or reply.source_sha256 != asset['blob_sha256']
+                or reply.provider_revision != report.provider.revision
+                or {item.field for item in reply.fields} != set(task.target_fields)
+                or document.fields != assessments(reply, task, policy, kind, layer=layer, evidence_id=sample.evidence_id)
+                or report.usage != reply.usage):
+            raise ValueError('provider reply assessment changed')
     if set(selected) != set(task.target_fields):
         raise ValueError('precision requested field coverage changed')
     for item in selected.values():
-        if item.versions != task.versions or item.origin != 'precision' or item.evidence_ids != (sample.evidence_id,):
+        if item.versions != task.versions or item.origin != ('precision' if layer=='precision' else 'local') or item.evidence_ids != (sample.evidence_id,):
             raise ValueError('precision field producer changed')
         policy.validate(policy.asset_fields[item.field], item.value)
     return task, result, report, refs[0]

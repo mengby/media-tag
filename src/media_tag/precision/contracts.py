@@ -117,10 +117,12 @@ PrecisionReply.model_rebuild()
 
 class PrecisionReport(ContractModel):
     schema_version: Literal['ct-precision-report-v1'] = 'ct-precision-report-v1'
+    analysis_layer: Literal['precision', 'local_audio'] = 'precision'
     request_id: Identifier
     provider: PrecisionProvider
     policy_digest: Sha256
     prompt_version: Literal['ct-precision-prompt-v1'] = PROMPT
     document: AnalysisDocument
+    reply: PrecisionReply | None = None
     elapsed_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.0
     usage: ProviderUsage | None = None
