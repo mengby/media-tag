@@ -40,6 +40,9 @@ def assess(raw, field, *, policy, versions, evidence_id):
         # a separate calibrated static-state policy/continuous evidence exists.
         if data['dynamic'] or field == '过程/状态' or any('→' in v or '->' in v for v in values):
             return unresolved('unknown', 'static_evidence_cannot_establish_process', next_step='evidence')
+        if field == '英文检索词' and any('\u3400' <= character <= '\u9fff' or '\uf900' <= character <= '\ufaff'
+                for value in values for character in value):
+            return unresolved('unknown', 'english_keywords_require_english_text')
         values = tuple(values)
         definition = policy.asset_fields[field]
         # The original index stores keyword phrases in one text cell. Preserve
@@ -49,6 +52,9 @@ def assess(raw, field, *, policy, versions, evidence_id):
         value = FieldValue(state='observed', values=values)
         if definition.field_type in ('单选', '多选') and (policy.options(definition) is None or not set(values) <= set(policy.options(definition))):
             return unresolved('no_match', 'published_vocabulary_unmatched', candidates=values, next_step='vocabulary')
+        if definition.field_type == '单选' and len(values) != 1:
+            return unresolved('unknown', 'local_single_selection_ambiguous',
+                next_step='human' if field in MEDICAL_FIELDS else 'precision')
         policy.validate(definition, value)
         return FieldAssessment(**common, value=value, next_step='human' if field in MEDICAL_FIELDS else 'precision',
                                reason='local_suggestion_requires_review' if field in MEDICAL_FIELDS else 'local_uncalibrated_draft')

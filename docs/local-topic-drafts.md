@@ -1,6 +1,6 @@
 # CT-12：本地十字段初稿核心
 
-本次交付静态图片、静态贴纸的独立可调用核心，以及 Router stage/handler/子进程/报告验证与投影合并接口；共享 Analysis/API/config/调度接线由主流程另行完成，不能据此声称已接入生产队列或当前人员页。未运行真实 GPU/权重，不表示十字段的真实模型质量或业务验收已完成。复用项目已选择的 `Qwen/Qwen3-VL-2B-Instruct`，并没有另选后续精标模型。
+当前静态图片/静态贴纸十字段已接独立核心、Router有界Worker、Analysis/API/config/派发、当前证据审核、检索/CSV与显式修复。默认不启用生产。复用已选的本地 `Qwen/Qwen3-VL-2B-Instruct`；2026-11-12已完成一张合成图的真实本机执行与采用资格检查，结果和边界见文末。这不代表十字段准确率、医学或业务验收通过，后续精标模型仍待选择。
 
 ## 现有能力复用
 
@@ -12,7 +12,7 @@
 
 ## 调用接口
 
-调用者先创建**已有的独立私有工作目录**，提供当前已验证的 `ReviewPolicy` 和本地原件后端。以下为可调用 Python 接口；具体生产调度接线后续由主流程实施。
+调用者先创建**已有的独立私有工作目录**，提供当前已验证的 `ReviewPolicy` 和本地原件后端。以下为独立 Python 接口；实际使用应通过已接入的有界Router/配置执行器，保留身份、租约和隐私门槛。
 
 ```python
 from media_tag.local_topics import LocalQwenGenerator, LocalTopicService, Options
@@ -111,3 +111,13 @@ Router 扩展后，同一综合集 **97 passed in 73.76s**；再补 runner gate/
 父代理新增合成主流程回归覆盖登记→探测→派发→十字段→状态HTTP→检索/CSV、损坏raw报告修复保留probe、真实配置执行器未知图片探测采用、local/precision新范围交叉遮蔽。所有模型响应明确为mock协议，不是实际权重结果；本轮真实GPU/模型调用仍为零。人员页整体验收和生产启用未完成。
 
 父代理关联回归：`tests/local_topics tests/analysis tests/precision tests/topic_index tests/export tests/search tests/upload/test_analysis_repair.py` **257项通过（235.36秒）**；新增主流程/跨阶段范围专项4项通过（8.50秒），批次重叠不相加。私有证据`jobs/ct-local-topics-mainline-20261111-d8d7e94a/validation.json`。
+
+## 2026-11-12 首版真实本机功能检查
+
+使用已安装且通过固定清单校验的Qwen权重，在独立Catalog/Router中对一张合成红色圆形图片执行原始有界Worker入口；没有模型下载、外部调用、生产变更或真实业务素材处理。正式runner调用十次字段生成，并通过共享source/图像/prompt/model/report资格验证；人工有效值前后保持。
+
+真实调用发现并修复多模态processor的system消息内容格式。提示明确单选只能给一个值、医学枚举不是证据；英文检索词中的中文会保留unknown，多个合法单选值也保留unknown，不任选第一个或冒充执行成功。保留完整原始答复与新prompt摘要，不降低严格JSON校验。
+
+最终检查 **1 passed in 24.09s**：用途大类、画面主体、中文检索词产生3项初稿，其余7项unknown均保留明确后续动作，没有字段协议失败。只证明该合成输入的实际执行、当前报告采用与人工值保护；不是10项都已可靠标出，也不证明真实素材收益或准确率。精标未配置时待办继续存在。私有脚本、实际报告和调试历史位于 `jobs/ct-mvp-real-static-20261112-39c7e6a2/`，不提交素材/报告。
+
+必要回归：`tests/local_topics tests/analysis tests/topic_index tests/topic_evaluation/test_local_catalog_freeze.py` **115项通过（67.11秒）**；末次提示修订后，`tests/local_topics tests/topic_index tests/topic_evaluation/test_local_catalog_freeze.py` **71项通过（67.92秒）**。批次重叠，不相加计数。医学、许可、隐私及实际剪辑用途审核继续分别保留；已确认首版暂缓的连续视频全链路、迁移切换回退、全库近似/跨来源复用与综合故障/负载未扩展。

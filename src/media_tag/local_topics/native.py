@@ -58,7 +58,7 @@ class LocalQwenGenerator:
         try:
             # One field at a time: ten independent tasks do not become a ten-image GPU batch.
             for prompt in field_prompts:
-                messages = [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': [
+                messages = [{'role': 'system', 'content': [{'type': 'text', 'text': SYSTEM}]}, {'role': 'user', 'content': [
                     {'type': 'image', 'image': image}, {'type': 'text', 'text': prompt}]}]
                 inputs = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=True,
                     return_dict=True, return_tensors='pt').to('cuda')

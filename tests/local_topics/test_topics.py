@@ -106,6 +106,26 @@ def test_keyword_phrases_preserve_original_scalar_text_contract(sought, name, ph
     assert field.value.values == expected
 
 
+@pytest.mark.parametrize('phrases', [('红色圆形',), ('red circle', '白色背景')])
+def test_chinese_text_is_not_adopted_as_english_keywords(sought, phrases):
+    field=assess(answer('英文检索词',phrases),'英文检索词',policy=sought.reviews.policy,
+        versions=Versions(rules_version='test',preprocess_version='test'),evidence_id='test_image')
+    assert field.value.state=='unknown' and field.value.values is None
+    assert field.reason=='english_keywords_require_english_text' and field.next_step=='precision'
+
+
+def test_multiple_valid_single_select_values_remain_unresolved(sought):
+    name='情绪/语气'
+    definition=sought.reviews.policy.asset_fields[name]
+    assert definition.field_type=='单选'
+    choices=sought.reviews.policy.options(definition)
+    assert len(choices)>=2
+    field=assess(answer(name,tuple(choices[:2])),name,policy=sought.reviews.policy,
+        versions=Versions(rules_version='test',preprocess_version='test'),evidence_id='test_image')
+    assert field.value.state=='unknown' and field.value.values is None
+    assert field.reason=='local_single_selection_ambiguous' and field.next_step=='precision'
+
+
 @pytest.mark.parametrize('field,values,dynamic', [('过程/状态', ('正常',), False),
     ('过程/状态', ('恶化→改善',), False), ('画面主体', ('旋转',), True)])
 def test_static_does_not_prove_process(sought, field, values, dynamic):
