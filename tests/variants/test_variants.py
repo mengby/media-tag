@@ -63,6 +63,11 @@ def test_private_output_lineage_source_links_no_tags_and_exact_repeat(variants):
     from media_tag.analysis.service import AnalysisService
     state = AnalysisService(env.router).status(item.asset_id, principal=env.owner)
     assert state['state'] == 'awaiting_file_gate' and not state['analysis_complete']
+    from media_tag.analysis.deployment import AnalysisDeployment
+    analysis = AnalysisService(env.router, AnalysisDeployment(enabled=True))
+    outcomes = analysis.dispatch_pending(principal=env.owner)
+    assert any(row['intent_id'] == state['intent_id'] and row['state'] == 'awaiting_file_gate' for row in outcomes)
+    assert not analysis.status(item.asset_id, principal=env.owner)['runtime_dispatched']
 
 
 def test_derived_input_requires_explicit_chain_and_records_cumulative_speed(variants):

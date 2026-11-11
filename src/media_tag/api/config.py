@@ -4,6 +4,7 @@ from pathlib import Path
 
 from media_tag.catalog import Catalog, Database, Principal
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
+from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.contracts.templates import load_template_bundle
 from media_tag.router.models import RouterOptions
 from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
@@ -57,6 +58,7 @@ class LocalConfig(ContractModel):
     terminology: TerminologyDeployment = TerminologyDeployment()
     text: ResolveOptions = ResolveOptions()
     search: SearchOptions = SearchOptions()
+    analysis: AnalysisDeployment = AnalysisDeployment()
 
 
 def load_application(path: Path):
@@ -131,7 +133,7 @@ def load_application(path: Path):
         from media_tag.drafts.visual import VisualEncoder
         search.visual_encoder=VisualEncoder(ModelRegistry(Path(config.models.model_root)),router.workspace)
     if config.local_browser_login is not None and not config.web_enabled:raise ValueError('local browser login requires web UI')
-    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login)
+    app = create_app(router, config.credentials, uploads=uploads, variants=VariantService(router, tools),redactions=redactions,retiming=retiming,web=config.web_enabled,reviews=reviews,terminology=terminology,resolver=resolver,search=search,local_browser_login=config.local_browser_login,analysis_options=config.analysis)
     return app, router, tools
 
 
@@ -172,4 +174,12 @@ def executor_from_config(path: Path, worker_id: str):
             with router.database.transaction(write=True) as c:
                 asset=c.execute('SELECT * FROM assets WHERE asset_id=? AND deleted_at IS NULL',(latest_asset[0],)).fetchone()
                 if asset:DraftIndex(router).sync(c,asset)
-    return LocalExecutor(router,principal,handle,after_release=adopt)
+    def dispatch_analysis():
+        # Bindings come only from trusted server credentials, never an intent's owner ID.
+        seen = set()
+        for requester in config.credentials.values():
+            if requester.role in ('editor', 'admin') and requester.actor_id not in seen:
+                app.state.analysis.dispatch_pending(principal=requester)
+                seen.add(requester.actor_id)
+    return LocalExecutor(router,principal,handle,after_release=adopt,
+                         before_acquire=dispatch_analysis if config.analysis.enabled else None)

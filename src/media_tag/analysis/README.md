@@ -9,9 +9,13 @@ model and performs no network/file operations by itself.
 `intake.py` records them in the same transaction as a new original, completed
 upload or trusted derived result. It does not merge owners, grant edit rights,
 publish to the library, execute models or claim field completion. `service.py`
-and `http.py` expose authenticated read-only pending state; unsupported or absent
-runtime analysis is not disguised as successful tagging. Router remains the
-execution queue; these records are domain requests awaiting its later dispatch.
+and `http.py` expose authenticated read-only state. With `deployment.py` explicitly
+enabled (off by default), the configured worker dispatches known media types using
+trusted credential principals and Router's durable request bindings. Processing's
+fast job stays independent; compatible library jobs coalesce through Router.
+Audio gets only a probe until actual audio providers are added. Unknown media types
+still await verified probe integration. Cancelled/failed bindings are not silently
+replaced. Technical success never claims ten-field or human-review completion.
 
 Existing databases are not backfilled on read. Old v9/v10 backups remain
 readable and migrate to v11 only when explicitly opened by the current catalogue

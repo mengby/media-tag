@@ -7,8 +7,8 @@ from media_tag.contracts.models import Identifier
 from .service import AnalysisService
 
 
-def install(app, router, identity):
-    service = AnalysisService(router)
+def install(app, router, identity, options=None):
+    service = AnalysisService(router, options)
     app.state.analysis = service
 
     @app.get("/analysis/assets/{asset_id}")
