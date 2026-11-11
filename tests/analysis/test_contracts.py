@@ -198,3 +198,40 @@ def test_visual_provider_does_not_implicitly_support_audio():
         "provider_id": "synthetic", "adapter_version": "v1", "model_id": "not-an-actual-call",
         "inputs": ["image", "video"], "execution": "local"}))
     assert "audio" not in result.inputs
+
+
+def producer_document():
+    value = document()
+    value['evidence'] = [evidence()]
+    assessment = observed(producer_ids=['synthetic-producer'])
+    replace(value, assessment)
+    value['producers'] = [{'producer_id': 'synthetic-producer', 'task_id': 'synthetic-task',
+        'stage': 'visual_fields', 'lease_epoch': 1, 'source_sha256': value['content_sha256'],
+        'input_fingerprint': 'c'*64, 'result_sha256': 'd'*64,
+        'report': {'kind': 'visual_fields_report', 'ref': 'jobs/synthetic/report.json', 'sha256': 'e'*64},
+        'versions': assessment['versions'], 'evidence_ids': ['sample']}]
+    return value
+
+
+def test_runtime_provenance_binds_source_versions_and_used_evidence():
+    value = producer_document()
+    parsed = parse(value)
+    assert parsed.producers[0].task_id == 'synthetic-task'
+    assert not parsed.analysis_complete and not parsed.effective_values_written
+
+
+@pytest.mark.parametrize('mutation', ['source', 'versions', 'evidence', 'producer_id', 'duplicate'])
+def test_runtime_provenance_cannot_point_to_an_unrelated_producer(mutation):
+    value = producer_document()
+    if mutation == 'source':
+        value['producers'][0]['source_sha256'] = 'f'*64
+    elif mutation == 'versions':
+        value['producers'][0]['versions'] = {'rules_version': 'other', 'preprocess_version': 'other'}
+    elif mutation == 'evidence':
+        value['producers'][0]['evidence_ids'] = []
+    elif mutation == 'producer_id':
+        value['producers'][0]['producer_id'] = 'other'
+    else:
+        value['producers'].append(value['producers'][0])
+    with pytest.raises(ValueError):
+        parse(value)

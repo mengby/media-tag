@@ -63,6 +63,7 @@ def test_private_output_lineage_source_links_no_tags_and_exact_repeat(variants):
     from media_tag.analysis.service import AnalysisService
     state = AnalysisService(env.router).status(item.asset_id, principal=env.owner)
     assert state['state'] == 'awaiting_file_gate' and not state['analysis_complete']
+    assert state['topic_analysis'] is None
     from media_tag.analysis.deployment import AnalysisDeployment
     analysis = AnalysisService(env.router, AnalysisDeployment(enabled=True))
     outcomes = analysis.dispatch_pending(principal=env.owner)

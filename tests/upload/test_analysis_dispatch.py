@@ -96,6 +96,11 @@ def test_audio_probe_does_not_claim_sound_labels_or_launch_visual_models(intake,
     state = analysis.status(result['asset_id'], principal=env.owner)
     assert state['state'] == 'awaiting_audio_provider' and not state['analysis_complete']
     assert {task['stage'] for task in state['runtime']['tasks']} == {'probe'}
+    fields = {item['field']: item for item in state['topic_analysis']['fields']}
+    assert len(fields) == 10
+    assert {field for field, item in fields.items() if item['value']['state'] == 'not_applicable'} == {'画面主体', '表现形式'}
+    assert fields['情绪/语气']['next_step'] == 'provider'
+    assert not state['topic_analysis']['producers'] and not state['topic_analysis']['analysis_complete']
 
 
 def test_dispatch_uses_requester_permissions_and_does_not_act_as_another_owner(intake):

@@ -12,6 +12,7 @@ from media_tag.storage import StorageError
 from .contracts import TOPIC_FIELDS
 from .intake import INTAKE_POLICY, KINDS, ensure_intent
 from .deployment import AnalysisDeployment
+from .projection import TopicProjection
 
 
 class AnalysisService:
@@ -159,7 +160,7 @@ class AnalysisService:
                 editable = False
             state = ("awaiting_file_gate" if gate else "awaiting_edit_permission" if not editable
                      else "awaiting_probe" if row["content_kind"] is None else "pending_analysis")
-            runtime = None
+            runtime, job, topic_analysis = None, None, None
             if not gate and editable:
                 binding = connection.execute('SELECT job_id FROM router_requests WHERE owner_id=? AND request_id=?',
                     (principal.actor_id, row['intent_id'])).fetchone()
@@ -173,9 +174,14 @@ class AnalysisService:
                             'awaiting_audio_provider' if row['content_kind'] == 'audio' else 'awaiting_topic_analysis')
                     else:
                         state = view['state']
+                if row['content_kind'] is not None:
+                    projection = TopicProjection(self.router)
+                    document, local_state = projection.build(connection, asset, row['content_kind'], job)
+                    topic_analysis = projection.public(document, local_state)
             return {"asset_id": asset_id, "intent_id": row["intent_id"], "state": state,
                     "content_kind": row["content_kind"], "policy_version": row["policy_version"],
                     "topic_fields": list(TOPIC_FIELDS), "analysis_complete": False,
                     "runtime_dispatched": runtime is not None, "runtime": runtime,
+                    "topic_analysis": topic_analysis,
                     "dispatch_enabled": self.options.enabled, "medical_confirmation": False,
                     "effective_values_written": False}

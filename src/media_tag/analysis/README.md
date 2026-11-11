@@ -19,6 +19,17 @@ missing stages to that job, preserving the probe even after replan ACK loss.
 Cancelled/failed bindings are not silently
 replaced. Technical success never claims ten-field or human-review completion.
 
+`projection.py` verifies current released visual-fields reports/frames from only
+the request's bound job and builds ten field assessments, preserving actual four
+field drafts and explicit missing capabilities. `routing.py` sends uncalibrated
+static drafts to pending precision, first-frame animation/video to continuous
+evidence, and unmatched options to vocabulary. No stronger model is invoked.
+Pure audio keeps two visual fields inapplicable and eight audio fields pending.
+`AnalysisProducer` binds the actual attempt, source, report, versions and used
+evidence; the separate public view strips private artifact paths. Reads never
+start inference or modify effective values/approvals, and reverify bytes rather
+than fall back to a stale success. See `docs/topic-analysis-projection.md`.
+
 Existing databases are not backfilled on read. Old v9/v10 backups remain
 readable and migrate to v11 only when explicitly opened by the current catalogue
 bootstrap. The deployed instance has not been opened or restarted by this work.

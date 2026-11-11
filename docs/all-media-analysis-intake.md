@@ -1,6 +1,6 @@
 # 全类型分析待办：登记基础与当前边界
 
-2026-11-11。CT-04已实现事务内分析意图与可选Router派发。**当前只接已有技术/视觉阶段，十字段结果聚合和新模型推理尚未完成，不能把任务成功当作打标完成。** 相关实际进度见[执行记录](cleaning-and-topic-tagging-execution.md)。
+2026-11-11。CT-04已实现事务内分析意图与可选Router派发，追加[十字段状态汇总](topic-analysis-projection.md)。**当前只采用已有四字段初稿，其余能力保持待办；完整十字段推理尚未完成，不能把任务成功当作打标完成。** 相关实际进度见[执行记录](cleaning-and-topic-tagging-execution.md)。
 
 ## 已实现的登记路径
 
@@ -29,7 +29,7 @@
 | awaiting_topic_analysis | 当前技术/视觉任务已成功，十字段仍待后续聚合与能力补齐 |
 | awaiting_audio_provider | 音频技术任务已成功，实际声音语义能力未接入 |
 
-这些状态的`analysis_complete`均为false。只有当前请求人的任务绑定通过对象权限及文件门槛时，`runtime_dispatched=true`，并返回安全的任务/阶段状态；不返回私有报告路径。接口列出统一10字段目标，但不返回虚构字段值。
+这些状态的`analysis_complete`均为false。只有当前请求人的任务绑定通过对象权限及文件门槛时，`runtime_dispatched=true`，并返回安全的任务/阶段状态；不返回私有报告路径。新增`topic_analysis`只读视图逐字段列出真实初稿或待办，保留医学逐项确认和未校准免精标边界，详见[汇总与首轮分流](topic-analysis-projection.md)。
 
 ## 可选后台派发
 

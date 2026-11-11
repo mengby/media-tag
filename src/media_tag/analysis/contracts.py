@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from media_tag.contracts.models import (
-    ContractModel, Evidence, FieldValue, Identifier, PositiveInt, Sha256, Text, Versions,
+    ArtifactRef, ContractModel, Evidence, FieldValue, Identifier, PositiveInt, Sha256, Text, Versions,
 )
 
 TopicField = Literal[
@@ -24,6 +24,22 @@ NextStep = Literal[
 Candidate = Annotated[str, Field(min_length=1, max_length=200, pattern=r"\S")]
 
 
+class AnalysisProducer(ContractModel):
+    """Verified current attempt provenance, never a copied lease or human approval."""
+
+    producer_id: Identifier
+    task_id: Identifier
+    stage: Identifier
+    lease_epoch: PositiveInt
+    source_sha256: Sha256
+    input_fingerprint: Sha256
+    result_sha256: Sha256
+    report: ArtifactRef
+    versions: Versions
+    prompt_version: Text | None = None
+    evidence_ids: Annotated[tuple[Identifier, ...], Field(max_length=64)] = ()
+
+
 class FieldAssessment(ContractModel):
     """An AI/rule assessment, never an EffectiveValue or an approval."""
 
@@ -34,6 +50,7 @@ class FieldAssessment(ContractModel):
     origin: Literal["local", "precision", "reused"] | None = None
     versions: Versions | None = None
     evidence_ids: Annotated[tuple[Identifier, ...], Field(max_length=64)] = ()
+    producer_ids: Annotated[tuple[Identifier, ...], Field(max_length=16)] = ()
     candidates: Annotated[tuple[Candidate, ...], Field(max_length=16)] = ()
     reused_from: Identifier | None = None
     dynamic: bool = False
@@ -42,6 +59,8 @@ class FieldAssessment(ContractModel):
     def check_assessment(self):
         if len(set(self.evidence_ids)) != len(self.evidence_ids):
             raise ValueError("duplicate assessment evidence")
+        if len(set(self.producer_ids)) != len(self.producer_ids):
+            raise ValueError("duplicate assessment producers")
         if len(set(self.candidates)) != len(self.candidates):
             raise ValueError("duplicate unmapped candidates")
         if self.value.state == "observed" or self.candidates:
@@ -69,6 +88,7 @@ class AnalysisDocument(ContractModel):
     content_kind: ContentKind
     fields: Annotated[tuple[FieldAssessment, ...], Field(min_length=10, max_length=10)]
     evidence: Annotated[tuple[Evidence, ...], Field(max_length=64)] = ()
+    producers: Annotated[tuple[AnalysisProducer, ...], Field(max_length=16)] = ()
     medical_confirmation: Literal[False] = False
     privacy_confirmation: Literal[False] = False
     effective_values_written: Literal[False] = False
@@ -84,10 +104,26 @@ class AnalysisDocument(ContractModel):
         if any(item.source_sha256 != self.content_sha256 for item in self.evidence):
             raise ValueError("evidence must refer to the actual analyzed file")
         by_id = {item.evidence_id: item for item in self.evidence}
+        producers = {item.producer_id: item for item in self.producers}
+        if len(producers) != len(self.producers):
+            raise ValueError("duplicate document producers")
+        for producer in self.producers:
+            if producer.source_sha256 != self.content_sha256:
+                raise ValueError("producer source must match analyzed content")
+            if len(set(producer.evidence_ids)) != len(producer.evidence_ids) or any(
+                key not in by_id for key in producer.evidence_ids
+            ):
+                raise ValueError("producer requires unique bound evidence")
         for item in self.fields:
             if any(key not in by_id for key in item.evidence_ids):
                 raise ValueError("assessment references missing evidence")
             evidence = [by_id[key] for key in item.evidence_ids]
+            if any(key not in producers for key in item.producer_ids):
+                raise ValueError("assessment references missing producer")
+            for key in item.producer_ids:
+                producer = producers[key]
+                if producer.versions != item.versions or not set(item.evidence_ids) <= set(producer.evidence_ids):
+                    raise ValueError("assessment provenance differs from its producer")
             if item.value.state == "observed" or item.candidates:
                 if any(e.kind in ("filename", "human_record") for e in evidence):
                     raise ValueError("AI content assessments require actual media evidence")
