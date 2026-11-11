@@ -71,6 +71,7 @@ def evaluate(dataset_path,export_path,*,split='acceptance',output_directory=None
     started=time.perf_counter()
     dataset,dataset_sha=load(dataset_path,Dataset);export,export_sha=load(export_path,Export)
     if split not in ('calibration','acceptance'):raise EvaluationError('calibration_or_acceptance_only')
+    if export.split_scope is not None and export.split_scope!=split:raise EvaluationError('export_split_scope_changed')
     if export.dataset_sha256!=dataset_sha or export.purpose!=dataset.purpose:
         raise EvaluationError('export_dataset_or_purpose_changed')
     if export.taxonomy_version!=dataset.taxonomy_version or export.taxonomy_sha256!=dataset.taxonomy_sha256:
@@ -83,7 +84,9 @@ def evaluate(dataset_path,export_path,*,split='acceptance',output_directory=None
         case=cases.get(prediction.case_id)
         if case is None or case.source_sha256!=prediction.source_sha256 or case.content_kind!=prediction.content_kind:
             raise EvaluationError('prediction_case_source_or_modality_changed')
-    selected=[case for case in dataset.cases if case.split==split]
+        if run.case_ids is not None and prediction.case_id not in run.case_ids:
+            raise EvaluationError('prediction_outside_frozen_run_scope')
+    selected=[case for case in dataset.cases if case.split==split and (run.case_ids is None or case.case_id in run.case_ids)]
     if not selected:raise EvaluationError('selected_split_empty')
     bundle=Bundle(Path(export_path).parent)
     rows=[];case_results=[]
@@ -112,9 +115,16 @@ def evaluate(dataset_path,export_path,*,split='acceptance',output_directory=None
                         except (StorageError,OSError,ValueError):producer_missing=True
             rows.append(_field(case,gold,item,evidence_missing=evidence_missing,producer_missing=producer_missing,failure=failure))
         case_results.append({'case_id':case.case_id,'source_sha256':case.source_sha256,'near_group':case.near_group,
-            'content_kind':case.content_kind,'failure':failure,'declared_pipeline_elapsed_seconds':prediction.elapsed_seconds if prediction else None})
+            'content_kind':case.content_kind,'failure':failure,'declared_pipeline_elapsed_seconds':prediction.elapsed_seconds if prediction else None,
+            'elapsed_timing_scope':prediction.timing_scope if prediction else 'not_measured'})
     grouped={}
     for row in rows:grouped.setdefault((row['content_kind'],row['field']),[]).append(row)
+    measured_scopes=sorted({c['elapsed_timing_scope'] for c in case_results if c['declared_pipeline_elapsed_seconds'] is not None})
+    global_latency=latency([c['declared_pipeline_elapsed_seconds'] for c in case_results],
+        scope=measured_scopes[0] if len(measured_scopes)==1 else 'declared_pipeline_elapsed')
+    if len(measured_scopes)>1:
+        global_latency.update(sum_seconds=None,p50_seconds=None,p95_seconds=None,
+            method='not_aggregated_mixed_timing_scopes',reason='mixed_timing_scopes',timing_scopes=measured_scopes)
     report={'schema_version':'ct-topic-evaluation-report-v1','dataset_id':dataset.dataset_id,'dataset_sha256':dataset_sha,
         'export_sha256':export_sha,'run':run.model_dump(mode='json'),'purpose':dataset.purpose,'split':split,
         'generated_at':datetime.now(timezone.utc).isoformat(),'calibrated':False,'automatic_enablement':False,
@@ -125,10 +135,13 @@ def evaluate(dataset_path,export_path,*,split='acceptance',output_directory=None
             'identity_verification':'not_performed_by_tool'},
         'split_case_counts':{s:sum(c.split==s for c in dataset.cases) for s in ('training','calibration','acceptance')},
         'taxonomy_version':dataset.taxonomy_version,'taxonomy_sha256':dataset.taxonomy_sha256,
+        'evaluated_case_scope':[case.case_id for case in selected],
         'overall':aggregate(rows),'per_field':{field:aggregate([r for r in rows if r['field']==field]) for field in TOPIC_FIELDS},
         'per_modality':{kind:aggregate([r for r in rows if r['content_kind']==kind]) for kind in sorted({r['content_kind'] for r in rows})},
         'per_field_modality':[{'content_kind':kind,'field':field,'metrics':aggregate(values)} for (kind,field),values in sorted(grouped.items())],
-        'latency':latency([c['declared_pipeline_elapsed_seconds'] for c in case_results]),
+        'latency':global_latency,
+        'latency_by_scope':{scope:latency([c['declared_pipeline_elapsed_seconds'] for c in case_results if c['elapsed_timing_scope']==scope],scope=scope)
+            for scope in sorted({c['elapsed_timing_scope'] for c in case_results})},
         'cases':case_results,'fields':rows,'evaluation_elapsed_seconds':time.perf_counter()-started,
         'assumptions':['Only declared near groups/project training membership are checked; public pretraining membership is unknown.',
             'Annotation identity, independence, exhaustive gold values and source grouping require human verification.',

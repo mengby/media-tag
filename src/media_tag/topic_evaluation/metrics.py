@@ -49,7 +49,7 @@ def aggregate(rows):
         'independent_declared_groups':len({r['near_group'] for r in rows})}
 
 
-def latency(values):
+def latency(values,*,scope='declared_pipeline_elapsed'):
     values=[v for v in values if v is not None]
     return {'measured_cases':len(values),'sum_seconds':sum(values),'p50_seconds':percentile(values,.5),
-            'p95_seconds':percentile(values,.95),'method':'nearest_rank_declared_pipeline_elapsed_including_failures'}
+            'p95_seconds':percentile(values,.95),'method':f'nearest_rank_{scope}_including_failures'}

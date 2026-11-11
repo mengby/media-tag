@@ -236,3 +236,20 @@ def test_rule_support_excludes_cases_that_fail_its_no_candidate_precondition(fro
     subject=next(c for c in propose_rules(report)['candidates'] if c['field']=='画面主体')
     assert subject['independent_observed_groups']==0 and subject['observed_denominator']==0
     assert 'insufficient_independent_observed_groups' in subject['reasons']
+
+
+def test_frozen_run_scope_allows_modality_packages_without_silent_denominator_changes(frozen):
+    frozen.add('visual');frozen.add('audio','audio');dataset,export=frozen.save()
+    data=json.loads(dataset.read_text(encoding='utf8'));data['runs'][0]['case_ids']=['visual']
+    raw=json.dumps(data,ensure_ascii=False).encode();dataset.write_bytes(raw)
+    predictions=json.loads(export.read_text(encoding='utf8'));predictions['dataset_sha256']=sha256(raw).hexdigest()
+    predictions['predictions']=predictions['predictions'][:1];export.write_text(json.dumps(predictions),encoding='utf8')
+    report=evaluate(dataset,export)['report']
+    assert report['evaluated_case_scope']==['visual'] and report['overall']['structural_required_evaluations']==10
+    assert report['run']['case_ids']==['visual']
+
+
+def test_explicit_frozen_export_split_cannot_be_reused_to_tune_another_split(frozen):
+    frozen.add('accept');dataset,export=frozen.save();payload=json.loads(export.read_text(encoding='utf8'))
+    payload['split_scope']='acceptance';export.write_text(json.dumps(payload),encoding='utf8')
+    with pytest.raises(EvaluationError,match='export_split_scope_changed'):evaluate(dataset,export,split='calibration')

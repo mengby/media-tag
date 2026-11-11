@@ -1,4 +1,5 @@
 from datetime import datetime
+from collections.abc import Mapping
 from typing import Annotated,Literal
 from pydantic import Field,model_validator
 from media_tag.analysis.contracts import TOPIC_FIELDS,TopicField,ContentKind
@@ -59,11 +60,13 @@ class ProducerPin(ContractModel):
 
 class Run(ContractModel):
     run_id: Identifier
+    case_ids: Annotated[tuple[Identifier,...],Field(min_length=1,max_length=10000)] | None=None
     producer_pins: Annotated[tuple[ProducerPin,...],Field(min_length=1,max_length=32)]
     @model_validator(mode='after')
     def check(self):
         if len({pin.model_dump_json() for pin in self.producer_pins})!=len(self.producer_pins):
             raise ValueError('duplicate_run_pins')
+        if self.case_ids is not None and len(set(self.case_ids))!=len(self.case_ids):raise ValueError('duplicate_run_case_scope')
         return self
 
 
@@ -96,6 +99,8 @@ class Dataset(ContractModel):
             if case.near_group in groups and groups[case.near_group]!=case.split:raise ValueError('near_group_split_leakage')
             hashes[case.source_sha256]=case.split;groups[case.near_group]=case.split
         for run in self.runs:
+            if run.case_ids is not None and not set(run.case_ids)<={c.case_id for c in self.cases}:
+                raise ValueError('run_case_scope_outside_dataset')
             if any(pin.versions.taxonomy_version!=self.taxonomy_version for pin in run.producer_pins):
                 raise ValueError('run_taxonomy_scope_mismatch')
         identities=(*self.annotators,self.adjudicator)
@@ -113,11 +118,20 @@ class Prediction(ContractModel):
     content_kind: ContentKind
     document: ArtifactRef | None=None
     failure_code: Text | None=None
-    elapsed_seconds: Annotated[float,Field(ge=0)]
+    elapsed_seconds: Annotated[float,Field(ge=0)] | None=None
+    timing_scope: Literal['declared_pipeline_elapsed','sum_verified_producer_stage_seconds','not_measured']='declared_pipeline_elapsed'
+    @model_validator(mode='before')
+    @classmethod
+    def default_unmeasured_timing(cls,data):
+        if isinstance(data,Mapping) and 'timing_scope' not in data and data.get('elapsed_seconds') is None:
+            return {**data,'timing_scope':'not_measured'}
+        return data
     @model_validator(mode='after')
     def check(self):
         if (self.document is None)==(self.failure_code is None):raise ValueError('document_xor_explicit_failure_required')
         if self.document is not None and self.document.kind!='topic_analysis_document':raise ValueError('explicit_topic_document_required')
+        if (self.elapsed_seconds is None)!=(self.timing_scope=='not_measured'):
+            raise ValueError('explicit_unmeasured_timing_or_actual_elapsed_required')
         return self
 
 
@@ -126,6 +140,7 @@ class Export(ContractModel):
     purpose: Literal['synthetic_engineering','business']
     dataset_sha256: Sha256
     run_id: Identifier
+    split_scope: Literal['calibration','acceptance'] | None=None
     taxonomy_version: Text | None=None
     taxonomy_sha256: Sha256 | None=None
     exported_at: datetime

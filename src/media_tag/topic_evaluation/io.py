@@ -19,13 +19,14 @@ def strict_json(raw):
     return json.loads(raw,object_pairs_hook=unique,parse_constant=reject)
 
 
-def load(path,model):
+def load(path,model,*,reader=None,return_raw=False):
     path=Path(path)
     backend=FilesystemBackend(path.parent)
-    with backend.open_read(path.name) as stream:raw=stream.read(8*1024**2+1)
+    with backend.open_read(path.name) as stream:raw=(reader(stream) if reader else stream).read(8*1024**2+1)
     if len(raw)>8*1024**2:raise EvaluationError('import_byte_budget')
     strict_json(raw)
-    return model.model_validate_json(raw),sha256(raw).hexdigest()
+    result=(model.model_validate_json(raw),sha256(raw).hexdigest())
+    return (*result,raw) if return_raw else result
 
 
 class Bundle:
