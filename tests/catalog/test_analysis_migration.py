@@ -37,7 +37,7 @@ def test_v10_to_v11_failure_rolls_back_and_preserves_all_prior_checksums(tmp_pat
     monkeypatch.setattr(module, 'ANALYSIS_SCHEMA', original)
     database.initialize(); database.initialize()
     with database.transaction() as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0] == 11
+        assert c.execute('PRAGMA user_version').fetchone()[0] == 12
         assert dict(c.execute('SELECT version,checksum FROM schema_migrations WHERE version<=10')) == checksums
         assert c.execute("SELECT value FROM catalog_metadata WHERE key='retained'").fetchone()[0] == 'unchanged'
         assert c.execute('SELECT count(*) FROM analysis_intents').fetchone()[0] == 0

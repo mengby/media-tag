@@ -100,6 +100,19 @@ class ProcessingService:
                 require_current_attempt(connection,row)
             except ValueError:
                 return current_base | {'state':'processing_evidence_unavailable'}
+            if answer['processing_completed']:
+                registered=connection.execute('''SELECT a.*,v.output_sha256 FROM variants v JOIN assets a USING(asset_id)
+                    JOIN processing_derivations p USING(asset_id) WHERE v.task_id=? AND v.lease_epoch=?''',
+                    (row['task_id'],row['lease_epoch'])).fetchone()
+                if registered and registered['output_sha256']==answer['output_sha256']:
+                    self.catalog._authorize(connection,registered['asset_id'],principal)
+                    blocked=FileService(self.router)._gate(connection,registered)
+                    answer |= {'asset_registered':True,'derived_asset_id':registered['asset_id'],'registration_status':'registered',
+                        'state':'registered_pending_review' if blocked else 'registered_available','output_download_available':blocked is None}
+                else:
+                    receipt=connection.execute('SELECT * FROM processing_adoption_receipts WHERE task_id=? AND lease_epoch=?',(row['task_id'],row['lease_epoch'])).fetchone()
+                    if receipt and receipt['state']=='failed':
+                        answer['registration_attempt']={'state':'adoption_not_completed','code':receipt['error_code'],'retry_after':receipt['retry_after']}
         return answer
 
     def _status_snapshot(self, job_id, principal):

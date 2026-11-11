@@ -5,6 +5,7 @@ from pydantic import Field, model_validator
 from media_tag.cleaning.models import CleaningLimits, CleaningRecipe
 from media_tag.contracts.models import ArtifactRef, ContractModel, Identifier, PositiveInt, Sha256
 from media_tag.image_processing.models import ImageRecipe, ProcessingLimits
+from .derived_contracts import Reviewers
 
 VERSION = 'ct-processing-queue-v1'
 STAGES = ('cleaning_output', 'image_mask_output')
@@ -15,6 +16,8 @@ class ProcessingDeployment(ContractModel):
     timeout_seconds: Annotated[int, Field(ge=3, le=600)] = 300
     cleaning: CleaningLimits = CleaningLimits()
     image: ProcessingLimits = ProcessingLimits()
+    auto_adopt: bool = False
+    reviewers: Reviewers = Reviewers()
 
 
 class SourceSubmission(ContractModel):

@@ -13,6 +13,7 @@ from media_tag.cleaning import CleaningRecipe
 from media_tag.cleaning.models import VideoSegment
 from media_tag.image_processing import ImageRecipe, MaskRegion
 from media_tag.processing_queue import ProcessingDeployment
+from media_tag.processing_queue.derived_contracts import Reviewers
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.workers.probe import file_sha256
 
@@ -163,3 +164,57 @@ def test_disabled_configuration_never_registers_or_dispatches_processing(configu
     assert disabled.client.post('/processing/images',json={}).status_code==401
     with pytest.raises(ValidationError):
         LocalConfig.model_validate_json(c.config.model_dump_json().replace('"enabled":true','"enabled":"yes"'))
+
+
+def test_http_automatic_derived_adoption_private_comparison_and_separate_review(configured):
+    c=configured;ids=(c.env.owner.actor_id,)
+    enabled=c.config.model_copy(update={'processing':ProcessingDeployment(enabled=True,auto_adopt=True,timeout_seconds=60,
+        reviewers=Reviewers(quality=ids,privacy=ids,watermark=ids))})
+    boot=c.boot(enabled)
+    c.app,c.router,c.executor,c.client=boot.app,boot.router,boot.executor,boot.client
+    asset=register(c)
+    recipe=ImageRecipe(output_format='png',regions=(
+        MaskRegion(region_id='face',purpose='face',box=(.2,.2,.5,.8),method='solid'),
+        MaskRegion(region_id='watermark',purpose='watermark',box=(.6,.1,.9,.3),method='solid')))
+    payload=clean(asset)|{'recipe':recipe.model_dump(mode='json')}
+    accepted=c.client.post('/processing/images',json=payload,headers=auth())
+    assert accepted.status_code==200,accepted.text
+    job=accepted.json()['job_id'];assert c.executor.run_once()['accepted']
+    job_status=status(c,job).json()
+    assert job_status['asset_registered'] and job_status['state']=='registered_pending_review',job_status
+    output_id=job_status['derived_asset_id']
+    registered=c.client.get('/processing/outputs/'+output_id,headers=auth()).json()
+    assert registered['kind']=='derived' and registered['reviews']=={'quality':'pending','watermark':'pending','privacy':'pending'}
+    assert c.client.post('/processing/jobs/'+job+'/adopt',headers=auth()).json()['asset_id']==output_id
+    comparison=c.client.get('/processing/outputs/'+output_id+'/comparison',headers=auth())
+    assert comparison.status_code==200,comparison.text
+    original=c.client.get(comparison.json()['source_preview'],headers=auth())
+    preview=c.client.get(comparison.json()['output_preview'],headers=auth())
+    assert sha256(original.content).hexdigest()==asset.sha256
+    assert sha256(preview.content).hexdigest()==registered['output_sha256']!=asset.sha256
+    assert preview.headers['cache-control']=='private, no-store'
+    assert c.client.get(comparison.json()['output_preview']).status_code==401
+    assert c.client.get(comparison.json()['output_preview'],headers=auth('other')).status_code==403
+    assert c.client.get(comparison.json()['output_preview'],headers=auth('reader')).status_code==403
+    wrong=f'/processing/outputs/{output_id}/preview-content?sha256={asset.sha256}'
+    assert c.client.get(wrong,headers=auth()).status_code==412
+    ordinary=f'/v1/assets/{output_id}/content?sha256={registered["output_sha256"]}'
+    assert c.client.get(ordinary,headers=auth()).status_code==409
+    for dimension in ('quality','privacy','watermark'):
+        spec={'expected_revision':registered['revision'],'output_sha256':registered['output_sha256'],'recipe_hash':registered['recipe_hash'],
+            'dimension':dimension,'decision':'approved','full_output_viewed':True,'source_compared':True,
+            'no_unintended_changes':True,'face_coverage_checked':True,'watermark_regions_checked':True}
+        response=c.client.post('/processing/outputs/'+output_id+'/reviews',json=spec,headers=auth())
+        assert response.status_code==200,response.text
+        registered=response.json()
+        if dimension!='watermark':assert not registered['output_download_available']
+    assert registered['output_download_available'] and registered['download_manifest']
+    manifest=c.client.get(registered['download_manifest'],headers=auth())
+    assert manifest.status_code==200,manifest.text
+    content=c.client.get(manifest.json()['content'],headers=auth())
+    assert content.status_code==200 and sha256(content.content).hexdigest()==registered['output_sha256']
+    assert status(c,job).json()['state']=='registered_available'
+    revoke={'expected_revision':registered['revision'],'output_sha256':registered['output_sha256'],'recipe_hash':registered['recipe_hash'],
+        'dimension':'watermark','decision':'revoked'}
+    assert c.client.post('/processing/outputs/'+output_id+'/reviews',json=revoke,headers=auth()).status_code==200
+    assert c.client.get(ordinary,headers=auth()).status_code==409

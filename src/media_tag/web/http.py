@@ -167,7 +167,19 @@ def install(app, router, identity, body, credentials, *, uploads, redactions, re
                 ORDER BY a.created_at DESC,a.asset_id LIMIT 100''',(principal.actor_id,principal.actor_id)).fetchall()
             groups={}
             for row in rows:
-                kind='redaction' if json.loads(row['spec_json'])['spec']['recipe']['mask'] else 'retime'
+                data=json.loads(row['spec_json'])
+                marker=data.get('schema_version','')
+                if isinstance(marker,str) and marker.startswith('ct-processing-variant-'):
+                    # This contract has three independent output reviews. Do not
+                    # route it through either legacy single privacy-review form.
+                    from media_tag.processing_queue.derived_contracts import ProcessingVariantContract
+                    try:ProcessingVariantContract.model_validate_json(row['spec_json'])
+                    except ValueError:pass  # Malformed/newer contracts also fail closed here.
+                    continue
+                from media_tag.variants.models import PlanSpec
+                try:legacy=PlanSpec.model_validate_json(json.dumps(data['spec']))
+                except (ValueError,KeyError,TypeError):continue
+                kind='redaction' if legacy.recipe.mask else 'retime'
                 service=redactions if kind=='redaction' else retiming
                 if not service or principal.actor_id not in service.reviewers or review_state(connection,row)=='approved':
                     continue

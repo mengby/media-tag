@@ -4,6 +4,8 @@ from .models import CleaningSubmission, ImageSubmission, ProcessingDeployment
 from .service import ProcessingService
 from .runtime import ProcessingHandlers, stages
 from .verification import verified_result, require_current_attempt
+from .derived import ProcessingDerivedService
+from .derived_contracts import OutputReview,Reviewers
 
 __all__ = ['CleaningSubmission', 'ImageSubmission', 'ProcessingDeployment', 'ProcessingService', 'ProcessingHandlers', 'stages',
-           'verified_result', 'require_current_attempt']
+           'verified_result', 'require_current_attempt', 'ProcessingDerivedService', 'OutputReview', 'Reviewers']

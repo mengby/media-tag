@@ -7,6 +7,37 @@ from web.conftest import clients
 from redaction.conftest import redaction, scanned
 
 
+def test_processing_visual_derivative_does_not_break_legacy_review_queue(scanned):
+    from PIL import Image
+    from media_tag.cleaning import CleaningRecipe
+    from media_tag.processing_queue import CleaningSubmission,ProcessingDeployment,ProcessingHandlers,ProcessingService,stages
+    from media_tag.processing_queue.derived import ProcessingDerivedService
+    from media_tag.router.runtime import LocalExecutor
+    from media_tag.storage.filesystem import FilesystemBackend
+    env=scanned;tools=env.uploads.tools
+    env.redactions.reviewers=frozenset((env.owner.actor_id,))
+    rendered=env.redactions.start_render(RenderSubmission(request_id='legacy-output-with-new-contract',revision_hash=env.revision['revision_hash']),principal=env.owner)
+    assert env.executor.run_once()['accepted']
+    legacy=env.redactions.get_run(rendered['run_id'],principal=env.owner)['asset_id']
+    Image.new('RGBA',(32,24),(100,60,20,120)).save(env.originals/'processing-ui.png')
+    source=env.catalog.register_file(FilesystemBackend(env.originals),'processing-ui.png',source_backend_id='synthetic-ui',
+        principal=env.owner,request_id='new-processing-ui-source',name='Synthetic processing image')
+    options=ProcessingDeployment(enabled=True)
+    env.router.stages.update(stages(tools));env.router.register_worker(env.workers[0].actor_id,tuple(env.router.stages),principal=env.admin)
+    processing=ProcessingService(env.router,tools,options=options)
+    accepted=processing.request(CleaningSubmission(request_id='new-processing-ui',asset_id=source.asset_id,
+        source_sha256=source.sha256,expected_revision=source.revision,recipe=CleaningRecipe(source_sha256=source.sha256,content_kind='image')),principal=env.owner)
+    executor=LocalExecutor(env.router,env.workers[0],ProcessingHandlers(env.router,env.workers[0],tools,options=options))
+    assert executor.run_once()['accepted']
+    derived=ProcessingDerivedService(env.router,tools,options=options).adopt(accepted['job_id'],principal=env.owner)
+    assert derived['reviews']['privacy']=='pending'
+    clients(env,redactions=env.redactions,processing=processing)
+    response=env.clients.owner.get('/ui/review-queue')
+    assert response.status_code==200,response.text
+    ids={version['asset_id'] for group in response.json()['items'] for version in group['versions']}
+    assert legacy in ids and derived['asset_id'] not in ids
+
+
 def test_private_scan_frames_output_review_sharing_thumbnail_and_revocation(scanned):
     env=scanned
     env.redactions.reviewers=frozenset((env.owner.actor_id,'synthetic-stranger'))  # Explicitly synthetic test reviewer.

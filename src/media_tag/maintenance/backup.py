@@ -115,9 +115,9 @@ def connect_readonly(path):
 
 def inspect_database(connection):
     expected=(schema.SCHEMA,schema.ROUTER_SCHEMA,schema.UPLOAD_SCHEMA,schema.REDACTION_SCHEMA,schema.LIBRARY_SCHEMA,
-        schema.REVIEW_SCHEMA,schema.TERMINOLOGY_SCHEMA,schema.TEXT_INDEX_SCHEMA,schema.SEARCH_SCHEMA,schema.DRAFT_SCHEMA,schema.ANALYSIS_SCHEMA)
+        schema.REVIEW_SCHEMA,schema.TERMINOLOGY_SCHEMA,schema.TEXT_INDEX_SCHEMA,schema.SEARCH_SCHEMA,schema.DRAFT_SCHEMA,schema.ANALYSIS_SCHEMA,schema.PROCESSING_SCHEMA)
     version=connection.execute('PRAGMA user_version').fetchone()[0]
-    if version not in (9,10,11):raise RecoveryError('unsupported_backup_schema')
+    if version not in (9,10,11,12):raise RecoveryError('unsupported_backup_schema')
     expected=expected[:version]
     migrations=dict(connection.execute('SELECT version,checksum FROM schema_migrations'))
     if migrations!={i:sha256('\n'.join(statements).encode()).hexdigest() for i,statements in enumerate(expected,1)}:raise RecoveryError('backup_migration_mismatch')

@@ -3,6 +3,7 @@
 from hashlib import sha256
 from fractions import Fraction
 import json
+import sqlite3
 import os
 
 from PIL import Image
@@ -107,6 +108,15 @@ class FileService:
             variant = connection.execute('SELECT * FROM variants WHERE asset_id=?', (current['asset_id'],)).fetchone()
             if variant is None or variant['output_sha256'] != current['blob_sha256']:
                 return 'lineage_unavailable'
+            from media_tag.transforms.policy import processing_review_states
+            try:
+                states=processing_review_states(connection,variant)
+            except (ValueError,KeyError,TypeError,sqlite3.Error):
+                return 'lineage_unavailable'
+            if states and current['asset_id']!=review_asset_id:
+                for dimension,state in states.items():
+                    if state not in ('approved','not_applicable'):
+                        return 'processing_'+dimension+'_review_'+('revoked' if state=='revoked' else 'pending')
             privacy=review_state(connection,variant)
             if privacy not in ('not_applicable','approved') and current['asset_id'] != review_asset_id:
                 return 'privacy_review_revoked' if privacy=='revoked' else 'privacy_review_pending'
@@ -224,6 +234,12 @@ class FileService:
         if row is None:
             return None
         data = json.loads(row['spec_json'])
+        if data.get('schema_version')=='ct-processing-variant-v1':
+            from media_tag.processing_queue.derived_contracts import ProcessingVariantContract
+            contract=ProcessingVariantContract.model_validate_json(row['spec_json'])
+            return {'schema_version':contract.schema_version,'operation':contract.operation,'recipe_hash':row['recipe_hash'],
+                'recipe':contract.recipe,'cumulative_speed':contract.cumulative_speed,
+                'parent_to_output_time_map':contract.time_map.model_dump(mode='json'),'apply_transform_again':False}
         return {'recipe_hash': row['recipe_hash'], 'recipe': data['spec']['recipe'], 'cumulative_speed': data['cumulative_speed'],
                 'parent_to_output_time_map': json.loads(row['time_map_json']), 'apply_transform_again': False}
 

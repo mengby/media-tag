@@ -23,7 +23,7 @@ def test_v4_upgrade_rolls_back_on_failure_and_preserves_existing_state(tmp_path,
     monkeypatch.setattr(module,'LIBRARY_SCHEMA',schema)
     Database(path).initialize();Database(path).initialize()
     with Database(path).transaction(write=True) as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0]==11
-        assert c.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==11
+        assert c.execute('PRAGMA user_version').fetchone()[0]==12
+        assert c.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==12
         c.execute("UPDATE schema_migrations SET checksum='synthetic-tamper' WHERE version=5")
     with pytest.raises(CatalogError,match='checksum'):Database(path).initialize()

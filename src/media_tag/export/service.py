@@ -164,7 +164,8 @@ class ExportService:
             else:issues.append({'asset_id':identifier,'field':'打标人','code':'external_person_mapping_missing','actor_id':row[0]})
         else:issues.append({'asset_id':identifier,'field':'标签状态','code':status})
         variant=connection.execute('SELECT * FROM variants WHERE asset_id=?',(identifier,)).fetchone()
-        processed=bool(variant and variant['privacy_status']=='pending' and review_state(connection,variant)=='approved')
+        from media_tag.transforms.policy import has_reviewed_face_processing
+        processed=bool(variant and has_reviewed_face_processing(connection,asset))
         if result.get('含人脸')=='已处理副本' and not processed:raise ValueError('processed-copy label lacks output approval')
         if processed:result['含人脸']='已处理副本'
         # No filename-to-medical inference or fabricated usage/import history.

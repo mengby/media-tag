@@ -214,6 +214,8 @@ def executor_from_config(path: Path, worker_id: str):
         if lease.task.stage=='terminology_resolve' and terms:return terms(lease,stopped)
         return models(lease,stopped)
     def adopt():
+        if processing_handler:
+            app.state.processing_derived.adopt_ready(principals=tuple(config.credentials.values()))
         for service in (redactions,retiming):
             if service: service.adopt_ready()
         if config.search.enabled and latest_asset[0]:
@@ -222,6 +224,10 @@ def executor_from_config(path: Path, worker_id: str):
                 asset=c.execute('SELECT * FROM assets WHERE asset_id=? AND deleted_at IS NULL',(latest_asset[0],)).fetchone()
                 if asset:DraftIndex(router).sync(c,asset)
     def dispatch_analysis():
+        if processing_handler:
+            app.state.processing_derived.adopt_ready(principals=tuple(config.credentials.values()))
+        if not config.analysis.enabled:
+            return
         # Bindings come only from trusted server credentials, never an intent's owner ID.
         seen = set()
         for requester in config.credentials.values():
@@ -232,4 +238,4 @@ def executor_from_config(path: Path, worker_id: str):
                     dispatch_pending(app.state.analysis, config.precision, principal=requester)
                 seen.add(requester.actor_id)
     return LocalExecutor(router,principal,handle,after_release=adopt,
-                         before_acquire=dispatch_analysis if config.analysis.enabled else None)
+                         before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)

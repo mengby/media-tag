@@ -142,7 +142,8 @@ class ReviewService:
                 if spec.field=='含人脸' and value.state=='observed':
                     from media_tag.transforms.policy import review_state
                     variant=connection.execute('SELECT * FROM variants WHERE asset_id=?',(asset_id,)).fetchone()
-                    processed=bool(variant and variant['privacy_status']=='pending' and review_state(connection,variant)=='approved' and self.files._gate(connection,asset) is None)
+                    from media_tag.transforms.policy import has_reviewed_face_processing
+                    processed=bool(variant and has_reviewed_face_processing(connection,asset) and self.files._gate(connection,asset) is None)
                     if value.values[0]=='已处理副本' and not processed or processed and value.values[0]!='已处理副本':
                         raise ValueError('processed face label must bind approved output')
                     if not processed and not any(o['kind'] in ('image','video_segment') and o['viewed'] and o['actor_id']==principal.actor_id for o in observations):

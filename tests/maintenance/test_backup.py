@@ -137,18 +137,25 @@ def test_cli_invalid_secret_config_is_bounded_and_does_not_start_service(tmp_pat
     assert json.loads(result.stderr)=={'error':'offline_maintenance_failed'} and not (tmp_path/'backup').exists()
 
 
-@pytest.mark.parametrize('version', [9, 10])
+@pytest.mark.parametrize('version', [9, 10, 11])
 def test_previous_backup_still_restores_and_can_migrate(env,tmp_path,version):
     from media_tag.catalog import Database
     with env.database.transaction(write=True) as c:
-        c.execute('DROP TABLE analysis_intents')
+        c.execute('DROP TRIGGER undeletable_processing_privacy_review')
+        c.execute('DROP TABLE processing_adoption_receipts')
+        c.execute('DROP TABLE processing_output_reviews')
+        c.execute('DROP TABLE processing_derivations')
+        if version<=10:c.execute('DROP TABLE analysis_intents')
         if version == 9:c.execute('DROP TABLE ai_draft_documents')
         c.execute('DELETE FROM schema_migrations WHERE version>?', (version,))
         c.execute(f'PRAGMA user_version={version}')
+        old_checksums=c.execute('SELECT version,checksum FROM schema_migrations ORDER BY version').fetchall()
     target=tmp_path/f'v{version}-backup'
     result=snapshot(env.database.path,env.workspace,env.catalog.object_store.root,target,offline_confirmed=True)
     restore(target,tmp_path/f'v{version}-restored',result['manifest_sha256'])
     database=Database(tmp_path/f'v{version}-restored/database.sqlite3');database.initialize()
     with database.transaction() as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0]==11
+        assert c.execute('PRAGMA user_version').fetchone()[0]==12
         assert c.execute('SELECT count(*) FROM analysis_intents').fetchone()[0]==0
+        assert c.execute('SELECT version,checksum FROM schema_migrations WHERE version<=? ORDER BY version',(version,)).fetchall()==old_checksums
+        assert c.execute('SELECT count(*) FROM processing_derivations').fetchone()[0]==0
