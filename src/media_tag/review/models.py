@@ -9,6 +9,7 @@ class ReviewDeployment(ContractModel):
     enabled: bool = False
     reviewers: tuple[Identifier, ...] = ()
     people: dict[Identifier, Identifier] = Field(default_factory=dict)
+    tag_fields_file: str | None = None
     taxonomy_manifest: str | None = None
     taxonomy_version: str | None = None
     taxonomy_manifest_sha256: Sha256 | None = None

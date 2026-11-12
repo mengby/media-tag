@@ -7,6 +7,7 @@ from pydantic import field_validator
 from media_tag.catalog import Catalog, Database, Principal
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
+from media_tag.analysis.fields import DEFAULT_FIELDS_FILE
 from media_tag.precision.contracts import ChatProvider, PrecisionDeployment
 from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
 from media_tag.local_topics.contracts import LocalTopicDeployment
@@ -60,7 +61,7 @@ class LocalConfig(ContractModel):
     retime: RetimeDeployment = RetimeDeployment()
     web_enabled: bool = False
     local_browser_login: LocalBrowserLogin | None = None
-    review: ReviewDeployment = ReviewDeployment()
+    review: ReviewDeployment = ReviewDeployment(tag_fields_file=str(DEFAULT_FIELDS_FILE))
     terminology: TerminologyDeployment = TerminologyDeployment()
     text: ResolveOptions = ResolveOptions()
     search: SearchOptions = SearchOptions()
@@ -70,6 +71,15 @@ class LocalConfig(ContractModel):
     similarity: SimilarityDeployment = SimilarityDeployment()
     local_topics: LocalTopicDeployment = LocalTopicDeployment()
     processing: ProcessingDeployment = ProcessingDeployment()
+
+    @field_validator('review', mode='before')
+    @classmethod
+    def default_tag_fields(cls, review):
+        if isinstance(review, dict) and 'tag_fields_file' not in review:
+            review = {**review, 'tag_fields_file': str(DEFAULT_FIELDS_FILE)}
+        if isinstance(review, dict):
+            return ReviewDeployment.model_validate_json(json.dumps(review))
+        return review
 
     @field_validator('audio_topics')
     @classmethod
@@ -113,12 +123,14 @@ def load_application(path: Path):
     if config.retime.enabled:
         router.stages.update(retime_stages(tools))
     semantic_registry=None
-    if config.local_topics.enabled:
+    router.legacy_image_topics = config.semantic.enabled and not config.local_topics.enabled
+    router.upload_configured_fields = router.legacy_image_topics and not config.analysis.enabled
+    if config.local_topics.enabled or router.legacy_image_topics:
         if not config.review.enabled:
             raise ValueError('local topic drafts require the template validation policy')
         from media_tag.semantic.registry import SemanticRegistry
         from media_tag.local_topics.runtime import stage as local_topic_stage
-        root = Path(config.local_topics.model_root)
+        root = Path(config.semantic.model_root if router.legacy_image_topics else config.local_topics.model_root)
         if not root.is_absolute():
             raise ValueError('enabled local topic model root must be absolute')
         require_local_path(root)
@@ -157,6 +169,7 @@ def load_application(path: Path):
             connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
                 DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, json.dumps(sorted(router.stages))))
     router.recover(principal=bootstrap)
+    reviews=ReviewService(router,config.review) if config.review.enabled else None
     uploads = UploadService(router, tools, options=config.upload_options)
     uploads.dispatch_pending(principal=bootstrap)
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
@@ -164,7 +177,6 @@ def load_application(path: Path):
         redactions.adopt_ready()
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
     if retiming: retiming.adopt_ready()
-    reviews=ReviewService(router,config.review) if config.review.enabled else None
     terminology=TerminologyService(router,config.terminology) if config.terminology.enabled else None
     resolver=Resolver(terminology,config.text) if config.text.enabled else None
     if config.search.enabled and resolver is None:raise ValueError('search requires enabled text resolution')
@@ -209,9 +221,11 @@ def executor_from_config(path: Path, worker_id: str):
     precision_handler = None
     audio_topic_handler = None
     local_topic_handler = None
-    if config.local_topics.enabled:
+    if config.local_topics.enabled or router.legacy_image_topics:
         from media_tag.local_topics.runtime import LocalTopicHandlers
-        local_topic_handler = LocalTopicHandlers(router, principal, config.local_topics)
+        deployment = (LocalTopicDeployment(enabled=True, model_root=config.semantic.model_root)
+                      if router.legacy_image_topics else config.local_topics)
+        local_topic_handler = LocalTopicHandlers(router, principal, deployment)
     if config.precision.enabled:
         from media_tag.precision.runtime import PrecisionHandlers
         precision_handler = PrecisionHandlers(router, principal, config.precision)

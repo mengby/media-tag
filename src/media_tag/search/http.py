@@ -65,6 +65,15 @@ def install(app,search,identity,body):
         search.analysis_service=getattr(app.state,'analysis',None)
         return await run_in_threadpool(submit,search,spec,principal=principal)
 
+    @app.post('/search/auto-tag/backfill')
+    async def auto_tag_backfill(request:Request,principal=Depends(identity)):
+        from media_tag.semantic.batch import AutoTagScope, backfill
+        if search.reviews is None:
+            raise HTTPException(409,'tag field configuration unavailable')
+        spec=await body(request,AutoTagScope)
+        search.analysis_service=getattr(app.state,'analysis',None)
+        return await run_in_threadpool(backfill,search,spec,principal=principal)
+
     @app.post('/search/auto-tag/status')
     async def auto_tag_status(request:Request,principal=Depends(identity)):
         from media_tag.semantic.batch import AutoTagScope,progress

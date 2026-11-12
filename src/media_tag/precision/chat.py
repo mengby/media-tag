@@ -65,6 +65,8 @@ def request_body(provider, request, max_input_bytes):
         raise ModelFailure('precision_source_integrity')
     context = {key: request[key] for key in ('request_id', 'content_kind', 'duration_seconds',
         'evidence_start_seconds', 'evidence_end_seconds', 'fields', 'field_types', 'published_options')}
+    if request.get('field_guidance'):
+        context['field_guidance'] = request['field_guidance']
     content = [{'type': 'text', 'text': json.dumps(context, ensure_ascii=False)}, part]
     envelope = {'model': provider.model_id, 'messages': [
         {'role': 'system', 'content': INSTRUCTIONS}, {'role': 'user', 'content': content}]}

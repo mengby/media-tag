@@ -36,6 +36,11 @@ def _human(principal: Principal) -> None:
 
 
 class Catalog:
+    @property
+    def fields(self):
+        policy = getattr(self, 'review_policy', None)
+        return policy.asset_fields if policy else self._template_fields
+
     def __init__(self, database: Database, object_store: StorageBackend, *, contract: TemplateBundle,
                  backend_id: str = "local", read_backends: Mapping[str, StorageBackend] | None = None) -> None:
         if not contract.baseline_verified:
@@ -45,7 +50,7 @@ class Catalog:
         self.backend_id = _identifier(backend_id)
         self.backends = dict(read_backends or {})
         self.backends[self.backend_id] = object_store
-        self.fields = {field.name: field for field in contract.field_definitions[0][1]}
+        self._template_fields = {field.name: field for field in contract.field_definitions[0][1]}
         self.contract = contract
         self.database.initialize()
         with self.database.transaction(write=True) as connection:

@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 
-from media_tag.analysis.contracts import AnalysisDocument, ContentKind, TopicField
+from media_tag.analysis.contracts import AnalysisDocument, ContentKind, TopicName
 from media_tag.contracts.models import ContractModel, Evidence, FieldValue, Identifier, Sha256, Text
 
 VERSION = 'ct-precision-v1'
@@ -95,7 +95,7 @@ class PrecisionOptions(ContractModel):
 
 
 class PrecisionField(ContractModel):
-    field: TopicField
+    field: TopicName
     value: FieldValue
     candidates: Annotated[tuple[Annotated[str, Field(min_length=1, max_length=200)], ...], Field(max_length=16)] = ()
     dynamic: bool = False
@@ -114,7 +114,7 @@ class PrecisionReply(ContractModel):
     request_id: Identifier
     source_sha256: Sha256
     provider_revision: Sha256
-    fields: Annotated[tuple[PrecisionField, ...], Field(min_length=1, max_length=10)]
+    fields: Annotated[tuple[PrecisionField, ...], Field(min_length=1, max_length=42)]
     usage: 'ProviderUsage | None' = None
 
     @model_validator(mode='after')

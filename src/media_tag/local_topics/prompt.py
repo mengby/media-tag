@@ -29,9 +29,10 @@ OUTPUT_GUIDANCE = '只输出一个JSON对象，按field、state、values、dynam
 PROMPT_VERSION = 'local-topics-v1-' + sha256((SYSTEM + json.dumps(GUIDANCE, ensure_ascii=False, sort_keys=True) + OUTPUT_GUIDANCE).encode()).hexdigest()[:20]
 
 
-def prompts(policy, options):
+def prompts(policy, options, fields=TOPIC_FIELDS):
     result = []
-    for name in TOPIC_FIELDS:
+    guidance = {**GUIDANCE, **policy.tag_fields.guidance}
+    for name in fields:
         definition = policy.asset_fields[name]
         choices = policy.options(definition)
         constraint = ''
@@ -42,5 +43,5 @@ def prompts(policy, options):
             else:
                 constraint = '完整已发布选项不可用于本次提示；只给未匹配原词候选，服务端不会把它当正式枚举。'
         cardinality = 'values最多1项；不能选定一个值则unknown。' if definition.field_type=='单选' else ''
-        result.append(f'field={name}\n{GUIDANCE[name]}\n{cardinality}\n{constraint}\n{OUTPUT_GUIDANCE}')
+        result.append(f'field={name}\n{guidance[name]}\n{cardinality}\n{constraint}\n{OUTPUT_GUIDANCE}')
     return tuple(result)

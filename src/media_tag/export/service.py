@@ -99,7 +99,8 @@ class ExportService:
                 if field=='许可状态':result[field]='未核实'
                 issues.append({'asset_id':identifier,'field':field,'code':effective.value.state,'reason':effective.value.reason})
         if include_ai:
-            from media_tag.analysis.contracts import TOPIC_FIELDS
+            from media_tag.analysis.fields import topic_names
+            names = topic_names(self.reviews.policy)
             from media_tag.drafts.service import DraftIndex
             draft=DraftIndex(self.router).sync(connection,asset,persist=False)
             if '含人脸' not in values:
@@ -111,7 +112,8 @@ class ExportService:
             # Only current, explicitly requested nonmedical drafts, never over a human decision.
             for record in connection.execute('SELECT * FROM tag_suggestions WHERE asset_id=? ORDER BY created_at,suggestion_id',(identifier,)):
                 field=json.loads(record['payload'])['field']
-                if field in values or field in MEDICAL or (field in TOPIC_FIELDS and field in draft['field_states']):continue
+                if (field in values or field in MEDICAL or field not in self.reviews.policy.asset_fields
+                        or field in self.reviews.policy.tag_fields.guidance or (field in names and field in draft['field_states'])):continue
                 try:
                     suggestion,_,_=self.reviews.suggestion(connection,asset,record['run_id'],record['suggestion_id'])
                     if suggestion.value.state!='observed':
@@ -134,7 +136,7 @@ class ExportService:
             # Topic fields share the current-scope report projection used by search.
             # Medical suggestions belong only in the quality sidecar, never the CSV
             # effective-value columns without their separate human confirmation.
-            for field in TOPIC_FIELDS:
+            for field in names:
                 if field in values:continue
                 labels=[label for label in draft['labels'] if label.get('field')==field]
                 if labels:
@@ -180,6 +182,8 @@ class ExportService:
         _human(principal)
         header=self.catalog.contract.table(ASSETS).header;gap_header=self.catalog.contract.table(GAPS).header
         if len(header)!=35 or len(gap_header)!=14:raise ValueError('formal two-table contract required')
+        configured = self.reviews.policy.tag_fields.guidance if spec.include_configured_fields else {}
+        header = (*header, *configured)
         issues=[];assets=[];gaps=[];asset_refs={};gap_refs=[];alias_binding=None
         with self.database.transaction() as connection:
             if spec.include_confirmed_aliases:
@@ -218,11 +222,17 @@ class ExportService:
             'policy_sha256':self.reviews.policy.digest,'people_mapping_sha256':sha256(encode(self.reviews.config.people).encode()).hexdigest(),
             'asset_refs':list(asset_refs.values()),'gap_refs':gap_refs,'assets':assets,'gaps':gaps,
             'asset_header':list(header),'gap_header':list(gap_header),'issues':issues,'include_ai_drafts':spec.include_ai_drafts}
+        if spec.include_configured_fields and self.reviews.policy.config.tag_fields_file:
+            snapshot['configured_fields'] = configured
         if alias_binding:snapshot['alias_binding']=alias_binding
         return snapshot
 
     def _current(self,connection,snapshot,principal):
         _human(principal)
+        if 'configured_fields' in snapshot:
+            configured = self.reviews.policy.tag_fields.guidance
+            if snapshot['configured_fields'] != configured or snapshot['asset_header'][35:] != list(configured):
+                raise RevisionConflict('configured export fields changed')
         if snapshot.get('alias_binding'):
             search=getattr(self.reviews,'search',None)
             if search is None or search.aliases.binding(connection)!=snapshot['alias_binding']:raise RevisionConflict('export alias vocabulary changed')
@@ -277,7 +287,7 @@ class ExportService:
                 'feishu_attachment_person_objects':False,'elapsed_seconds':time.monotonic()-started}
             payloads['quality.json']=encode(quality).encode()
             manifest={'schema_version':'d06-export-v1','export_id':identifier,'attempt':attempt,'template_fingerprint':snapshot['template_fingerprint'],
-                'snapshot_sha256':fingerprint,'asset_columns':35,'gap_columns':14,'asset_rows':len(snapshot['assets']),'gap_rows':len(snapshot['gaps']),
+                'snapshot_sha256':fingerprint,'asset_columns':len(snapshot['asset_header']),'gap_columns':14,'asset_rows':len(snapshot['assets']),'gap_rows':len(snapshot['gaps']),
                 'files':{name:{'sha256':sha256(raw).hexdigest(),'size_bytes':len(raw)} for name,raw in payloads.items()}}
             payloads['manifest.json']=encode(manifest).encode()
             for name,raw in payloads.items():self._write(folder,name,raw)

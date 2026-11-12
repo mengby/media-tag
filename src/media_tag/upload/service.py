@@ -233,6 +233,13 @@ class UploadService:
                                 model_revision=definition.required_model_revision)
                             steps += (StepSpec(key=kind, stage=kind, depends_on=('evidence',), versions=model_versions,target_fields=definition.allowed_target_fields or (),
                                                limits=TaskLimits(gpu_slots=definition.required_gpu_slots)),)
+                    if getattr(self.router, 'upload_configured_fields', False):
+                        from media_tag.local_topics.runtime import steps_for_fields
+                        with self.database.transaction() as connection:
+                            intent = connection.execute('SELECT content_kind FROM analysis_intents WHERE asset_id=? AND requested_by=?',
+                                                        (event['asset_id'], event['owner_id'])).fetchone()
+                        if intent and intent['content_kind'] == 'image':
+                            steps += steps_for_fields(self.router)
                 job = self.router.submit(JobSpec(asset_id=event['asset_id'], steps=steps), request_id=event['event_id'], principal=Principal(actor_id=event['owner_id']))
                 job_id = job['job_id']
             except (CatalogError, ValueError):

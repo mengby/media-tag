@@ -20,7 +20,7 @@ class Generation(ContractModel):
     model_revision: Sha256
     prompt_version: str
     image_sha256: Sha256
-    answers: Annotated[tuple[Annotated[str, Field(max_length=16000)], ...], Field(min_length=10, max_length=10)]
+    answers: Annotated[tuple[Annotated[str, Field(max_length=16000)], ...], Field(min_length=1, max_length=42)]
 
 
 class LocalTopicResult(ContractModel):

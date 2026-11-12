@@ -6,7 +6,7 @@ from .models import IntakeError
 from .drafts import materialize
 
 
-def run(batch,client,*,notify=None,timeout_seconds=12*3600):
+def _batch_scope(batch, client):
     batch,inventory,progress=load_batch(batch);actor=client.editor()
     if progress.get('actor_id')!=actor or progress.get('service_origin')!=client.origin or progress.get('state')!='imported':raise IntakeError('tag_batch_binding_changed')
     selection=[]
@@ -15,7 +15,22 @@ def run(batch,client,*,notify=None,timeout_seconds=12*3600):
         previous=progress['rows'][row.key];detail=client.call('GET','/v1/assets/'+previous['asset_id'])
         if detail['sha256']!=row.sha256:raise IntakeError('tag_source_changed')
         selection.append({'asset_id':previous['asset_id'],'expected_revision':detail['revision'],'source_sha256':row.sha256})
-    scope={'assets':selection};submitted=client.call('POST','/search/auto-tag',payload=scope)
+    if not selection:
+        raise IntakeError('tag_empty_batch')
+    return batch, {'assets':selection}
+
+
+def enqueue_missing(batch, client):
+    batch, scope = _batch_scope(batch, client)
+    result = client.call('POST', '/search/auto-tag/backfill', payload=scope)
+    result['state'] = 'partial' if result['waiting'] else 'queued' if result['queued'] else 'no_missing_fields'
+    write_json(batch, 'configured-field-backfill.json', result)
+    return result
+
+
+def run(batch,client,*,notify=None,timeout_seconds=12*3600):
+    batch, scope = _batch_scope(batch, client)
+    submitted=client.call('POST','/search/auto-tag',payload=scope)
     if submitted.get('errors'):raise IntakeError('tag_some_sources_unavailable')
     started=time.monotonic();last=None
     while True:

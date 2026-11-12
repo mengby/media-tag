@@ -8,6 +8,7 @@ from media_tag.contracts.models import (
     ArtifactRef, ContractModel, Evidence, FieldValue, Identifier, PositiveInt, Sha256, Text, Versions,
 )
 
+TopicName = Annotated[str, Field(min_length=1, max_length=100, pattern=r'\S')]
 TopicField = Literal[
     "用途大类", "科室", "器官/系统", "疾病/症状", "画面主体", "过程/状态",
     "表现形式", "中文检索词", "英文检索词", "情绪/语气",
@@ -43,7 +44,7 @@ class AnalysisProducer(ContractModel):
 class FieldAssessment(ContractModel):
     """An AI/rule assessment, never an EffectiveValue or an approval."""
 
-    field: TopicField
+    field: TopicName
     value: FieldValue
     next_step: NextStep
     reason: Annotated[str, Field(min_length=1, max_length=1000, pattern=r"\S")]
@@ -86,9 +87,9 @@ class AnalysisDocument(ContractModel):
     asset_revision: PositiveInt
     content_sha256: Sha256
     content_kind: ContentKind
-    fields: Annotated[tuple[FieldAssessment, ...], Field(min_length=10, max_length=10)]
+    fields: Annotated[tuple[FieldAssessment, ...], Field(min_length=10, max_length=42)]
     evidence: Annotated[tuple[Evidence, ...], Field(max_length=64)] = ()
-    producers: Annotated[tuple[AnalysisProducer, ...], Field(max_length=16)] = ()
+    producers: Annotated[tuple[AnalysisProducer, ...], Field(max_length=64)] = ()
     medical_confirmation: Literal[False] = False
     privacy_confirmation: Literal[False] = False
     effective_values_written: Literal[False] = False
@@ -96,8 +97,8 @@ class AnalysisDocument(ContractModel):
     @model_validator(mode="after")
     def check_binding(self):
         names = [item.field for item in self.fields]
-        if len(set(names)) != 10 or set(names) != set(TOPIC_FIELDS):
-            raise ValueError("exactly the ten original topic fields are required")
+        if len(set(names)) != len(names) or not set(TOPIC_FIELDS).issubset(names):
+            raise ValueError("unique fields including the ten original topic fields are required")
         ids = [item.evidence_id for item in self.evidence]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate document evidence")

@@ -35,6 +35,8 @@ class Router:
         self.workspace = Path(workspace).resolve()
         self.files = FilesystemBackend(self.workspace)
         self.stages = dict(stages)
+        self.legacy_image_topics = False
+        self.upload_configured_fields = False
         self.options = options or RouterOptions()
         self.clock = clock
         self.process_stopped = process_stopped
@@ -53,7 +55,11 @@ class Router:
                 raise ValueError('preprocess version does not match the registered stage')
             if definition.required_gpu_slots is not None and step.limits.gpu_slots != definition.required_gpu_slots:
                 raise ValueError('resource request does not match the deployed model device')
-            if definition.allowed_target_fields is not None and not set(step.target_fields) <= set(definition.allowed_target_fields):
+            allowed = definition.allowed_target_fields
+            policy = getattr(self.catalog, 'review_policy', None)
+            if allowed is not None and policy is not None and step.stage in ('local_topics', 'precision'):
+                allowed = (*allowed, *policy.tag_fields.guidance)
+            if allowed is not None and not set(step.target_fields) <= set(allowed):
                 raise ValueError('model evidence stage cannot write the requested catalogue fields')
             if step.limits.max_attempts > self.options.max_attempts or step.limits.timeout_seconds > self.options.max_timeout_seconds:
                 raise ValueError("task limits exceed server policy")
@@ -81,7 +87,7 @@ class Router:
     def _task_source(self, connection, job, step):
         source = self.catalog._authorize(connection, job["asset_id"], Principal(actor_id=job["owner_id"]),
                                         "edit" if step.target_fields else "read")
-        if source['kind']=='derived' and step.stage in ('probe','evidence','ocr','face','clip','precision'):
+        if source['kind']=='derived' and step.stage in ('probe','evidence','ocr','face','clip','precision','local_topics','audio_topics'):
             from media_tag.files.service import FileService
             if FileService(self)._gate(connection, source):
                 raise AccessDenied('background analysis requires a currently approved, available output')

@@ -8,6 +8,7 @@ from media_tag.router.models import StepSpec
 from media_tag.storage import StorageError
 from media_tag.models.contracts import ModelFailure
 
+from media_tag.analysis.fields import rules_digest, topic_names
 from .contracts import PROMPT, PrecisionOptions, PrecisionReport
 from .runtime import duration, read_json, suggestions
 
@@ -37,8 +38,9 @@ def verified(router, row, asset, kind, *, layer='precision'):
     report = PrecisionReport.model_validate_json(json.dumps(read_json(router, refs[0])))
     document = report.document
     policy = getattr(router.catalog, 'review_policy', None)
-    if (policy is None or report.policy_digest != policy.digest or options.policy_digest != policy.digest
-            or task.versions.rules_version != 'sha256:'+policy.digest or task.versions.taxonomy_version != policy.config.taxonomy_version
+    if (policy is None or not set(task.target_fields) <= set(topic_names(policy))
+            or report.policy_digest != options.policy_digest or options.policy_digest != rules_digest(policy, task.target_fields)
+            or task.versions.rules_version != 'sha256:'+options.policy_digest or task.versions.taxonomy_version != policy.config.taxonomy_version
             or spec.prompt_version != PROMPT
             or report.provider.revision != task.versions.model_revision or options.provider_revision != report.provider.revision
             or document.content_sha256 != asset['blob_sha256'] or document.content_kind != kind
@@ -102,7 +104,7 @@ def merge(router, connection, asset, kind, job, fields, evidence, producers, *, 
         ORDER BY t.rowid DESC''', (job['job_id'],stage)).fetchall()
     for row in rows:
         spec = StepSpec.model_validate_json(row['spec_json'])
-        selected = {field for field in spec.target_fields if winners.get(field) == row['task_id']}-claimed
+        selected = {field for field in spec.target_fields if field in topic_names(getattr(router.catalog, 'review_policy', None)) and winners.get(field) == row['task_id']}-claimed
         if not selected:
             continue
         claimed |= selected

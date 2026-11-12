@@ -12,7 +12,8 @@ from media_tag.models.contracts import ModelFailure
 from media_tag.router.models import StepSpec
 from media_tag.storage import StorageError
 
-from .contracts import TOPIC_FIELDS, TopicField
+from .contracts import TopicName
+from .fields import rules_digest, topic_names
 from .intake import INTAKE_POLICY
 
 
@@ -21,15 +22,20 @@ class RepairSubmission(ContractModel):
     expected_asset_revision: PositiveInt
     source_sha256: Sha256
     expected_job_revision: PositiveInt
-    fields: tuple[TopicField, ...] = Field(default=(), max_length=10)
+    fields: tuple[TopicName, ...] = Field(default=(), max_length=42)
 
 
-def _context(service, connection, asset_id, spec, principal):
+def authorized_source(service, connection, asset_id, spec, principal):
     if principal.role not in ('editor', 'admin'):
         raise AccessDenied('human editor required')
     asset = service.catalog._authorize(connection, asset_id, principal, 'edit')
     if asset['blob_sha256'] != spec.source_sha256 or service.files._gate(connection, asset):
         raise RevisionConflict('analysis source unavailable or changed')
+    return asset
+
+
+def _context(service, connection, asset_id, spec, principal):
+    asset = authorized_source(service, connection, asset_id, spec, principal)
     row = connection.execute('''SELECT i.*,r.job_id FROM analysis_intents i JOIN router_requests r
         ON r.owner_id=i.requested_by AND r.request_id=i.intent_id
         WHERE i.asset_id=? AND i.requested_by=? AND i.policy_version=?''',
@@ -67,10 +73,10 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_
             provider = provider_for(deployment, content_kind) if deployment is not None else None
         except ModelFailure:
             provider = None
-        if (provider is None or policy is None or desired.config.get('policy_digest') != policy.digest
+        if (provider is None or policy is None or desired.config.get('policy_digest') != rules_digest(policy, desired.target_fields)
                 or desired.config.get('provider_revision') != provider.revision
                 or desired.config.get('provider_id') != provider.provider_id or desired.prompt_version != PROMPT
-                or desired.versions.rules_version != 'sha256:'+policy.digest
+                or desired.versions.rules_version != 'sha256:'+desired.config['policy_digest']
                 or desired.versions.taxonomy_version != policy.config.taxonomy_version):
             return 'awaiting_current_'+desired.stage+'_configuration'
     if StepSpec.model_validate_json(row['spec_json']) != desired:
@@ -119,7 +125,8 @@ def _stage_state(service, row, desired, source_sha256, content_kind=None, asset_
 
 
 def repair(service, asset_id, spec, *, principal):
-    if len(set(spec.fields)) != len(spec.fields):
+    names = topic_names(getattr(service.catalog, 'review_policy', None))
+    if len(set(spec.fields)) != len(spec.fields) or not set(spec.fields) <= set(names):
         raise ValueError('unique repair fields required')
     fingerprint = sha256(encode({'asset_id': asset_id, 'spec': spec.model_dump(mode='json')}).encode()).hexdigest()
     with service.database.transaction() as connection:
@@ -144,7 +151,7 @@ def repair(service, asset_id, spec, *, principal):
                 if spec_row.stage in ('precision','audio_topics') and spec_row.stage in service.router.stages:
                     desired[key] = spec_row
         selected = {key for key, step in desired.items() if not spec.fields or set(step.target_fields) & set(spec.fields)}
-        requested = set(spec.fields or TOPIC_FIELDS)
+        requested = set(spec.fields or names)
         inapplicable = requested & {'画面主体', '表现形式'} if intent['content_kind'] == 'audio' else set()
         uncovered = sorted(requested - inapplicable - {field for key in selected for field in desired[key].target_fields})
         def ancestors(key):

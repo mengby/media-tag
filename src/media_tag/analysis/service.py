@@ -9,7 +9,7 @@ from media_tag.files.service import FileService
 from media_tag.router.models import JobSpec, StepSpec
 from media_tag.storage import StorageError
 
-from .contracts import TOPIC_FIELDS
+from .fields import topic_names
 from .intake import INTAKE_POLICY, ensure_intent
 from .probe import semantic_content_kind
 from .deployment import AnalysisDeployment
@@ -38,22 +38,11 @@ class AnalysisService:
         if content_kind in (None, 'audio'):
             return steps
         if content_kind == 'image' and 'local_topics' in self.router.stages:
-            from media_tag.local_topics.contracts import LocalTopicOptions
-            from media_tag.local_topics.prompt import PROMPT_VERSION
-            from media_tag.local_topics.service import PREPROCESS_VERSION
-            definition = self.router.stages['local_topics']
-            policy = getattr(self.catalog, 'review_policy', None)
-            if policy is None:
-                raise ValueError('local topic drafts require published validation policy')
-            steps += (StepSpec(key='local_topics', stage='local_topics', depends_on=('probe',),
-                config=LocalTopicOptions(model_revision=definition.required_model_revision, policy_digest=policy.digest).model_dump(mode='json'),
-                versions=Versions(rules_version='sha256:'+policy.digest, preprocess_version=PREPROCESS_VERSION,
-                    taxonomy_version=policy.config.taxonomy_version, model_revision=definition.required_model_revision),
-                target_fields=TOPIC_FIELDS, prompt_version=PROMPT_VERSION,
-                limits=TaskLimits(gpu_slots=1, timeout_seconds=min(240, self.router.options.max_timeout_seconds))),)
+            from media_tag.local_topics.runtime import steps_for_fields
+            steps += steps_for_fields(self.router, include_original=not getattr(self.router, 'legacy_image_topics', False))
         steps += (StepSpec(key='evidence', stage='evidence', depends_on=('probe',), versions=versions),)
         for kind in ('ocr', 'face', 'clip', 'visual_fields'):
-            if kind == 'visual_fields' and content_kind == 'image' and 'local_topics' in self.router.stages:
+            if kind == 'visual_fields' and content_kind == 'image' and 'local_topics' in self.router.stages and not getattr(self.router, 'legacy_image_topics', False):
                 continue
             definition = self.router.stages.get(kind)
             if definition and definition.required_model_revision:
@@ -213,7 +202,7 @@ class AnalysisService:
                         state = 'analysis_needs_review'
             return {"asset_id": asset_id, "intent_id": row["intent_id"], "state": state,
                     "content_kind": row["content_kind"], "policy_version": row["policy_version"],
-                    "topic_fields": list(TOPIC_FIELDS), "analysis_complete": bool(topic_analysis and topic_analysis['analysis_complete']),
+                    "topic_fields": list(topic_names(getattr(self.catalog, 'review_policy', None))), "analysis_complete": bool(topic_analysis and topic_analysis['analysis_complete']),
                     "runtime_dispatched": runtime is not None, "runtime": runtime,
                     "topic_analysis": topic_analysis,
                     "dispatch_enabled": self.options.enabled, "medical_confirmation": False,

@@ -21,7 +21,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contracts", help="local contract checks and schemas")
     intake=commands.add_parser('intake',help='read-only local inventory and resumable authenticated batch import')
-    intake.add_argument('action',choices=('scan','apply','status','drafts','describe','tag'))
+    intake.add_argument('action',choices=('scan','apply','status','drafts','describe','tag','backfill'))
     intake.add_argument('--source',type=Path)
     intake.add_argument('--jobs-root',type=Path,default=Path.cwd()/'jobs')
     intake.add_argument('--batch',type=Path)
@@ -119,10 +119,13 @@ def main(argv=None):
                     if client is None:raise IntakeError('explicit_editor_client_required')
                     from .intake.describe import enqueue
                     result=enqueue(args.batch.absolute(),client,limit=args.limit)
-                elif args.action=='tag':
+                elif args.action in ('tag','backfill'):
                     if client is None:raise IntakeError('explicit_editor_client_required')
-                    from .intake.tag import run
-                    result=run(args.batch.absolute(),client,notify=lambda state:print(json.dumps(state),flush=True))
+                    from .intake.tag import enqueue_missing, run
+                    if args.action == 'backfill':
+                        result = enqueue_missing(args.batch.absolute(), client)
+                    else:
+                        result=run(args.batch.absolute(),client,notify=lambda state:print(json.dumps(state),flush=True))
                 else:result=inspect(args.batch.absolute(),client)
             print(json.dumps(result,ensure_ascii=True));return 0 if result.get('state')!='partial' else 1
         except KeyboardInterrupt:

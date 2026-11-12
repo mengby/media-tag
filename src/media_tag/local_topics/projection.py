@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 
+from media_tag.analysis.fields import rules_digest, topic_names
+from .parser import assess_fields
 from media_tag.analysis.contracts import AnalysisProducer, FieldAssessment, TOPIC_FIELDS
 from media_tag.contracts.models import FieldValue, TaskEnvelope, WorkerResult, validate_result_for_task
 from media_tag.models.contracts import ModelFailure
@@ -11,7 +13,6 @@ from media_tag.semantic.registry import SemanticRegistry
 from media_tag.storage import StorageError
 
 from .contracts import Generation, LocalTopicOptions, RouterTopicReport
-from .parser import assess
 from .prompt import PROMPT_VERSION, prompts
 from .runtime import read_json, suggestions
 from .service import PREPROCESS_VERSION, prepare_image
@@ -36,7 +37,7 @@ def verified(router, row, asset):
             or task.stage != 'local_topics' or spec.stage != task.stage or task.asset_id != asset['asset_id']
             or task.input_refs[0].sha256 != asset['blob_sha256'] or result.status != 'succeeded'
             or spec.versions != task.versions or spec.target_fields != task.target_fields
-            or not task.target_fields or not set(task.target_fields) <= set(TOPIC_FIELDS)):
+            or not task.target_fields):
         raise ValueError('local_topic_current_attempt_changed')
     validate_result_for_task(task, result)
     limits = {'local_topic_report': 1024**2, 'local_topic_raw_report': 1024**2,
@@ -67,9 +68,11 @@ def verified(router, row, asset):
     document = local.document
     policy = getattr(router.catalog,'review_policy',None)
     expected_revision = SemanticRegistry(Path('.')).revision
-    if (policy is None or options.policy_digest != policy.digest or local.policy_digest != policy.digest
+    names = task.target_fields if set(task.target_fields).difference(TOPIC_FIELDS) else TOPIC_FIELDS
+    if (policy is None or not set(names) <= set(topic_names(policy))
+            or options.policy_digest != rules_digest(policy, names) or local.policy_digest != options.policy_digest
             or options.model_revision != expected_revision or local.model_revision != expected_revision
-            or task.versions.model_revision != expected_revision or task.versions.rules_version != 'sha256:'+policy.digest
+            or task.versions.model_revision != expected_revision or task.versions.rules_version != 'sha256:'+options.policy_digest
             or task.versions.preprocess_version != PREPROCESS_VERSION or task.versions.taxonomy_version != policy.config.taxonomy_version
             or task.limits.gpu_slots != 1 or spec.prompt_version != PROMPT_VERSION or local.prompt_version != PROMPT_VERSION
             or report.task_id != task.task_id or report.lease_epoch != task.lease_epoch
@@ -93,13 +96,12 @@ def verified(router, row, asset):
             or generation.backend != 'local_qwen' or generation.model_revision != expected_revision
             or generation.prompt_version != PROMPT_VERSION or generation.image_sha256 != local.image.sha256
             or raw['source_sha256'] != asset['blob_sha256'] or raw['image'] != local.image.model_dump(mode='json')
-            or raw['prompt_version'] != PROMPT_VERSION or raw['policy_digest'] != policy.digest
+            or raw['prompt_version'] != PROMPT_VERSION or raw['policy_digest'] != options.policy_digest
             or raw['taxonomy_version'] != policy.config.taxonomy_version or raw['preprocess_version'] != PREPROCESS_VERSION
             or raw['options'] != options.model_dump(mode='json')
-            or raw['field_prompts'] != list(prompts(policy,options))):
+            or raw['field_prompts'] != list(prompts(policy,options,names))):
         raise ValueError('local_topic_raw_report_binding_changed')
-    recomputed = tuple(assess(answer,field,policy=policy,versions=task.versions,evidence_id=document.evidence[0].evidence_id)
-        for field,answer in zip(TOPIC_FIELDS,generation.answers,strict=True))
+    recomputed = assess_fields(names, generation.answers, policy, task.versions, document.evidence[0].evidence_id)
     if recomputed != document.fields:
         raise ValueError('local_topic_normalization_changed')
     with router.files.open_read(report.source.ref) as stream:
@@ -120,7 +122,7 @@ def merge(router, connection, asset, kind, job, fields, evidence, producers):
         ORDER BY t.rowid DESC''',(job['job_id'],)).fetchall()
     for row in rows:
         spec = StepSpec.model_validate_json(row['spec_json'])
-        selected = {field for field in spec.target_fields if winners.get(field) == row['task_id']}-claimed
+        selected = {field for field in spec.target_fields if field in topic_names(getattr(router.catalog, 'review_policy', None)) and winners.get(field) == row['task_id']}-claimed
         if not selected:continue
         claimed |= selected
         for name in selected:

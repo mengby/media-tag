@@ -7,12 +7,13 @@ import warnings
 from PIL import Image, ImageOps
 
 from media_tag.analysis.contracts import AnalysisDocument, TOPIC_FIELDS
+from media_tag.analysis.fields import rules_digest
+from .parser import assess_fields
 from media_tag.contracts.models import ArtifactRef, Versions
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.contracts.models import Evidence
 
 from .contracts import Generation, LocalTopicResult, Options
-from .parser import assess
 from .prompt import PROMPT_VERSION, prompts
 
 PREPROCESS_VERSION = 'local-topic-static-exif-alpha-white-v1'
@@ -75,7 +76,7 @@ class LocalTopicService:
         return ArtifactRef(kind=kind, ref=path.relative_to(self.artifact_root).as_posix(), sha256=digest)
 
     def run(self, source, source_key, *, expected_source_sha256, asset_id, asset_revision,
-            analysis_id, content_kind='image'):
+            analysis_id, content_kind='image', fields=TOPIC_FIELDS):
         if not isinstance(source, FilesystemBackend):
             raise ValueError('local_readonly_source_backend_required')
         if content_kind not in ('image', 'sticker'):
@@ -90,22 +91,22 @@ class LocalTopicService:
         canonical = prepare_image(raw,self.options)
         self._readme(self.backend.root)
         image_ref = self._store(canonical, 'local_topic_model_image')
-        field_prompts = prompts(self.policy, self.options)
+        field_prompts = prompts(self.policy, self.options, fields)
+        digest = rules_digest(self.policy, fields)
         generation = self.generator(image_bytes=canonical, field_prompts=field_prompts, options=self.options)
         if not isinstance(generation, Generation):
             raise ValueError('typed_generation_required')
         if (generation.image_sha256 != image_ref.sha256 or generation.prompt_version != PROMPT_VERSION
                 or generation.model_revision != self.generator.model_revision):
             raise ValueError('generation_provenance_mismatch')
-        versions = Versions(rules_version=self.policy.digest, preprocess_version=PREPROCESS_VERSION,
+        versions = Versions(rules_version=digest, preprocess_version=PREPROCESS_VERSION,
             taxonomy_version=self.policy.config.taxonomy_version, model_revision=generation.model_revision)
         evidence_id = 'local_topic_image'
-        assessments = tuple(assess(answer, field, policy=self.policy, versions=versions, evidence_id=evidence_id)
-                            for field, answer in zip(TOPIC_FIELDS, generation.answers, strict=True))
+        assessments = assess_fields(fields, generation.answers, self.policy, versions, evidence_id)
         report = {'schema_version': 'ct-local-topics-raw-v1', 'source_sha256': expected_source_sha256,
                   'input_content_kind': content_kind, 'options': self.options.model_dump(mode='json'),
                   'image': image_ref.model_dump(mode='json'), 'preprocess_version': PREPROCESS_VERSION,
-                  'prompt_version': PROMPT_VERSION, 'policy_digest': self.policy.digest,
+                  'prompt_version': PROMPT_VERSION, 'policy_digest': digest,
                   'taxonomy_version': self.policy.config.taxonomy_version,
                   'generation': generation.model_dump(mode='json'), 'field_prompts': field_prompts,
                   'medical_confirmation': False, 'privacy_confirmation': False, 'effective_values_written': False}
@@ -116,5 +117,5 @@ class LocalTopicService:
             content_sha256=expected_source_sha256, content_kind='image', fields=assessments,
             evidence=(Evidence(evidence_id=evidence_id, kind='image', source_sha256=expected_source_sha256, artifact=image_ref),))
         return LocalTopicResult(document=document, raw_report=raw_ref, image=image_ref,
-            prompt_version=PROMPT_VERSION, policy_digest=self.policy.digest,
+            prompt_version=PROMPT_VERSION, policy_digest=digest,
             model_revision=generation.model_revision, backend=generation.backend)

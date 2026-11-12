@@ -7,7 +7,8 @@ import sys
 import time
 
 from media_tag.analysis.contracts import TOPIC_FIELDS
-from media_tag.contracts.models import ArtifactRef, TagSuggestion
+from media_tag.analysis.fields import rules_digest, topic_names
+from media_tag.contracts.models import ArtifactRef, TagSuggestion, TaskLimits, Versions
 from media_tag.models.contracts import ModelFailure
 from media_tag.router.models import StageDefinition, StepSpec
 from media_tag.semantic.registry import SemanticRegistry
@@ -26,6 +27,24 @@ def stage(registry):
     return StageDefinition(LocalTopicOptions, VERSION+':'+registry.revision+':'+PROMPT_VERSION,
         gpu_allowed=True, metadata_sensitive=False, required_model_revision=registry.revision,
         required_preprocess_version=PREPROCESS_VERSION, required_gpu_slots=1, allowed_target_fields=TOPIC_FIELDS)
+
+
+def steps_for_fields(router, *, include_original=False):
+    policy = router.catalog.review_policy
+    revision = router.stages['local_topics'].required_model_revision
+    groups = [('local_topics', TOPIC_FIELDS)] if include_original else []
+    groups.extend(('local-field-' + sha256(name.encode()).hexdigest()[:24], (name,))
+                  for name in policy.tag_fields.guidance)
+    steps = []
+    for key, fields in groups:
+        digest = rules_digest(policy, fields)
+        options = LocalTopicOptions(model_revision=revision, policy_digest=digest)
+        steps.append(StepSpec(key=key, stage='local_topics', depends_on=('probe',), target_fields=fields,
+            config=options.model_dump(mode='json'), prompt_version=PROMPT_VERSION,
+            versions=Versions(rules_version='sha256:'+digest, preprocess_version=PREPROCESS_VERSION,
+                              taxonomy_version=policy.config.taxonomy_version, model_revision=revision),
+            limits=TaskLimits(gpu_slots=1, timeout_seconds=min(240, router.options.max_timeout_seconds))))
+    return tuple(steps)
 
 
 def suggestions(document, task):
@@ -61,13 +80,13 @@ class LocalTopicHandlers:
             row = connection.execute('SELECT spec_json FROM router_tasks WHERE task_id=? AND lease_epoch=? AND active=1',
                 (task.task_id,task.lease_epoch)).fetchone()
         spec = StepSpec.model_validate_json(row['spec_json']) if row else None
-        if (not self.deployment.enabled or policy is None or options.policy_digest != policy.digest
+        if (not self.deployment.enabled or policy is None or options.policy_digest != rules_digest(policy, task.target_fields)
                 or spec is None or spec.prompt_version != PROMPT_VERSION or spec.target_fields != task.target_fields
                 or options.model_revision != self.registry.revision or task.versions.model_revision != self.registry.revision
-                or task.versions.rules_version != 'sha256:'+policy.digest
+                or task.versions.rules_version != 'sha256:'+options.policy_digest
                 or task.versions.taxonomy_version != policy.config.taxonomy_version
                 or task.versions.preprocess_version != PREPROCESS_VERSION or task.limits.gpu_slots != 1
-                or not task.target_fields or not set(task.target_fields) <= set(TOPIC_FIELDS)):
+                or not task.target_fields or not set(task.target_fields) <= set(topic_names(policy))):
             raise ModelFailure('local_topic_configuration_changed')
         output = _directory(self.router.workspace, task.output_prefix.rstrip('/'))
         source_dir = _directory(output, 'source')
@@ -96,13 +115,16 @@ class LocalTopicHandlers:
         result = LocalTopicService(drafts, policy=policy, generator=Generator(), options=options,
             artifact_root=self.router.workspace).run(FilesystemBackend(source_dir), source_path.name,
             expected_source_sha256=digest.hexdigest(), asset_id=task.asset_id,
-            asset_revision=task.asset_revision, analysis_id='local-topic-'+sha256(
+            asset_revision=task.asset_revision,
+            fields=task.target_fields if set(task.target_fields).difference(TOPIC_FIELDS) else TOPIC_FIELDS,
+            analysis_id='local-topic-'+sha256(
                 f'{task.task_id}:{task.lease_epoch}'.encode()).hexdigest())
         check()
         if result.backend != 'local_qwen':raise ModelFailure('local_topic_synthetic_result_rejected')
         source_ref = ArtifactRef(kind='local_topic_source', ref=source_path.relative_to(self.router.workspace).as_posix(), sha256=digest.hexdigest())
         native_ref = ArtifactRef(kind='local_topic_native_input', ref=native_path.relative_to(self.router.workspace).as_posix(), sha256=result.image.sha256)
-        document = result.document.model_copy(update={'fields':tuple(item.model_copy(update={'versions':task.versions}) for item in result.document.fields)})
+        document = result.document.model_copy(update={'fields':tuple(item.model_copy(update={'versions':task.versions}) if item.versions else item
+                                                                   for item in result.document.fields)})
         result = result.model_copy(update={'document':document})
         report = RouterTopicReport(task_id=task.task_id, lease_epoch=task.lease_epoch,
             input_fingerprint=task.input_fingerprint, versions=task.versions,

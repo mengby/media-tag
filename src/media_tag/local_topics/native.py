@@ -31,7 +31,7 @@ class LocalQwenGenerator:
     def __call__(self, *, image_bytes, field_prompts, options):
         if not self.enabled:
             raise RuntimeError('local_topic_native_execution_not_enabled')
-        if len(field_prompts) != 10 or any(len(p) > 14000 for p in field_prompts):
+        if not 1 <= len(field_prompts) <= 42 or any(len(p) > 14000 for p in field_prompts):
             raise ValueError('prompt_budget')
         from media_tag.models.native import prepare_native_runtime
         prepare_native_runtime()

@@ -5,8 +5,9 @@ from typing import Annotated
 
 from pydantic import Field
 
-from media_tag.analysis.contracts import TOPIC_FIELDS, TopicField
-from media_tag.analysis.repair import RepairSubmission, _context
+from media_tag.analysis.contracts import TOPIC_FIELDS, TopicName
+from media_tag.analysis.fields import rules_digest, topic_names
+from media_tag.analysis.repair import RepairSubmission, _context, authorized_source
 from media_tag.catalog import AccessDenied, CatalogError, RevisionConflict
 from media_tag.models.contracts import ModelFailure
 from media_tag.catalog.service import encode
@@ -19,11 +20,11 @@ from media_tag.analysis.intake import INTAKE_POLICY
 
 
 def task_key(provider, policy, kind, fields):
-    return 'precision-'+sha256(encode([provider.revision, policy.digest, kind, fields]).encode()).hexdigest()[:24]
+    return 'precision-'+sha256(encode([provider.revision, rules_digest(policy, fields), kind, fields]).encode()).hexdigest()[:24]
 
 
 class PrecisionSubmission(RepairSubmission):
-    fields: Annotated[tuple[TopicField, ...], Field(min_length=1, max_length=10)] = TOPIC_FIELDS
+    fields: Annotated[tuple[TopicName, ...], Field(min_length=1, max_length=42)] = TOPIC_FIELDS
 
 
 def request_precision(analysis, deployment, asset_id, spec, *, principal):
@@ -36,15 +37,28 @@ def has_precision_grant(connection, job_id, task_id, actor_id):
         LIMIT 1""", (job_id, task_id, actor_id)).fetchone() is not None
 
 
-def request_provider(analysis, deployment, asset_id, spec, *, principal, stage):
+def request_provider(analysis, deployment, asset_id, spec, *, principal, stage, legacy_job=None):
     if stage not in ('precision','audio_topics'):
         raise ValueError('supported provider stage required')
     action = 'precision_request' if stage=='precision' else 'audio_topics_request'
-    if not spec.fields or len(set(spec.fields)) != len(spec.fields) or not set(spec.fields) <= set(TOPIC_FIELDS):
-        raise ValueError('unique original topic fields required')
-    fingerprint = sha256(encode({'asset_id': asset_id, 'request': spec.model_dump(mode='json')}).encode()).hexdigest()
+    policy = getattr(analysis.catalog, 'review_policy', None)
+    names = topic_names(policy) if stage == 'precision' else TOPIC_FIELDS
+    requested = spec.fields if 'fields' in spec.model_fields_set else names
+    if not requested or len(set(requested)) != len(requested) or not set(requested) <= set(names):
+        raise ValueError('request must select unique configured topic fields')
+    payload = spec.model_dump(mode='json') | {'fields': list(requested)}
+    fingerprint = sha256(encode({'asset_id': asset_id, 'request': payload}).encode()).hexdigest()
     with analysis.database.transaction(write=True) as connection:
-        asset, intent, job = _context(analysis, connection, asset_id, spec, principal)
+        if legacy_job is None:
+            asset, intent, job = _context(analysis, connection, asset_id, spec, principal)
+            kind = intent['content_kind']
+        else:
+            # Only the server's scoped backfill can supply a job and verified media kind.
+            job_id, kind = legacy_job
+            asset = authorized_source(analysis, connection, asset_id, spec, principal)
+            job = analysis.router._job_auth(connection, job_id, principal)
+            if job['asset_id'] != asset_id or job['owner_id'] != principal.actor_id or asset['owner_id'] != principal.actor_id:
+                raise RevisionConflict('legacy job must belong to the selected source and actor')
         receipt = connection.execute('''SELECT detail_json FROM router_events WHERE job_id=? AND actor_id=?
             AND action=? AND json_extract(detail_json,'$.request_id')=? ORDER BY event_id DESC LIMIT 1''',
             (job['job_id'], principal.actor_id, action, spec.request_id)).fetchone()
@@ -54,30 +68,31 @@ def request_provider(analysis, deployment, asset_id, spec, *, principal, stage):
                 raise RevisionConflict('precision request ID reused with different input')
             return previous['result'] | {'reused_request': True}
         if (asset['revision'] != spec.expected_asset_revision or job['revision'] != spec.expected_job_revision
-                or job['cancelled'] or job['paused'] or intent['content_kind'] is None or not analysis.options.enabled):
+                or job['cancelled'] or job['paused'] or kind is None or not analysis.options.enabled):
             raise RevisionConflict('current active typed analysis required')
-        if stage=='audio_topics' and intent['content_kind']!='audio':
+        if stage=='audio_topics' and kind!='audio':
             raise RevisionConflict('local audio stage requires actual audio content')
         try:
-            provider = provider_for(deployment, intent['content_kind'])
+            provider = provider_for(deployment, kind)
         except ModelFailure:
             raise RevisionConflict('configured precision provider unavailable') from None
         policy = getattr(analysis.catalog, 'review_policy', None)
         if policy is None:
             raise RevisionConflict('published selection policy required')
-        fields = tuple(field for field in TOPIC_FIELDS if field in spec.fields
-            and (intent['content_kind'] != 'audio' or field not in ('画面主体', '表现形式')))
+        fields = tuple(field for field in names if field in requested
+            and (kind != 'audio' or field not in ('画面主体', '表现形式')))
         if not fields:
             raise RevisionConflict('requested fields are not applicable to pure audio')
         probe = connection.execute('''SELECT * FROM router_tasks WHERE job_id=? AND active=1 AND step_key='probe' ''', (job['job_id'],)).fetchone()
         if probe is None or json.loads(probe['spec_json'])['stage'] != 'probe':
             raise RevisionConflict('verified probe dependency required')
-        key = task_key(provider, policy, intent['content_kind'], fields)
+        key = task_key(provider, policy, kind, fields)
         if stage!='precision':key='audio-'+key.removeprefix('precision-')
+        digest = rules_digest(policy, fields)
         config = {'provider_id': provider.provider_id, 'provider_revision': provider.revision,
-            'policy_digest': policy.digest, 'content_kind': intent['content_kind']}
+            'policy_digest': digest, 'content_kind': kind}
         step = StepSpec(key=key, stage=stage, depends_on=('probe',), config=config, target_fields=fields,
-            versions=Versions(rules_version='sha256:'+policy.digest, preprocess_version=VERSION,
+            versions=Versions(rules_version='sha256:'+digest, preprocess_version=VERSION,
                 taxonomy_version=policy.config.taxonomy_version, model_revision=provider.revision),
             limits=TaskLimits(timeout_seconds=min(deployment.timeout_seconds, analysis.router.options.max_timeout_seconds),
                 max_attempts=min(3, analysis.router.options.max_attempts), gpu_slots=1 if provider.device == 'cuda' else 0),
@@ -110,6 +125,7 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
     policy = getattr(analysis.catalog, 'review_policy', None)
     if policy is None:
         return []
+    names = TOPIC_FIELDS if local_audio else topic_names(policy)
     kinds, signatures = [], []
     for kind in (('audio',) if local_audio else ('image', 'video', 'animation', 'audio')):
         try:
@@ -120,7 +136,7 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
         signatures.append(provider.revision)
     if not kinds:
         return []
-    seed = sha256(encode([signatures, policy.digest]).encode()).hexdigest()
+    seed = sha256(encode([signatures, rules_digest(policy, names)]).encode()).hexdigest()
     cursor_key = ('ct_audio_topics_scan:' if local_audio else 'ct_precision_scan:')+sha256(principal.actor_id.encode()).hexdigest()
     with analysis.database.transaction() as connection:
         cursor = connection.execute('SELECT value FROM catalog_metadata WHERE key=?', (cursor_key,)).fetchone()
@@ -169,7 +185,10 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
                 tasks = connection.execute('SELECT * FROM router_tasks WHERE job_id=? AND active=1', (state['runtime']['job_id'],)).fetchall()
                 covered = {field for row in tasks if json.loads(row['spec_json'])['stage'] in ((stage,'precision') if local_audio else (stage,))
                     for field in json.loads(row['spec_json'])['target_fields']}
-                fields = tuple(field for field in TOPIC_FIELDS if field not in covered
+                # Adding a field to the registry never reopens a completed precision pass.
+                # The first automatic pass includes extensions; later additions use explicit backfill.
+                eligible = TOPIC_FIELDS if covered else names
+                fields = tuple(field for field in eligible if field not in covered
                     and (state['content_kind'] != 'audio' or field not in ('画面主体', '表现形式')))
                 if not fields:
                     continue
@@ -179,7 +198,7 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
                 probe = next((row for row in tasks if row['step_key'] == 'probe'), None)
                 if probe is None or probe['state'] != 'succeeded':
                     continue
-            token = sha256(encode([state['runtime']['job_id'], provider.revision, policy.digest, fields]).encode()).hexdigest()[:40]
+            token = sha256(encode([state['runtime']['job_id'], provider.revision, rules_digest(policy, fields), fields]).encode()).hexdigest()[:40]
             spec = PrecisionSubmission(request_id=('auto-audio-' if local_audio else 'auto-precision-')+token, source_sha256=asset['blob_sha256'],
                 expected_asset_revision=asset['revision'], expected_job_revision=state['runtime']['revision'], fields=fields)
             outcomes.append(request_provider(analysis, deployment, candidate['asset_id'], spec, principal=principal, stage=stage))

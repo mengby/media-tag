@@ -2,7 +2,7 @@
 from hashlib import sha256
 import json
 
-from media_tag.analysis.contracts import TOPIC_FIELDS
+from media_tag.analysis.fields import topic_names
 from media_tag.catalog.database import utc_now
 from media_tag.catalog.service import encode
 from media_tag.files.service import FileService
@@ -48,7 +48,10 @@ class TopicIndex:
         decisions=[tuple(row) for row in connection.execute('SELECT decision_id,decision,payload_json FROM review_decisions WHERE asset_id=? ORDER BY decision_id',(asset['asset_id'],))]
         effective=[tuple(row) for row in connection.execute('SELECT field,payload FROM effective_values WHERE asset_id=? ORDER BY field',(asset['asset_id'],))]
         gate=FileService(self.router)._gate(connection,asset)
-        return sha256(encode([VERSION,asset['asset_id'],asset['revision'],asset['blob_sha256'],getattr(policy,'digest',None),gate,effective,decisions,
+        from media_tag.analysis.fields import rules_digest
+        targets = {field for row in source_rows for field in json.loads(row['spec_json']).get('target_fields', ())}
+        digest = rules_digest(policy, targets) if policy else None
+        return sha256(encode([VERSION,asset['asset_id'],asset['revision'],asset['blob_sha256'],digest,gate,effective,decisions,
             [[row['task_id'],row['job_id'],row['job_cancelled'],row['state'],row['spec_json'],row['envelope_json'],
                 row['result_json'],row['released_at']] for row in source_rows]]).encode()).hexdigest()
 
@@ -70,10 +73,11 @@ class TopicIndex:
         # payloads are included so even a repair/import cannot leave a stale cache.
         gate=FileService(self.router)._gate(connection,asset)
         basis=self.binding(connection,asset,rows=all_rows)
+        names = topic_names(getattr(self.router.catalog, 'review_policy', None))
         claimed=set();scopes=[]
         for row in source_rows:
             spec=StepSpec.model_validate_json(row['spec_json'])
-            selected=tuple(field for field in TOPIC_FIELDS if field in spec.target_fields and field not in claimed
+            selected=tuple(field for field in names if field in spec.target_fields and field not in claimed
                 and winners.get(field)==row['task_id'])
             if selected:
                 claimed.update(selected);scopes.append((row,spec,selected))
@@ -87,10 +91,10 @@ class TopicIndex:
                 return {'schema_version':VERSION,'stage':self.stage,'labels':[],'features':[],
                     'field_states':{field:_value('unknown','not_selected_for_query') for field in claimed},
                     'provenance':{},'candidates':{},'state':'not_selected',
-                    'claimed_fields':[field for field in TOPIC_FIELDS if field in claimed]},tuple(field for field in TOPIC_FIELDS if field in claimed)
+                    'claimed_fields':[field for field in names if field in claimed]},tuple(field for field in names if field in claimed)
         document={'schema_version':VERSION,'stage':self.stage,'source_sha256':asset['blob_sha256'],
             'labels':[],'features':[],'field_states':{},'provenance':{},'candidates':{},'producer_states':{},
-            'claimed_fields':[field for field in TOPIC_FIELDS if field in claimed],
+            'claimed_fields':[field for field in names if field in claimed],
             'medical_confirmation':False,'privacy_confirmation':False,'effective_values_written':False,'state':'ready'}
         for row,spec,selected in scopes:
             state=('awaiting_file_gate' if gate else 'cancelled' if row['job_cancelled'] else row['state'])
@@ -158,4 +162,4 @@ class TopicIndex:
             connection.execute('''INSERT INTO ai_draft_documents VALUES(?,?,?,?,?,?) ON CONFLICT(asset_id,stage) DO UPDATE SET
                 source_sha256=excluded.source_sha256,basis_sha256=excluded.basis_sha256,payload_json=excluded.payload_json,updated_at=excluded.updated_at''',
                 (asset['asset_id'],self.stage,asset['blob_sha256'],basis,encode(document),utc_now()))
-        return document,tuple(field for field in TOPIC_FIELDS if field in claimed)
+        return document,tuple(field for field in names if field in claimed)

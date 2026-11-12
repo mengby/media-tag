@@ -24,7 +24,8 @@ def _topic_service(search):
 def _topic_mode(search):
     service=_topic_service(search)
     return (getattr(search,'semantic_registry',None) is None or service.options.enabled
-        or any(stage in search.router.stages for stage in ('local_topics','audio_topics','precision')))
+        or ('local_topics' in search.router.stages and not getattr(search.router, 'legacy_image_topics', False))
+        or any(stage in search.router.stages for stage in ('audio_topics','precision')))
 
 
 class AutoTagScope(ContractModel):
@@ -59,6 +60,27 @@ def selected(search,spec,principal):
         return result
 
 
+def backfill(search, spec, *, principal):
+    """Schedule only configured fields that lack both a request and a human value."""
+    from media_tag.analysis.backfill import enqueue_missing
+    from media_tag.models.contracts import ModelFailure
+
+    service = _topic_service(search)
+    revisions = {item.asset_id: item.expected_revision for item in spec.assets}
+    items = []
+    for row in selected(search, spec, principal):
+        asset_id = row['asset_id']
+        try:
+            outcome = enqueue_missing(service, search.reviews, row, revisions.get(asset_id), principal)
+        except ModelFailure as error:
+            outcome = {'state': error.code}
+        except (CatalogError, StorageError, FileError, ValueError, OSError):
+            outcome = {'state': 'analysis_not_ready_or_changed'}
+        items.append({'asset_id': asset_id, **outcome})
+    return {'items': items, 'queued': sum(item['state'] == 'queued' for item in items),
+            'waiting': sum(item['state'] not in ('queued', 'no_missing_fields') for item in items)}
+
+
 def submit(search,spec,*,principal):
     if _topic_mode(search):
         return _submit_topics(search,spec,principal=principal)
@@ -84,7 +106,10 @@ def submit(search,spec,*,principal):
                 if reply['reused']:reused+=1
                 else:added+=1
         except (ValueError,RevisionConflict,FileError):errors.append({'asset_id':row['asset_id'],'code':'analysis_not_ready_or_changed'})
-    return {'state':'queued' if not errors else 'partial','total':len(rows),'added':added,'reused':reused,'errors':errors}
+    result = {'state':'queued' if not errors else 'partial','total':len(rows),'added':added,'reused':reused,'errors':errors}
+    if getattr(search.router, 'legacy_image_topics', False) and search.reviews.policy.tag_fields.fields:
+        result['configured_fields'] = backfill(search, spec, principal=principal)
+    return result
 
 
 def progress(search,spec,*,principal):
@@ -123,7 +148,7 @@ def export(search,spec,*,principal):
     if state['state']!='ready':raise RevisionConflict('auto-tag still running or needs attention')
     rows=selected(search,spec,principal)
     selection=tuple(AssetSelection(**{k:v for k,v in r.items() if k!='job_id'}) for r in rows)
-    if _topic_mode(search):
+    if _topic_mode(search) or search.reviews.policy.tag_fields.fields:
         # ExportService verifies the complete current snapshot once and deduplicates
         # it by fingerprint. Legacy suggestion rows cannot identify newer reports,
         # invalidation or field scopes; never mint a partial modern snapshot digest.
@@ -218,7 +243,8 @@ def _topic_progress(search,spec,*,principal):
         unresolved=[f for f in fields if f.get('next_step')!='none']
         capability=[f for f in unresolved if f.get('next_step')=='provider' or 'not_configured' in f.get('reason','')]
         review=[f for f in fields if f.get('requires_field_review') or f.get('next_step') in ('human','review','taxonomy')]
-        pending_fields=len(unresolved) if fields else 10
+        from media_tag.analysis.fields import topic_names
+        pending_fields=len(unresolved) if fields else len(topic_names(search.reviews.policy if search.reviews else None))
         pending_capability=bool(capability or not service.options.enabled)
         if any(f.get('next_step')=='precision' for f in unresolved):
             from media_tag.models.contracts import ModelFailure

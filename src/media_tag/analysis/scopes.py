@@ -1,7 +1,6 @@
 """Shared newest-field scope selection; qualification remains producer-specific."""
 import json
 
-from .contracts import TOPIC_FIELDS
 
 TOPIC_STAGES = ('visual_fields', 'local_topics', 'audio_topics', 'precision')
 
@@ -22,6 +21,5 @@ def latest_topic_fields(connection, *, asset_id=None, job_id=None, rows=None):
         spec = json.loads(row['spec_json'])
         if spec['stage'] in TOPIC_STAGES:
             for field in spec.get('target_fields', ()):
-                if field in TOPIC_FIELDS:
-                    winners.setdefault(field, row['task_id'])
+                winners.setdefault(field, row['task_id'])
     return winners

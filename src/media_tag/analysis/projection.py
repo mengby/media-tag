@@ -7,7 +7,8 @@ from media_tag.drafts.service import DraftIndex
 from media_tag.semantic.contracts import FIELDS
 from media_tag.storage import StorageError
 
-from .contracts import AnalysisDocument, AnalysisProducer, FieldAssessment, TOPIC_FIELDS
+from .contracts import AnalysisDocument, AnalysisProducer, FieldAssessment
+from .fields import topic_names
 from .routing import route_local_visual
 
 
@@ -25,12 +26,13 @@ class TopicProjection:
         self.audio_topic_states = {}
 
     def build(self, connection, asset, content_kind, job=None):
-        fields = {field: pending(field, 'local_topic_capability_not_configured') for field in TOPIC_FIELDS}
+        names = topic_names(getattr(self.router.catalog, 'review_policy', None))
+        fields = {field: pending(field, 'local_topic_capability_not_configured') for field in names}
         evidence, producers = (), ()
         stage_state = 'not_requested'
         if content_kind == 'audio':
             fields = {field: pending(field, 'audio_semantic_provider_not_configured', next_step='provider')
-                      for field in TOPIC_FIELDS}
+                      for field in names}
             for field in ('画面主体', '表现形式'):
                 fields[field] = FieldAssessment(field=field,
                     value=FieldValue(state='not_applicable', reason='pure_audio_has_no_visual_content'),
@@ -112,7 +114,7 @@ class TopicProjection:
     def _document(asset, content_kind, fields, evidence, producers):
         document = AnalysisDocument(analysis_id='pending-snapshot', asset_id=asset['asset_id'],
             asset_revision=asset['revision'], content_sha256=asset['blob_sha256'], content_kind=content_kind,
-            fields=tuple(fields[field] for field in TOPIC_FIELDS), evidence=evidence, producers=producers)
+            fields=tuple(fields.values()), evidence=evidence, producers=producers)
         digest = sha256(document.model_dump_json(exclude={'analysis_id'}).encode()).hexdigest()
         return document.model_copy(update={'analysis_id': f'analysis-{digest}'})
 

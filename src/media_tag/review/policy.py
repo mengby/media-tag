@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
+from threading import Lock
 from media_tag.catalog.models import SourceInput
 from media_tag.catalog.service import encode
 from media_tag.contracts.templates import read_local_file
@@ -18,8 +19,13 @@ CONTROLLED = frozenset(('标签状态','打标人','素材ID'))
 class ReviewPolicy:
     def __init__(self, contract, config):
         self.contract, self.config = contract, config
-        self.asset_fields = dict((d.name,d) for d in contract.field_definitions[0][1])
+        self._base_fields = {field.name: field for field in contract.field_definitions[0][1]}
         self.gap_fields = dict((d.name,d) for d in contract.fields_for(GAPS)) if GAPS in dict(contract.field_definitions) else {}
+        from media_tag.analysis.fields import TagFields
+        self._field_path = TagFields.local_path(config.tag_fields_file) if config.tag_fields_file else None
+        self._field_lock = Lock()
+        self._field_snapshot = (None, TagFields(), self._base_fields)
+        self._current_fields()
         self.taxonomy = {}
         pinned = None
         if config.taxonomy_manifest:
@@ -61,6 +67,26 @@ class ReviewPolicy:
             raise ValueError('incomplete taxonomy binding')
         self.digest=sha256(encode({'version':'d06-review-v1','contract':contract.fingerprint,'taxonomy':pinned,
                                   'manifest':config.taxonomy_manifest_sha256}).encode()).hexdigest()
+
+    def _current_fields(self):
+        if self._field_path is None:
+            return self._field_snapshot
+        from media_tag.analysis.fields import TagFields
+        with self._field_lock:
+            info = self._field_path.stat()
+            stamp = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size)
+            if self._field_snapshot[0] != stamp:
+                registry = TagFields.load(str(self._field_path), self._base_fields)
+                self._field_snapshot = (stamp, registry, self._base_fields | registry.definitions())
+            return self._field_snapshot
+
+    @property
+    def tag_fields(self):
+        return self._current_fields()[1]
+
+    @property
+    def asset_fields(self):
+        return self._current_fields()[2]
 
     def options(self, definition):
         if definition.selection_policy=='shared_asset_options':

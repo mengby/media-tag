@@ -1,6 +1,6 @@
 import json
 
-from media_tag.analysis.contracts import FieldAssessment, MEDICAL_FIELDS
+from media_tag.analysis.contracts import FieldAssessment, MEDICAL_FIELDS, TOPIC_FIELDS
 from media_tag.contracts.models import FieldValue
 
 
@@ -11,6 +11,14 @@ def _unique_object(pairs):
             raise ValueError('duplicate_json_key')
         result[key] = value
     return result
+
+
+def assess_fields(names, answers, policy, versions, evidence_id):
+    fields = {name: FieldAssessment(field=name, value=FieldValue(state='unknown', reason='not_requested'),
+                                    next_step='local', reason='not_requested') for name in TOPIC_FIELDS}
+    for name, answer in zip(names, answers, strict=True):
+        fields[name] = assess(answer, name, policy=policy, versions=versions, evidence_id=evidence_id)
+    return tuple(fields.values())
 
 
 def assess(raw, field, *, policy, versions, evidence_id):
@@ -47,7 +55,7 @@ def assess(raw, field, *, policy, versions, evidence_id):
         definition = policy.asset_fields[field]
         # The original index stores keyword phrases in one text cell. Preserve
         # that scalar contract while retaining each raw phrase in the report.
-        if field in ('中文检索词', '英文检索词') and definition.field_type not in ('多选', '关联'):
+        if (field in ('中文检索词', '英文检索词') or field in policy.tag_fields.guidance) and definition.field_type not in ('多选', '关联'):
             values = ('；'.join(values),)
         value = FieldValue(state='observed', values=values)
         if definition.field_type in ('单选', '多选') and (policy.options(definition) is None or not set(values) <= set(policy.options(definition))):

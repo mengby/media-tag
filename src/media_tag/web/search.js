@@ -30,6 +30,18 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     }catch(error){if(generation!==epoch)return;taggingBusy=false;tagButton.disabled=getPerson()?.role==='reader';throw error;}
   });
   tagButton.id='auto-tag-start';actions.append(tagButton);
+  const backfillButton=button('仅补我的素材缺少的扩展字段', async()=>{
+    if(taggingBusy)return;
+    backfillButton.disabled=true;
+    const generation=epoch;
+    try {
+      const result=await post('/search/auto-tag/backfill',{});
+      if(generation!==epoch)return;
+      tagging.textContent=`补打扩展字段：${result.queued} 份已入队，${result.waiting} 份待配置或检查。`;
+      if(!result.waiting){taggingBusy=true;tagButton.disabled=true;await refreshTagging();}
+    } finally { if(generation===epoch)backfillButton.disabled=getPerson()?.role==='reader'; }
+  });
+  actions.append(backfillButton);
   async function refreshTagging(){
     if(!taggingBusy||!getPerson())return;
     const generation=epoch;
@@ -41,7 +53,7 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
       if(modern&&state.semantic_complete===false)tagging.append(el('p',`仍有 ${state.waiting||0} 份待处理，${state.pending_capability||0} 份待模型配置，${state.pending_fields||0} 个字段待补充。审核、医学确认、许可和隐私复核分别保留。`));
       if(state.state==='ready'){
         const exported=await post('/search/auto-tag/export',{});if(generation!==epoch)return;
-        const link=el('a','下载本批 35 列索引表');link.href=exported.assets_url;link.download='assets.csv';
+        const link=el('a','下载本批素材索引 CSV');link.href=exported.assets_url;link.download='assets.csv';
         tagging.append(el('p',modern&&state.semantic_complete===false?'执行已结束，仍有待模型/复核字段；当前合格结果可导出为 AI 初稿。':'AI 初稿已入索引，审核可后续进行。'),link);taggingBusy=false;tagButton.disabled=false;await refreshLibrary();
       }else if(state.state==='partial'||state.execution_complete===true){
         taggingBusy=false;tagButton.disabled=false;tagging.append(el('p','再次点击自动打标可续跑失败阶段；成功结果会复用。'));
@@ -193,6 +205,7 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
   return {search,results:renderResult,emptyMessage:()=>searchMessage(result),reviewAsset,assetSummary,reset,
     session(person){wrapper.hidden=!person.features.search;$('search').placeholder=person.features.search?'按常用说法、专业术语或原文查找':'按名称或素材 ID 查找';
       tagButton.hidden=!person.features.semantic_fields;
+      backfillButton.hidden=tagButton.hidden || person.role==='reader';
       aliasLabel.hidden=!person.features.search;aliasCheckbox.disabled=!person.features.search;
       for(const b of actions.querySelectorAll('button'))b.disabled=person.role==='reader';termsUI.session(person);if(person.features.search)loadVocabulary(true).then(fillOptions).catch(e=>notify(e.message));}};
 }
