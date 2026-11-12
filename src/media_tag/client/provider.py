@@ -51,9 +51,9 @@ class TaskProvider:
         if offset==size:return offset
         headers={'Authorization':'Bearer '+self.client._token,'If-Match':manifest['etag'],'Accept-Encoding':'identity','Cache-Control':'no-store'}
         if offset:headers.update(Range=f'bytes={offset}-',**{'If-Range':manifest['etag']})
-        if not self.client._slots.acquire(blocking=False):raise LibraryClientError('client_busy',retryable=True)
-        started=time.monotonic();resumed=offset
-        try:
+        with self.client._slots:
+            started = time.monotonic()
+            resumed = offset
             try:
                 with self.client._opener.open(Request(self.client.origin+manifest['content'],headers=headers),timeout=self.client.settings.timeout_seconds) as response:
                     status=response.status
@@ -83,7 +83,6 @@ class TaskProvider:
                 status=exc.code;exc.close()
                 raise LibraryClientError('download_http_'+str(status),status=status,retryable=status in (429,502,503,504)) from None
             except (TimeoutError,URLError,OSError,HTTPException):raise LibraryClientError('download_interrupted',retryable=True) from None
-        finally:self.client._slots.release()
         return resumed
 
     def _decode(self,name,manifest):

@@ -63,9 +63,8 @@ class LibraryClient:
             raise LibraryClientError('untrusted_api_path')
         body=encode(payload).encode() if payload is not None else None
         if body is not None and len(body)>128*1024:raise LibraryClientError('tool_request_byte_budget')
-        if not self._slots.acquire(blocking=False):raise LibraryClientError('client_busy',retryable=True)
-        started=time.monotonic()
-        try:
+        with self._slots:
+            started=time.monotonic()
             request=Request(self.origin+path,data=body,method=method,headers={'Authorization':'Bearer '+self._token,'Content-Type':'application/json','Cache-Control':'no-store'})
             try:
                 with self._opener.open(request,timeout=self.settings.timeout_seconds) as response:
@@ -87,7 +86,6 @@ class LibraryClient:
             except (ValueError,UnicodeError):raise LibraryClientError('upstream_invalid_response') from None
             if not isinstance(value,dict):raise LibraryClientError('upstream_invalid_response')
             return value
-        finally:self._slots.release()
 
     def require_reader(self,*,search=False):
         capabilities=self._request('GET','/v1/capabilities')

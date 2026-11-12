@@ -1,3 +1,4 @@
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from copy import deepcopy
 from datetime import datetime,timezone
 from hashlib import sha256
@@ -6,6 +7,8 @@ import json
 import os
 from email.message import Message
 from pathlib import Path
+from queue import Queue
+from threading import Semaphore
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
@@ -69,6 +72,47 @@ def check_for(p,result):
         'checks':{k:{'status':'skipped' if k=='license' else 'pass','observation':'Synthetic protocol binding only, no actual AI host observation claimed by test.'}
             for k in ('semantic','action','timing','composition','packaging','technical','style','source','license','eye_mosaic')}}
     return value
+
+
+def test_api_and_download_wait_for_a_shared_client_slot(prepared, monkeypatch):
+    provider, spec = prepared.provider, prepared.spec
+    client = provider.client
+    manifest = client.manifest(spec.asset_id, spec.sha256)
+    part = spec.sha256 + '.part'
+
+    entered = Queue()
+    permits = Semaphore(0)
+    open_request = client._opener.open
+
+    def gated_open(request, timeout):
+        entered.put(request)
+        assert permits.acquire(timeout=10), 'test did not release the HTTP request'
+        return open_request(request, timeout)
+
+    monkeypatch.setattr(client._opener, 'open', gated_open)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        active = [pool.submit(client.require_reader) for _ in range(4)]
+        try:
+            for _ in active:
+                entered.get(timeout=5)
+            lookup = pool.submit(client.require_reader)
+            download = pool.submit(provider._transfer, spec, manifest, part)
+            queued = [lookup, download]
+            done, _ = wait(queued, timeout=0.2, return_when=FIRST_COMPLETED)
+            assert not done
+            assert entered.empty()
+
+            # Each freed slot admits another request while the other three stay busy.
+            for _ in queued:
+                permits.release()
+                entered.get(timeout=5)
+        finally:
+            permits.release(6)
+
+        for future in [*active, lookup]:
+            assert future.result(timeout=5)['read_only_identity']
+        assert download.result(timeout=5) == 0
+        assert provider.store.path(part).read_bytes() == prepared.sought.original.read_bytes()
 
 
 def test_actual_bytes_are_verified_and_receipt_is_idempotent_but_reauthorized(prepared):
