@@ -174,6 +174,16 @@ def repair(service, asset_id, spec, *, principal):
             expected_revision=spec.expected_job_revision, principal=principal) if patches else service.router._view(connection, current_job))
         replanned = sorted(task['key'] for task in view['tasks']
             if task['key'] not in rows or task['task_id'] != rows[task['key']]['task_id'])
+        # A repair may replace a granted task with a new generation of the same
+        # precision spec. Generic Router replans do not inherit its transfer grant.
+        from media_tag.precision.service import has_precision_grant
+        for task in view['tasks']:
+            key = task['key']
+            if key in replanned and key in rows and task['stage'] == 'precision':
+                previous = rows[key]['task_id']
+                if has_precision_grant(connection, job['job_id'], previous, principal.actor_id):
+                    service.router._event(connection, job['job_id'], task['task_id'], principal.actor_id,
+                        'precision_repair', {'previous_task_id': previous})
         result = {'asset_id': asset_id, 'job_id': job['job_id'], 'accepted_job_revision': view['revision'],
             'reused_request': False, 'stage_assessments': states, 'patched_roots': [step.key for step in patches],
             'replanned_keys': replanned, 'reused_stage_keys': sorted(key for key, state in states.items()

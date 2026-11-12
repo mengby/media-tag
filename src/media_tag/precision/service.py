@@ -30,6 +30,12 @@ def request_precision(analysis, deployment, asset_id, spec, *, principal):
     return request_provider(analysis,deployment,asset_id,spec,principal=principal,stage='precision')
 
 
+def has_precision_grant(connection, job_id, task_id, actor_id):
+    return connection.execute("""SELECT 1 FROM router_events
+        WHERE job_id=? AND task_id=? AND actor_id=? AND action IN ('precision_request', 'precision_repair')
+        LIMIT 1""", (job_id, task_id, actor_id)).fetchone() is not None
+
+
 def request_provider(analysis, deployment, asset_id, spec, *, principal, stage):
     if stage not in ('precision','audio_topics'):
         raise ValueError('supported provider stage required')
@@ -87,7 +93,7 @@ def request_provider(analysis, deployment, asset_id, spec, *, principal, stage):
             'accepted_job_revision': view['revision'], 'provider_id': provider.provider_id,
             'fields': list(fields), 'reused_stage': reusable, 'reused_request': False,
             'model_capability_acceptance': False, 'medical_confirmation': False, 'effective_values_written': False}
-        analysis.router._event(connection, job['job_id'], None, principal.actor_id, action,
+        analysis.router._event(connection, job['job_id'], task['task_id'], principal.actor_id, action,
             {'request_id': spec.request_id, 'fingerprint': fingerprint, 'result': result})
         return result
 

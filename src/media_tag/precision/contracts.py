@@ -3,6 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 import json
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 
@@ -13,37 +14,64 @@ VERSION = 'ct-precision-v1'
 PROMPT = 'ct-precision-prompt-v1'
 
 
-class PrecisionProvider(ContractModel):
+class ProviderIdentity(ContractModel):
     provider_id: Identifier
-    adapter_path: str
-    adapter_sha256: Sha256
     model_id: Text
     model_revision: Text
     inputs: Annotated[tuple[ContentKind, ...], Field(min_length=1, max_length=4)]
-    device: Literal['cpu', 'cuda'] = 'cpu'
-    execution: Literal['local'] = 'local'
 
     @model_validator(mode='after')
     def check(self):
         if len(set(self.inputs)) != len(self.inputs):
             raise ValueError('unique provider inputs required')
+        return self
+
+    @property
+    def revision(self):
+        value = self.model_dump(mode='json', exclude={'adapter_path', 'api_key_env'})
+        value['inputs'] = sorted(value['inputs'])
+        return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+
+
+class PrecisionProvider(ProviderIdentity):
+    adapter_path: str
+    adapter_sha256: Sha256
+    device: Literal['cpu', 'cuda'] = 'cpu'
+    execution: Literal['local'] = 'local'
+
+    @model_validator(mode='after')
+    def check_bridge(self):
         path = Path(self.adapter_path)
         if not path.is_absolute() or path.suffix.lower() != '.py':
             raise ValueError('absolute local Python bridge required')
         return self
 
-    @property
-    def revision(self):
-        value = self.model_dump(mode='json', exclude={'adapter_path'})
-        value['inputs'] = sorted(value['inputs'])
-        return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+
+class ChatProvider(ProviderIdentity):
+    execution: Literal['chat_completions']
+    base_url: Annotated[str, Field(min_length=1, max_length=2048)]
+    api_key_env: Annotated[str, Field(pattern=r'^[A-Z_][A-Z0-9_]{0,127}$')] = 'MEDIA_TAG_PRECISION_API_KEY'
+    model_revision: Text = 'unspecified'
+    inputs: Annotated[tuple[Literal['image', 'video', 'audio'], ...], Field(min_length=1, max_length=3)]
+    device: Literal['cpu'] = 'cpu'
+    protocol_version: Literal['chat-multimodal-v1'] = 'chat-multimodal-v1'
+
+    @model_validator(mode='after')
+    def check_endpoint(self):
+        url = urlsplit(self.base_url)
+        if (not url.hostname or url.port == 0 or url.username is not None or url.password is not None
+                or any(char in self.base_url for char in '?#\\\\')
+                or any(ord(char) <= 32 or ord(char) >= 127 for char in self.base_url)
+                or not (url.scheme == 'https' or url.scheme == 'http' and url.hostname in ('127.0.0.1', '::1'))):
+            raise ValueError('credential-free HTTPS API base URL required (HTTP allowed on loopback)')
+        return self
 
 
 class PrecisionDeployment(ContractModel):
     enabled: bool = False
     auto_dispatch: bool = False
     dispatch_limit: Annotated[int, Field(ge=1, le=256)] = 32
-    providers: Annotated[tuple[PrecisionProvider, ...], Field(max_length=8)] = ()
+    providers: Annotated[tuple[PrecisionProvider | ChatProvider, ...], Field(max_length=8)] = ()
     visual_provider: Identifier | None = None
     audio_provider: Identifier | None = None
     timeout_seconds: Annotated[int, Field(ge=1, le=600)] = 120
@@ -119,7 +147,7 @@ class PrecisionReport(ContractModel):
     schema_version: Literal['ct-precision-report-v1'] = 'ct-precision-report-v1'
     analysis_layer: Literal['precision', 'local_audio'] = 'precision'
     request_id: Identifier
-    provider: PrecisionProvider
+    provider: PrecisionProvider | ChatProvider
     policy_digest: Sha256
     prompt_version: Literal['ct-precision-prompt-v1'] = PROMPT
     document: AnalysisDocument

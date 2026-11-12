@@ -81,7 +81,7 @@ class Router:
     def _task_source(self, connection, job, step):
         source = self.catalog._authorize(connection, job["asset_id"], Principal(actor_id=job["owner_id"]),
                                         "edit" if step.target_fields else "read")
-        if source['kind']=='derived' and step.stage in ('probe','evidence','ocr','face','clip'):
+        if source['kind']=='derived' and step.stage in ('probe','evidence','ocr','face','clip','precision'):
             from media_tag.files.service import FileService
             if FileService(self)._gate(connection, source):
                 raise AccessDenied('background analysis requires a currently approved, available output')

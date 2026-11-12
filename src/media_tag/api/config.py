@@ -2,10 +2,12 @@
 
 from pathlib import Path
 
+from pydantic import field_validator
+
 from media_tag.catalog import Catalog, Database, Principal
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
-from media_tag.precision.contracts import PrecisionDeployment
+from media_tag.precision.contracts import ChatProvider, PrecisionDeployment
 from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
 from media_tag.local_topics.contracts import LocalTopicDeployment
 from media_tag.processing_queue import ProcessingDeployment, ProcessingHandlers, ProcessingService, stages as processing_stages
@@ -68,6 +70,13 @@ class LocalConfig(ContractModel):
     similarity: SimilarityDeployment = SimilarityDeployment()
     local_topics: LocalTopicDeployment = LocalTopicDeployment()
     processing: ProcessingDeployment = ProcessingDeployment()
+
+    @field_validator('audio_topics')
+    @classmethod
+    def local_audio_only(cls, deployment):
+        if any(isinstance(provider, ChatProvider) for provider in deployment.providers):
+            raise ValueError('external providers belong under precision only')
+        return deployment
 
 
 def load_application(path: Path):
