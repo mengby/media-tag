@@ -10,6 +10,7 @@ import time
 
 import httpx
 from media_tag.precision.chat import media_part
+from .still_sheet import make_still_sheet
 
 PROMPT = """你在做可见画面检索打标。只根据所给的按原片时间标注的图像和无声片段，
 用中文返回 JSON，格式 {"subjects":["可见主体或道具"],"form":"表现形式、取景",
@@ -83,8 +84,9 @@ def validate_tags(tags, entries):
     return tags
 
 
-def infer(folder: Path, manifest, base_url, model, timeout):
-    content = []
+def visual_content(folder, manifest):
+    visuals, stills = [], []
+    edge = manifest.get('still_sheet_edge')
     total = 0
     for e in manifest['evidence']:
         file = (folder / e['path']).resolve()
@@ -100,11 +102,34 @@ def infer(folder: Path, manifest, base_url, model, timeout):
         kind = e['kind']
         if kind not in ('sequence', 'image'):
             raise ValueError('expected locally decoded JPEG evidence')
+        if edge is not None and kind == 'image':
+            stills.append((e, raw))
+        else:
+            visuals.append((f"{e['id']}，原片 {e['start']:.2f}–{e['end']:.2f} 秒。", raw))
+    if edge is not None:
+        sheet = make_still_sheet(folder, stills, edge)
+        labels = '，'.join(f"{e['id']} {e['start']:.2f} 秒" for e, _ in stills)
+        visuals.insert(0, (f'独立静帧拼图，从左到右、从上到下依次为 {labels}。各格取自不连续时刻。', sheet))
+
+    sent_bytes = sum(len(raw) for _, raw in visuals)
+    if sent_bytes > 24 * 1024**2:
+        raise ValueError('request image size budget')
+    content = []
+    for label, raw in visuals:
         part = media_part('image', 'image/jpeg')
         media = part[part['type']]
         media['url'] = media['url'].replace('@MEDIA@', base64.b64encode(raw).decode('ascii'))
-        label = f"{e['id']}，原片 {e['start']:.2f}–{e['end']:.2f} 秒。"
         content.extend([{'type': 'text', 'text': label}, part])
+    if visuals and edge is None and manifest.get('still_edge') == 320:
+        ids = '、'.join(e['id'] for e in manifest['evidence'])
+        example = next((e['id'] for e in manifest['evidence'] if e['kind'] == 'sequence'), manifest['evidence'][0]['id'])
+        content.append({'type': 'text', 'text': f'本条 actions 的 evidence 可用编号：{ids}。'
+                        f'直接复制编号，例如 ["{example}"]。秒数只用于看图，不写入编号。'})
+    return content, sent_bytes, len(visuals)
+
+
+def infer(folder: Path, manifest, base_url, model, timeout):
+    content, total, sent_images = visual_content(folder, manifest)
     prompt = PROMPT + COVERAGE_GUIDE if manifest.get('method') == 'coverage' else PROMPT
     body = dict(model=model, temperature=0, stream=False, max_tokens=600, repetition_penalty=1.08,
                 messages=[dict(role='system', content=prompt), dict(role='user', content=content)])
@@ -130,4 +155,5 @@ def infer(folder: Path, manifest, base_url, model, timeout):
         support.append(dict(text=action['text'], cited_clips=clips,
                             evidence_kind='sequence_cited' if clips else 'still_only'))
     return dict(tags=tags, action_evidence=support, api_seconds=ended - started,
-                request_start=started, request_end=ended, usage=reply.get('usage'), media_bytes=total)
+                request_start=started, request_end=ended, usage=reply.get('usage'), media_bytes=total,
+                sent_images=sent_images)

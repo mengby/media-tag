@@ -20,7 +20,21 @@ MAX_STILLS = 8
 MAX_CLIPS = 5
 CLIP_SECONDS = 3.0
 MOTION_FPS = 4
-SCALE = "scale=w='min(640,iw)':h='min(640,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1"
+
+
+def still_scale(edge):
+    return (f"scale=w='min({edge},iw)':h='min({edge},ih)':"
+            'force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1')
+
+
+def source_still_edge(still_edge, still_sheet_edge):
+    if still_sheet_edge is not None:
+        if still_sheet_edge not in (320, 640) or still_edge is not None:
+            raise ValueError('select either separate still sizing or a 320/640 still sheet')
+        return 640  # Sheet cells are resized from the full reference images.
+    if still_edge not in (None, 320, 640):
+        raise ValueError('still image edge must be 320 or 640')
+    return 320 if still_edge is None else still_edge
 
 
 def source_info(path, tools):
@@ -112,14 +126,14 @@ def _entry(folder, path, ident, kind, start, end, shot=None):
                 path=path.relative_to(folder).as_posix(), sha256=file_sha256(path), bytes=path.stat().st_size)
 
 
-def midpoint_stills(tools, path, info, folder, shots, selected):
+def midpoint_stills(tools, path, info, folder, shots, selected, edge=640):
     stream = ['-map', f"0:{info['video_stream_index']}", '-an', '-sn', '-dn']
     entries = []
     for i, idx in enumerate(selected, 1):
         t = sum(shots[idx]) / 2
         jpg = folder / f'F{i}.jpg'
         raw, _ = tools.ffmpeg_run(
-            ['-v', 'error', *_input(path, t), *stream, '-vf', SCALE, '-frames:v', '1',
+            ['-v', 'error', *_input(path, t), *stream, '-vf', still_scale(edge), '-frames:v', '1',
              '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], timeout=45,
         )
         with Image.open(BytesIO(raw)) as pic:
@@ -150,12 +164,12 @@ def plan_stills(shots):
     return targets
 
 
-def coverage_stills(tools, path, info, folder, shots):
+def coverage_stills(tools, path, info, folder, shots, edge=640):
     targets = plan_stills(shots)
     # Select the first decoded frame crossing each target, within the same shot.
     terms = [f'gte(t,{t:.9f})*lt(t,{shots[i][1]:.9f})*(isnan(prev_t)+lt(prev_t,{t:.9f}))'
              for i, t in targets]
-    vf = f"setpts=PTS-STARTPTS,select='{'+'.join(terms)}',{SCALE},showinfo"
+    vf = f"setpts=PTS-STARTPTS,select='{'+'.join(terms)}',{still_scale(edge)},showinfo"
     starts = [left for left, _ in shots]
     entries, seen = [], set()
     with TemporaryDirectory(dir=folder) as tmp:
@@ -223,7 +237,8 @@ def temporal_sheet(tools, path, info, folder, ident, shot, start, end):
     }
 
 
-def prepare(path: Path, folder: Path, method: str, tools: Toolchain):
+def prepare(path: Path, folder: Path, method: str, tools: Toolchain, *, still_sheet_edge=None, still_edge=None):
+    still_edge = source_still_edge(still_edge, still_sheet_edge)
     path = path.resolve(strict=True)
     folder.mkdir(parents=True, exist_ok=False)
     (folder / 'README.md').write_text('Local visual tagging evidence and model reply for one source.\n',
@@ -232,7 +247,7 @@ def prepare(path: Path, folder: Path, method: str, tools: Toolchain):
     source_sha = file_sha256(path)
     entries = []
     if method == 'three':
-        report = _duration_samples(path, info, folder, folder, tools, EvidenceOptions(), source_sha)
+        report = _duration_samples(path, info, folder, folder, tools, EvidenceOptions(thumbnail_edge=still_edge), source_sha)
         for idx, frame in enumerate(report['frames'], 1):
             image = folder / frame['artifact']['ref']
             jpg = folder / f'F{idx}.jpg'
@@ -245,9 +260,9 @@ def prepare(path: Path, folder: Path, method: str, tools: Toolchain):
         shots, motion = scene_motion(tools, path, info)
         selected, windows = plan_windows(shots, motion)
         if method == 'coverage':
-            entries = coverage_stills(tools, path, info, folder, shots)
+            entries = coverage_stills(tools, path, info, folder, shots, still_edge)
         else:
-            entries = midpoint_stills(tools, path, info, folder, shots, selected)
+            entries = midpoint_stills(tools, path, info, folder, shots, selected, still_edge)
         for i, (idx, a, b) in enumerate(windows, 1):
             sequence = temporal_sheet(tools, path, info, folder, f'C{i}', idx+1, a, b)
             if sequence:
@@ -258,5 +273,9 @@ def prepare(path: Path, folder: Path, method: str, tools: Toolchain):
         raise ValueError('source changed during sampling')
     manifest = dict(method=method, source_sha256=source_sha, duration=info['duration_seconds'],
                     shots=shots, selected_shots=[i+1 for i in selected], evidence=entries)
+    if still_sheet_edge is not None:
+        manifest['still_sheet_edge'] = still_sheet_edge
+    if still_edge != 640:
+        manifest['still_edge'] = still_edge
     (folder / 'samples.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     return manifest

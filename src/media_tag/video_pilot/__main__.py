@@ -8,7 +8,7 @@ import time
 
 from media_tag.workers.probe import Toolchain
 from .api import endpoint, infer
-from .sampling import prepare
+from .sampling import prepare, source_still_edge
 
 
 def write(path, value):
@@ -26,7 +26,7 @@ def tag(item, folder, manifest, prepare_seconds, base_url, model, timeout, start
     return dict(
         id=item, ok=True, source_sha256=manifest['source_sha256'], prepare_seconds=prepare_seconds,
         request_start=request_start, request_end=request_end, api_seconds=reply['api_seconds'],
-        media_bytes=reply['media_bytes'], usage=reply['usage'],
+        media_bytes=reply['media_bytes'], sent_images=reply['sent_images'], usage=reply['usage'],
         images=sum(e['kind'] == 'image' for e in entries),
         clips=sum(e['kind'] == 'sequence' for e in entries),
     )
@@ -51,10 +51,12 @@ def request_peak(rows):
     return peak
 
 
-def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *, staged=False):
+def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *,
+        staged=False, still_sheet_edge=None, still_edge=None):
     endpoint(base_url)
     if not files or not 1 <= concurrency <= 8:
         raise ValueError('select one or more videos and 1–8 request workers')
+    capture_edge = source_still_edge(still_edge, still_sheet_edge)
     files = [Path(f).resolve(strict=True) for f in files]
     if len(set(files)) != len(files):
         raise ValueError('duplicate trial input')
@@ -68,6 +70,9 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
         encoding='utf-8',
     )
     rows, futures, pending = {}, {}, []
+    sampling_options = {} if still_sheet_edge is None else {'still_sheet_edge': still_sheet_edge}
+    if still_edge is not None:
+        sampling_options['still_edge'] = still_edge
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         def submit(work):
             future = pool.submit(tag, *work, base_url, model, timeout, started)
@@ -78,7 +83,7 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
             folder = out / item
             t = time.perf_counter()
             try:
-                manifest = prepare(path, folder, method, tools)
+                manifest = prepare(path, folder, method, tools, **sampling_options)
             except Exception as exc:
                 rows[item] = failure(item, 'prepare', exc)
                 continue
@@ -101,6 +106,7 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
     results = [rows[k] for k in sorted(rows)]
     count = sum(row['ok'] for row in results)
     report = dict(method=method, model=model, concurrency=concurrency, staged=staged,
+                  still_edge=capture_edge, still_sheet_edge=still_sheet_edge,
                   peak_active=request_peak(results), completed=count, expected=len(files),
                   wall_seconds=wall, after_prepare_seconds=finished - prepare_phase_end,
                   videos_per_minute=count * 60 / wall, results=results)
@@ -118,12 +124,18 @@ def main():
                         help='maximum simultaneous A800 requests (default: 2)')
     parser.add_argument('--staged', action='store_true',
                         help='prepare every video before the first request, for concurrency comparisons')
+    layout = parser.add_mutually_exclusive_group()
+    layout.add_argument('--still-sheet-edge', type=int, choices=(320, 640),
+                        help='send independent stills in one grid, with this maximum long edge per tile')
+    layout.add_argument('--still-edge', type=int, choices=(320, 640),
+                        help='maximum long edge of each separate still (default: 320)')
     parser.add_argument('--base-url', default='http://127.0.0.1:18080/v1')
     parser.add_argument('--model', default='models')
     parser.add_argument('--timeout', type=float, default=150)
     args = parser.parse_args()
     report = run(args.videos, args.output, args.method, args.concurrency,
-                 args.base_url, args.model, args.timeout, staged=args.staged)
+                 args.base_url, args.model, args.timeout, staged=args.staged,
+                 still_sheet_edge=args.still_sheet_edge, still_edge=args.still_edge)
     print(f"{report['completed']}/{report['expected']}, {report['wall_seconds']:.2f}s, "
           f"{report['videos_per_minute']:.2f} videos/min")
     return 0 if report['completed'] == report['expected'] else 1

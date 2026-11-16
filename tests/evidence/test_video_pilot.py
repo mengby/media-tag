@@ -1,10 +1,12 @@
+import base64
 from hashlib import sha256
+import json
 
 from PIL import Image
 import pytest
 
 from media_tag.video_pilot.__main__ import request_peak
-from media_tag.video_pilot.api import endpoint, validate_tags
+from media_tag.video_pilot.api import endpoint, validate_tags, visual_content
 from media_tag.video_pilot.sampling import plan_stills, plan_windows, prepare
 from media_tag.workers.probe import Toolchain
 
@@ -91,6 +93,62 @@ def test_parallel_decode_preserves_evidence(tmp_path, generated_media, media_too
     reference = prepare(source, tmp_path / 'single', method, media_tools)
     parallel = prepare(source, tmp_path / 'parallel', method, Toolchain(decode_threads=8))
     assert parallel == reference  # Includes source clocks, shot bounds and hashes of the JPEGs.
+
+
+def test_still_sheet_sends_one_grid_and_preserves_action_evidence(tmp_path):
+    entries = []
+    originals = []
+    for index, (ident, kind, color) in enumerate([
+        ('F1', 'image', 'red'), ('F2', 'image', 'green'), ('C1', 'sequence', 'blue'),
+    ]):
+        path = tmp_path / f'{ident}.jpg'
+        Image.new('RGB', (640, 320), color).save(path)
+        raw = path.read_bytes()
+        originals.append(raw)
+        entries.append(dict(id=ident, kind=kind, path=path.name, bytes=len(raw),
+                            sha256=sha256(raw).hexdigest(), start=index, end=index))
+
+    def payloads(content):
+        return [base64.b64decode(part['image_url']['url'].split(',')[1])
+                for part in content if part['type'] == 'image_url']
+
+    manifest = {'evidence': entries}
+    separate, _, count = visual_content(tmp_path, manifest)
+    assert count == 3 and payloads(separate) == originals
+    manifest['still_sheet_edge'] = 320
+    packed, sent_bytes, count = visual_content(tmp_path, manifest)
+    sheet, sequence = payloads(packed)
+    assert count == 2 and sent_bytes == len(sheet) + len(sequence) and sequence == originals[2]
+    assert sheet == (tmp_path / 'still-sheet.jpg').read_bytes()
+    mapping = json.loads((tmp_path / 'still-sheet.json').read_bytes())
+    assert mapping['sha256'] == sha256(sheet).hexdigest()
+    assert [c['source_sha256'] for c in mapping['cells']] == [e['sha256'] for e in entries[:2]]
+    assert [(c['id'], c['seconds']) for c in mapping['cells']] == [('F1', 0), ('F2', 1)]
+    with Image.open(tmp_path / 'still-sheet.jpg') as image:
+        assert image.width == 320 and image.height > 320
+        assert image.getpixel((160, 80))[0] > 240
+        assert image.getpixel((160, image.height // 2 + 80))[1] > 110
+    (tmp_path / 'F2.jpg').write_bytes(b'x' * len(originals[1]))
+    with pytest.raises(ValueError, match='evidence changed'):
+        visual_content(tmp_path, manifest)
+
+
+def test_smaller_separate_stills_keep_clocks_and_action_sheets(tmp_path, media_tools):
+    source = tmp_path / 'moving.mp4'
+    media_tools.ffmpeg_run(['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=8:d=2',
+                            '-c:v', 'libx264', str(source)], timeout=30)
+    full = prepare(source, tmp_path / 'original', 'coverage', media_tools, still_edge=640)
+    folder = tmp_path / 'small'
+    small = prepare(source, folder, 'coverage', media_tools)
+    assert small['still_edge'] == 320 and 'still_sheet_edge' not in small
+    assert [e['id'] for e in small['evidence']] == [e['id'] for e in full['evidence']]
+    for new, old in zip(small['evidence'], full['evidence']):
+        if new['kind'] == 'image':
+            assert (new['start'], new['shot']) == (old['start'], old['shot'])
+            with Image.open(folder / new['path']) as frame:
+                assert frame.size == (320, 180)
+        else:
+            assert new == old
 
 
 def test_tunnel_evidence_references_and_actual_overlap():
