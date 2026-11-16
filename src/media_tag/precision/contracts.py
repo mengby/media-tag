@@ -97,6 +97,7 @@ class PrecisionDeployment(ContractModel):
     auto_dispatch: bool = False
     auto_dispatch_after_intent: Annotated[int, Field(ge=0)] = 0
     image_workers: Annotated[int, Field(ge=0, le=MAX_IMAGE_WORKERS)] = 0
+    image_max_edge: Annotated[int, Field(ge=224, le=4096)] | None = None
     dispatch_limit: Annotated[int, Field(ge=1, le=256)] = 32
     providers: Annotated[tuple[PrecisionProvider | ExternalProvider, ...], Field(max_length=8)] = ()
     visual_provider: Identifier | None = None
@@ -138,6 +139,16 @@ class PrecisionField(ContractModel):
         return self
 
 
+class ImageRendition(ContractModel):
+    max_edge: int
+    source_size: tuple[int, int]
+    sent_size: tuple[int, int]
+    mime: Literal['image/jpeg', 'image/png']
+    encoding: Literal['jpeg-q88', 'png-alpha']
+    size_bytes: Annotated[int, Field(gt=0)]
+    sha256: Sha256
+
+
 class PrecisionReply(ContractModel):
     schema_version: Literal['ct-precision-reply-v1'] = 'ct-precision-reply-v1'
     request_id: Identifier
@@ -145,6 +156,7 @@ class PrecisionReply(ContractModel):
     provider_revision: Sha256
     fields: Annotated[tuple[PrecisionField, ...], Field(min_length=1, max_length=42)]
     usage: 'ProviderUsage | None' = None
+    image_rendition: ImageRendition | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode='after')
     def check(self):

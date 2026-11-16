@@ -2,12 +2,16 @@
 import base64
 from hashlib import sha256
 from http.client import HTTPConnection, HTTPException, HTTPSConnection
+from io import BytesIO
 import json
 import os
 from pathlib import Path
 import sys
 from time import monotonic
 from urllib.parse import urlsplit
+import warnings
+
+from PIL import Image, ImageOps
 
 from media_tag.files.service import media_type
 from media_tag.models.contracts import ModelFailure
@@ -72,6 +76,40 @@ def prompt_context(request):
     return context
 
 
+def resize_image(media, mime, max_edge):
+    try:
+        with warnings.catch_warnings(action='error', category=Image.DecompressionBombWarning), Image.open(BytesIO(media)) as image:
+            if getattr(image, 'is_animated', False):
+                raise ModelFailure('precision_api_media_format')
+            source_size = image.size
+            if max(source_size) <= max_edge:
+                return media, mime, None
+            # JPEG draft can reduce decoding memory before the final downsample.
+            image.draft(None, (max_edge, max_edge))
+            has_alpha = image.has_transparency_data
+            if has_alpha or image.mode in ('P', '1'):
+                image = image.convert('RGBA' if has_alpha else 'RGB')
+            image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+            frame = ImageOps.exif_transpose(image)
+            if not has_alpha and frame.mode != 'RGB':
+                frame = frame.convert('RGB')
+            frame.info.clear()
+            out = BytesIO()
+            if has_alpha:
+                frame.save(out, format='PNG')
+                mime, encoding = 'image/png', 'png-alpha'
+            else:
+                frame.save(out, format='JPEG', quality=88)
+                mime, encoding = 'image/jpeg', 'jpeg-q88'
+            data = out.getvalue()
+            return data, mime, {'max_edge': max_edge, 'source_size': source_size, 'sent_size': frame.size,
+                'size_bytes': len(data), 'mime': mime, 'encoding': encoding, 'sha256': sha256(data).hexdigest()}
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise ModelFailure('precision_input_budget') from None
+    except (OSError, ValueError, SyntaxError, EOFError):
+        raise ModelFailure('precision_api_media_format') from None
+
+
 def request_body(provider, request, max_input_bytes):
     with Path(request['input_path']).open('rb') as stream:
         size = os.fstat(stream.fileno()).st_size
@@ -97,6 +135,13 @@ def request_body(provider, request, max_input_bytes):
         media = stream.read(size + 1)
     if len(media) != size or sha256(media).hexdigest() != request['source_sha256']:
         raise ModelFailure('precision_source_integrity')
+    rendition = None
+    if request['content_kind'] == 'image' and request.get('image_max_edge'):
+        media, mime, rendition = resize_image(media, mime, request['image_max_edge'])
+        size = len(media)
+        if size > max_input_bytes:
+            raise ModelFailure('precision_input_budget')
+        part = media_part('image', mime)
     compact = provider.image_reply_format == 'compact' and request['content_kind'] == 'image'
     context = prompt_context(request)
     if compact:
@@ -121,11 +166,11 @@ def request_body(provider, request, max_input_bytes):
         for start in range(0, size, block):
             yield base64.b64encode(view[start:start + block])
         yield suffix
-    return chunks(), len(prefix) + 4 * ((size + 2) // 3) + len(suffix)
+    return chunks(), len(prefix) + 4 * ((size + 2) // 3) + len(suffix), rendition
 
 
 def analyze(provider, request, *, max_input_bytes, timeout_seconds, authorize_send):
-    body, length = request_body(provider, request, max_input_bytes)
+    body, length, rendition = request_body(provider, request, max_input_bytes)
     url = urlsplit(provider.base_url)
     path = url.path.rstrip('/')
     if not path.endswith('/chat/completions'):
@@ -140,6 +185,9 @@ def analyze(provider, request, *, max_input_bytes, timeout_seconds, authorize_se
         started = monotonic()
         if request['content_kind'] == 'image':
             print(f'image_request_start bytes={length}', file=sys.stderr, flush=True)
+            if rendition:
+                width, height = rendition['sent_size']
+                print(f'image_rendition width={width} height={height} bytes={rendition["size_bytes"]}', file=sys.stderr, flush=True)
         connection.request('POST', path, body=body, headers={
             'Authorization': 'Bearer ' + os.environ['MEDIA_TAG_PRECISION_BEARER'],
             'Content-Type': 'application/json', 'Content-Length': str(length)})
@@ -182,6 +230,8 @@ def analyze(provider, request, *, max_input_bytes, timeout_seconds, authorize_se
         if set(result) != {'request_id', 'fields'} or result['request_id'] != request['request_id']:
             raise ValueError
         reply = dict(result, source_sha256=request['source_sha256'], provider_revision=request['provider_revision'])
+        if rendition is not None:
+            reply['image_rendition'] = rendition
         usage = envelope.get('usage')
         if isinstance(usage, dict):
             reply['usage'] = {'input_tokens': usage.get('prompt_tokens'), 'output_tokens': usage.get('completion_tokens')}

@@ -2,11 +2,13 @@ import base64
 from contextlib import contextmanager
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 import json
 import os
 from threading import Thread
 
 import pytest
+from PIL import Image
 
 from media_tag.analysis.repair import RepairSubmission, repair
 from media_tag.catalog import Principal
@@ -82,6 +84,71 @@ def request(path, data, kind):
 def test_invalid_endpoint(url):
     with pytest.raises(ValueError):
         provider(url)
+
+
+@pytest.mark.parametrize('size,transparent', [((1800, 900), False), ((900, 1800), True), ((320, 240), False)])
+def test_resize_only_image_sent_to_chat(tmp_path, monkeypatch, size, transparent):
+    monkeypatch.setenv('MEDIA_TAG_PRECISION_BEARER', KEY)
+    source = Image.new('RGBA' if transparent else 'RGB', size)
+    buf = BytesIO()
+    exif = Image.Exif()
+    exif[274] = 6
+    source.save(buf, 'PNG' if transparent else 'JPEG', exif=exif)
+    original = buf.getvalue()
+    req = request(tmp_path/'source.bin', original, 'image') | {'image_max_edge': 896}
+    with endpoint() as (url, calls):
+        reply = analyze(provider(url), req, max_input_bytes=1024**2, timeout_seconds=5, authorize_send=lambda: None)
+    part = calls[0][2]['messages'][1]['content'][1]['image_url']['url']
+    sent = base64.b64decode(part.split(',', 1)[1], validate=True)
+    assert (tmp_path/'source.bin').read_bytes() == original
+    assert reply['source_sha256'] == sha256(original).hexdigest()
+    if max(size) <= 896:
+        assert sent == original and 'image_rendition' not in reply
+        return
+    with Image.open(BytesIO(sent)) as image:
+        assert image.size == ((896, 448) if transparent else (448, 896))
+        assert image.has_transparency_data == transparent
+        assert not image.getexif()
+        if transparent:
+            assert image.getpixel((0, 0))[3] == 0
+        rendition = reply['image_rendition']
+        assert rendition['sent_size'] == image.size and rendition['source_size'] == size
+        assert rendition['mime'] == part.split(';')[0][5:] == ('image/png' if transparent else 'image/jpeg')
+        assert rendition['sha256'] == sha256(sent).hexdigest() and rendition['size_bytes'] == len(sent)
+
+
+def test_resize_does_not_transfer_corrupt_or_unbound_sources(tmp_path):
+    data = b'\x89PNG\r\n\x1a\n' + bytes(80)
+    req = request(tmp_path/'source.bin', data, 'image') | {'image_max_edge': 896}
+    with endpoint() as (url, calls):
+        for digest, code in [(req['source_sha256'], 'precision_api_media_format'), ('0' * 64, 'precision_source_integrity')]:
+            with pytest.raises(ModelFailure, match=code):
+                analyze(provider(url), req | {'source_sha256': digest}, max_input_bytes=1024**2,
+                    timeout_seconds=5, authorize_send=lambda: pytest.fail('unexpected transfer'))
+    assert calls == []
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='precision runner uses Windows Job Objects')
+def test_worker_binds_resized_image_to_original(precise, monkeypatch):
+    buf = BytesIO()
+    Image.new('RGB', (1200, 600), 'green').save(buf, format='JPEG')
+    original = buf.getvalue()
+    asset = precise.register(original, 'green.jpg', 'image')
+    monkeypatch.setenv('TEST_REMOTE_PRECISION_KEY', KEY)
+    with endpoint() as (url, calls):
+        remote = provider(url, api_key_env='TEST_REMOTE_PRECISION_KEY')
+        deploy = PrecisionDeployment(enabled=True, providers=(remote,), visual_provider=remote.provider_id, image_max_edge=896)
+        precise.analysis.precision_deployment = deploy
+        _, accepted, executor = precise.submit(deploy, asset_id=asset.asset_id, fields=('画面主体',))
+        assert executor.run_once()['accepted']
+    result = result_file(precise, accepted['task_id'])
+    assert result['status'] == 'succeeded'
+    ref = next(a for a in result['artifacts'] if a['kind'] == 'precision_report')
+    report = json.loads((precise.env.workspace/ref['ref']).read_bytes())
+    assert report['document']['content_sha256'] == report['reply']['source_sha256'] == sha256(original).hexdigest()
+    sent = base64.b64decode(calls[0][2]['messages'][1]['content'][1]['image_url']['url'].split(',', 1)[1], validate=True)
+    assert report['reply']['image_rendition']['sha256'] == sha256(sent).hexdigest() != sha256(original).hexdigest()
+    assert report['reply']['image_rendition']['sent_size'] == [896, 448]
 
 
 def test_revision_and_local_audio_isolation():

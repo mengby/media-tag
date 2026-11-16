@@ -204,6 +204,8 @@ class PrecisionHandlers:
             bridge_input['image_reply_retry_id'] = sha256(f'{task.task_id}:{task.lease_epoch}'.encode()).hexdigest()[:12]
         if isinstance(provider, ExternalProvider):
             bridge_input['field_types'] = {field: policy.asset_fields[field].field_type for field in task.target_fields}
+        if isinstance(provider, ChatProvider) and kind == 'image' and self.deployment.image_max_edge:
+            bridge_input['image_max_edge'] = self.deployment.image_max_edge
         check()
         response = self.invoke(provider, bridge_input, output, task, stopped, deadline=deadline)
         if file_sha256(input_path) != digest.hexdigest():
