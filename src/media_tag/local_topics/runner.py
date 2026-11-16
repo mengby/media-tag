@@ -45,6 +45,9 @@ def execute(request):
         field_rules=request.get('protocol_fields'), microbatch_size=request.get('microbatch_size', 4),
         deadline=request.get('deadline'), read_input=lambda item: item if isinstance(item, bytes) else read_image(item),
         yield_requested=Path(request['start_gate']).with_name('finish-batch').exists)
+    # A worker started before batching strictly validates both response objects.
+    if 'microbatch_size' not in request and 'prefetch' not in request:
+        return {'ok': True, 'generation': results[0].model_dump(mode='json', exclude={'retried_answers'})}
     return {'ok': True, 'generation': results[0].model_dump(mode='json'),
             'prefetched': [result.model_dump(mode='json') for result in results[1:]]}
 
