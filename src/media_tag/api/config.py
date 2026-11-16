@@ -44,6 +44,13 @@ from media_tag.web.local_login import LocalBrowserLogin
 from media_tag.semantic.contracts import SemanticDeployment
 
 
+class ItemPublicationConfig(ContractModel):
+    owner_id: Identifier
+    base_url: str
+    token_file: str
+    producer_revision: str
+
+
 class LocalConfig(ContractModel):
     workspace: str
     database: str
@@ -71,6 +78,7 @@ class LocalConfig(ContractModel):
     similarity: SimilarityDeployment = SimilarityDeployment()
     local_topics: LocalTopicDeployment = LocalTopicDeployment()
     processing: ProcessingDeployment = ProcessingDeployment()
+    item_publication: ItemPublicationConfig | None = None
 
     @field_validator('review', mode='before')
     @classmethod
@@ -179,6 +187,9 @@ def load_application(path: Path):
                 DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, json.dumps(sorted(router.stages))))
     router.recover(principal=bootstrap)
     reviews=ReviewService(router,config.review) if config.review.enabled else None
+    if config.item_publication:
+        from media_tag.publish.items import ItemPublisher
+        router.item_publisher = ItemPublisher(router,config)
     uploads = UploadService(router, tools, options=config.upload_options)
     uploads.dispatch_pending(principal=bootstrap)
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None

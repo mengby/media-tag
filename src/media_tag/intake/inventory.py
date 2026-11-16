@@ -7,6 +7,7 @@ from pathlib import Path
 import stat
 from uuid import uuid4
 from media_tag.catalog.service import encode
+from media_tag.contracts.models import MAX_SOURCE_BYTES
 from media_tag.deployment.local import directory,write_json
 from media_tag.files.service import media_type
 from media_tag.storage.filesystem import FilesystemBackend,_linked
@@ -48,10 +49,10 @@ def summary(inventory):
         'unique_sha256':len({r.sha256 for r in ready}),'duplicate_paths':sum(r.duplicate_of is not None for r in ready)}
 
 
-def scan(source,jobs_root,*,max_files=10000,max_file_bytes=2*1024**3):
+def scan(source,jobs_root,*,max_files=10000,max_file_bytes=MAX_SOURCE_BYTES):
     source=directory(source);jobs_root=directory(jobs_root)
     if source.is_relative_to(jobs_root) or jobs_root.is_relative_to(source):raise IntakeError('source_and_batch_roots_overlap')
-    if not 1<=max_files<=100000 or not 1<=max_file_bytes<=2*1024**3:raise IntakeError('invalid_inventory_budget')
+    if not 1<=max_files<=100000 or not 1<=max_file_bytes<=MAX_SOURCE_BYTES:raise IntakeError('invalid_inventory_budget')
     backend=FilesystemBackend(source);pending=[source];rows=[];hashes={};visited=0
     while pending:
         parent=pending.pop()

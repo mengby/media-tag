@@ -219,8 +219,15 @@ def child(root,generation,kind):
     else:
         from media_tag.api.config import executor_from_config
         executor=executor_from_config(root/'runtime.local.json',instance.worker_id)
-        while not requested(root,generation):
-            if executor.run_once() is None:time.sleep(.5)
+        done=threading.Event()
+        publisher=getattr(executor.router,"item_publisher",None)
+        if publisher:
+            threading.Thread(target=publisher.run,args=(done,),name="item-publisher",daemon=True).start()
+        try:
+            while not requested(root,generation):
+                if executor.run_once() is None:time.sleep(.5)
+        finally:
+            done.set()
 
 
 def resume_owned_process(process):

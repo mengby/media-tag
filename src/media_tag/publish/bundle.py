@@ -54,7 +54,7 @@ class CatalogView:
     _snapshot = Catalog._snapshot
 
 
-def build_bundle(settings, destination):
+def build_bundle(settings, destination, *, item=None):
     settings = ExportSettings.model_validate(settings)
     principal = Principal(actor_id=settings.actor_id, role=settings.role)
     # Validate wire identifiers and revision before any output side effects.
@@ -114,13 +114,17 @@ def build_bundle(settings, destination):
     try:
         # Online backup observes one SQLite state, including committed WAL data.
         readonly = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
-        snapshot = sqlite3.connect(snapshot_path)
-        readonly.backup(snapshot)
-        snapshot.close()
-        snapshot = None
-        readonly.close()
-        readonly = None
-        connection = sqlite3.connect(snapshot_path.as_uri() + "?mode=ro", uri=True)
+        if item is None:
+            snapshot = sqlite3.connect(snapshot_path)
+            readonly.backup(snapshot)
+            snapshot.close()
+            snapshot = None
+            readonly.close()
+            readonly = None
+            connection = sqlite3.connect(snapshot_path.as_uri() + "?mode=ro", uri=True)
+        else:
+            # BEGIN below pins a consistent read without copying the entire catalogue per item.
+            connection, readonly = readonly, None
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
         connection.execute("BEGIN")
@@ -142,6 +146,9 @@ def build_bundle(settings, destination):
         view = SimpleNamespace(database=database, catalog=catalog, workspace=Path(settings.workspace), files=workspace,
                                stages={stage: SimpleNamespace(require_artifact=True) for stage in ("ocr", "face", "clip", "visual_fields", "probe", "evidence")})
         view._artifacts = MethodType(Router._artifacts, view)
+        if item is not None:
+            view.stages.update({key: SimpleNamespace(require_artifact=True) for key in
+                                ("pretag_cleaning", "local_topics", "precision", "audio_topics")})
         files, drafts = FileService(view), DraftIndex(view)
         selected, todo = {}, list(settings.asset_ids)
         while todo:
@@ -157,11 +164,25 @@ def build_bundle(settings, destination):
         assets = []
         for asset_id, row in sorted(selected.items()):
             detail = files.details(asset_id, principal=principal)
+            if item is not None:
+                from .items import item_metadata
+                metadata = item_metadata(view, files, connection, row, detail, principal, item)
+                for evidence in metadata.pop("_artifacts"):
+                    if evidence.sha256 != row["blob_sha256"] and evidence.sha256 not in output_refs:
+                        with workspace.open_read(evidence.ref) as stream:
+                            if save(stream.read).sha256 != evidence.sha256:
+                                raise ValueError("item evidence changed")
+                (destination / "item.json").write_bytes(canonical(metadata))
             if not settings.template_dir and connection.execute("SELECT 1 FROM index_confirmations WHERE asset_id=?", (asset_id,)).fetchone():
                 raise ValueError("index confirmation requires explicit template/review policy binding")
             opened = files.open(asset_id, row["blob_sha256"], principal=principal)
             try:
-                blob = save(opened.read, Blob(sha256=row["blob_sha256"], size_bytes=detail["size_bytes"]))
+                blob = Blob(sha256=row["blob_sha256"], size_bytes=detail["size_bytes"])
+                if item is None:
+                    blob = save(opened.read, blob)
+                else:
+                    # The item publisher opens this original directly from the local store for OSS.
+                    output_refs[blob.sha256] = blob
                 mime = opened.mime
             finally:
                 opened.close()

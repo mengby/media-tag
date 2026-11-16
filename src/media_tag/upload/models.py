@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from media_tag.catalog.models import SourceInput
-from media_tag.contracts.models import ContractModel, Identifier, Sha256, Text, validate_relative_path
+from media_tag.contracts.models import MAX_SOURCE_BYTES, ContractModel, Identifier, Sha256, Text, validate_relative_path
 
 
 class UploadSpec(ContractModel):
@@ -28,7 +28,7 @@ class UploadSpec(ContractModel):
 
 class UploadOptions(ContractModel):
     probe_max_pixels: Annotated[int, Field(ge=1, le=64*1024**2)] = 16*1024**2
-    max_file_bytes: Annotated[int, Field(ge=1, le=2 * 1024**3)] = 2 * 1024**3
+    max_file_bytes: Annotated[int, Field(ge=1, le=MAX_SOURCE_BYTES)] = MAX_SOURCE_BYTES
     chunk_bytes: Annotated[int, Field(ge=1, le=8 * 1024**2)] = 4 * 1024**2
     max_open_per_owner: Annotated[int, Field(ge=1, le=100)] = 8
     max_reserved_per_owner: Annotated[int, Field(ge=1)] = 4 * 1024**3

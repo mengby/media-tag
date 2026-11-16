@@ -7,6 +7,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 from . import SCHEMA_VERSION
 
 Text = Annotated[str, Field(min_length=1, pattern=r"\S")]
+MAX_SOURCE_BYTES = 4 * 1024**3
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 PositiveInt = Annotated[int, Field(strict=True, ge=1)]

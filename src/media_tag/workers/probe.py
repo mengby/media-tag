@@ -17,7 +17,7 @@ import warnings
 from PIL import Image, UnidentifiedImageError, __version__ as pillow_version
 from pydantic import Field
 
-from media_tag.contracts.models import ContractModel
+from media_tag.contracts.models import MAX_SOURCE_BYTES, ContractModel
 
 PROBE_VERSION = "d02-probe-v1"
 # No playlist, concat, device, network or script demuxers. MOV external data references remain disabled.
@@ -140,7 +140,7 @@ class Toolchain:
 
 class ProbeOptions(ContractModel):
     timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 20.0
-    max_input_bytes: Annotated[int, Field(ge=1)] = 2 * 1024 ** 3
+    max_input_bytes: Annotated[int, Field(ge=1)] = MAX_SOURCE_BYTES
     max_pixels: Annotated[int, Field(ge=1, le=64 * 1024 ** 2)] = 16 * 1024 ** 2
     max_alpha_frames: Annotated[int, Field(ge=1, le=512)] = 32
     max_image_bytes: Annotated[int, Field(ge=1, le=256 * 1024 ** 2)] = 64 * 1024 ** 2

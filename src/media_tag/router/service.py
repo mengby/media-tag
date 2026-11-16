@@ -471,6 +471,8 @@ class Router:
             task = connection.execute("SELECT * FROM router_tasks WHERE task_id=?", (task_id,)).fetchone()
             if task["lease_epoch"] == epoch and task["state"] in ("leased", "running"):
                 connection.execute("UPDATE router_tasks SET state='needs_attention',error_code='executor_stopped_without_result' WHERE task_id=?", (task_id,))
+            if publisher := getattr(self,"item_publisher",None):
+                publisher.enqueue(connection,task["job_id"])
             return True
 
     def confirm_stopped(self, task_id: str, epoch: int, *, principal: Principal):
