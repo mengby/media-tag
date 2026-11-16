@@ -35,6 +35,8 @@ class Router:
         self.workspace = Path(workspace).resolve()
         self.files = FilesystemBackend(self.workspace)
         self.stages = dict(stages)
+        # Trusted bootstrap assigns a private I/O slot only to workers with a restricted task filter.
+        self.dedicated_worker_filters = {}
         self.legacy_image_topics = False
         self.upload_configured_fields = False
         self.options = options or RouterOptions()
@@ -249,14 +251,20 @@ class Router:
             if connection.execute("SELECT 1 FROM router_attempts WHERE worker_id=? AND released_at IS NULL", (principal.actor_id,)).fetchone():
                 return None
             held = {row[0] for row in connection.execute("SELECT resource FROM router_holds")}
-            cpu = next((f"cpu:{i}" for i in range(self.options.cpu_slots) if f"cpu:{i}" not in held), None)
-            if cpu is None:
+            task_filter = self.dedicated_worker_filters.get(principal.actor_id)
+            if task_filter is None:
+                slot = next((f"cpu:{i}" for i in range(self.options.cpu_slots) if f"cpu:{i}" not in held), None)
+            else:
+                slot = f"worker:{principal.actor_id}"
+            if slot is None or slot in held:
                 return None
             rows = connection.execute("""SELECT router_tasks.*, owner_id AS job_owner, priority AS job_priority
                 FROM router_tasks JOIN router_jobs USING(job_id)
                 WHERE active=1 AND state IN ('queued','retry_wait') AND ready_at<=? AND paused=0 AND cancelled=0
                 ORDER BY (priority * ? + (? - router_jobs.created_at)) DESC,router_jobs.created_at,step_key""",
                 (self.clock(), self.options.interactive_bonus_seconds, self.clock())).fetchall()
+            if task_filter is not None:
+                rows = [row for row in rows if task_filter(row)]
             if prepare_order is not None:
                 rows = prepare_order(rows)
             for task in rows:
@@ -310,7 +318,7 @@ class Router:
                                    (task["task_id"], epoch, attempt, principal.actor_id, envelope.model_dump_json(), encode(step.config), now))
                 connection.execute("UPDATE router_tasks SET state='leased',attempt=?,lease_epoch=?,lease_owner=?,lease_until=?,error_code=NULL WHERE task_id=?",
                                    (attempt, epoch, principal.actor_id, until, task["task_id"]))
-                for resource in (cpu, *(('gpu:0',) if step.limits.gpu_slots else ())):
+                for resource in (slot, *(('gpu:0',) if step.limits.gpu_slots else ())):
                     connection.execute("INSERT INTO router_holds(resource,task_id,lease_epoch,worker_id) VALUES(?,?,?,?)", (resource, task["task_id"], epoch, principal.actor_id))
                 self._event(connection, job["job_id"], task["task_id"], principal.actor_id, "claim", {"attempt": attempt, "lease_epoch": epoch})
                 return Lease(task=envelope, config=step.config, lease_until=until)

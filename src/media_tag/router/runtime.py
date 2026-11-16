@@ -121,6 +121,9 @@ class LocalExecutor:
         lease = self.router.claim(principal=self.principal, prepare_order=self.prepare_order)
         if lease is None:
             return None
+        return self.run_lease(lease)
+
+    def run_lease(self, lease: Lease) -> dict:
         stopped, finished = threading.Event(), threading.Event()
         task = lease.task
         def beat():

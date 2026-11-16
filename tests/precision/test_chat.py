@@ -59,6 +59,16 @@ def provider(url, **kwargs):
         model_id='synthetic-model', base_url=url, inputs=('image', 'audio', 'video'), **kwargs)
 
 
+def test_remote_image_worker_limit():
+    from pydantic import ValidationError
+    remote = provider('http://127.0.0.1:8001/v1')
+    config = dict(enabled=True, providers=(remote,), visual_provider=remote.provider_id)
+    assert PrecisionDeployment(**config).image_workers == 0
+    assert PrecisionDeployment(**config, image_workers=64).image_workers == 64
+    with pytest.raises(ValidationError):
+        PrecisionDeployment(**config, image_workers=65)
+
+
 def request(path, data, kind):
     path.write_bytes(data)
     return {'input_path': str(path), 'content_kind': kind, 'request_id': 'opaque-test-id',

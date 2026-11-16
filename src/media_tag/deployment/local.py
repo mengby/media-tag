@@ -190,10 +190,11 @@ def recover_owned(root,instance):
     from media_tag.api.config import load_application
     from media_tag.catalog import Principal
     from media_tag.precision.pool import image_worker_ids
+    from media_tag.precision.contracts import MAX_IMAGE_WORKERS
     app,router,_=load_application(root/'runtime.local.json')
     try:
         with router.database.transaction() as c:
-            identities = [instance.worker_id, *image_worker_ids(instance.worker_id, 8)]
+            identities = [instance.worker_id, *image_worker_ids(instance.worker_id, MAX_IMAGE_WORKERS)]
             owned={(r['task_id'],r['lease_epoch']) for r in c.execute('SELECT task_id,lease_epoch FROM router_attempts WHERE worker_id IN (SELECT value FROM json_each(?)) AND released_at IS NULL',(json.dumps(identities),))}
         router.process_stopped=lambda task,epoch:(task,epoch) in owned
         for task,epoch in owned:router.confirm_stopped(task,epoch,principal=Principal(actor_id='local-process-supervisor',role='admin'))
@@ -220,27 +221,24 @@ def child(root,generation,kind):
         finally:done.set();control.join()
     else:
         from media_tag.api.config import executor_from_config
+        from media_tag.precision.pool import run_image_workers
         from concurrent.futures import ThreadPoolExecutor
         executor=executor_from_config(root/'runtime.local.json',instance.worker_id,parallel_images=True)
         done=threading.Event()
         publisher=getattr(executor.router,"item_publisher",None)
         if publisher:
             threading.Thread(target=publisher.run,args=(done,),name="item-publisher",daemon=True).start()
-        def work_images(lane):
-            while not done.is_set():
-                if lane.run_once() is None:
-                    done.wait(.5)
-        with ThreadPoolExecutor(max_workers=max(1,len(executor.image_workers)),thread_name_prefix='remote-image') as pool:
-            futures=[pool.submit(work_images,lane) for lane in executor.image_workers]
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix='image-dispatch') as pool:
+            images = pool.submit(run_image_workers, executor.image_workers, done)
             try:
                 while not requested(root,generation):
-                    for future in futures:
-                        if future.done():
-                            future.result()
+                    if images.done():
+                        images.result()
                     if executor.run_once() is None:time.sleep(.5)
             finally:
                 done.set()
                 executor.close_models()
+                images.result()
 
 
 def resume_owned_process(process):

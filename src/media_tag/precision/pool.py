@@ -1,4 +1,6 @@
 """Independent leases for remote images inside the existing supervised worker process."""
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from hashlib import sha256
 import json
 
@@ -13,3 +15,29 @@ def remote_image(row, provider_id):
         return False
     spec = json.loads(row['spec_json'])
     return spec['config'].get('content_kind') == 'image' and spec['config'].get('provider_id') == provider_id
+
+
+def run_image_workers(workers, stop):
+    """Poll once when idle and dispatch each claimed lease to its owning worker."""
+    if not workers:
+        return
+    idle = deque(workers)
+    running = {}
+    with ThreadPoolExecutor(max_workers=len(workers), thread_name_prefix='remote-image') as pool:
+        while not stop.is_set():
+            for future in tuple(running):
+                if future.done():
+                    future.result()
+                    idle.append(running.pop(future))
+            if not idle:
+                wait(running, timeout=.5, return_when=FIRST_COMPLETED)
+                continue
+            lane = idle[0]
+            lease = lane.router.claim(principal=lane.principal)
+            if lease is None:
+                idle.rotate(-1)
+                stop.wait(.5)
+            else:
+                running[pool.submit(lane.run_lease, lease)] = idle.popleft()
+        for future in running:
+            future.result()

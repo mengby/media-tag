@@ -12,6 +12,7 @@ from media_tag.contracts.models import ContractModel, Evidence, FieldValue, Iden
 
 VERSION = 'ct-precision-v1'
 PROMPT = 'ct-precision-prompt-v1'
+MAX_IMAGE_WORKERS = 64
 
 
 class ProviderIdentity(ContractModel):
@@ -95,7 +96,7 @@ class PrecisionDeployment(ContractModel):
     enabled: bool = False
     auto_dispatch: bool = False
     auto_dispatch_after_intent: Annotated[int, Field(ge=0)] = 0
-    image_workers: Annotated[int, Field(ge=0, le=8)] = 0
+    image_workers: Annotated[int, Field(ge=0, le=MAX_IMAGE_WORKERS)] = 0
     dispatch_limit: Annotated[int, Field(ge=1, le=256)] = 32
     providers: Annotated[tuple[PrecisionProvider | ExternalProvider, ...], Field(max_length=8)] = ()
     visual_provider: Identifier | None = None

@@ -5,6 +5,8 @@ import time
 import pytest
 
 from media_tag.api.config import LocalConfig, executor_from_config, load_application
+from media_tag.catalog import Principal
+from media_tag.precision.pool import image_worker_ids, run_image_workers
 from media_tag.contracts.models import WorkerResult
 from media_tag.router.models import JobSpec, RouterOptions, StepSpec
 from media_tag.router.runtime import CPUHandlers, LocalExecutor, cpu_stages
@@ -12,6 +14,54 @@ from media_tag.router.service import Router
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.workers.probe import Toolchain, file_sha256
 from .conftest import result, step, submit
+
+
+def test_remote_image_pool_holds_64_leases_and_leaves_cpu_available(env):
+    from concurrent.futures import ThreadPoolExecutor
+
+    router = env.router
+    ids = image_worker_ids('test-primary', 64)
+    full, release, processed, stop = (threading.Event() for _ in range(4))
+    lock = threading.Lock()
+    started = []
+
+    def handle(lease, stopped):
+        with lock:
+            started.append(lease.task.task_id)
+            if len(started) == 64:
+                full.set()
+            if len(started) == 65:
+                processed.set()
+        assert release.wait(45)
+        return {'status': 'succeeded', 'artifacts': result(env, lease).artifacts}
+
+    lanes = []
+    for identity in ids:
+        router.register_worker(identity, ('synthetic',), principal=env.admin)
+        router.dedicated_worker_filters[identity] = lambda row: row['step_key'].startswith('image-')
+        lanes.append(LocalExecutor(router, Principal(actor_id=identity, role='worker'), handle))
+    submit(env, steps=tuple(step(f'image-{i}') for i in range(64)))
+    submit(env, steps=(step('image-last'), step('local')), request='overflow')
+    with ThreadPoolExecutor(max_workers=1) as scheduler:
+        pool = scheduler.submit(run_image_workers, lanes, stop)
+        try:
+            assert full.wait(35)
+            with env.database.transaction() as db:
+                assert {row[0] for row in db.execute('SELECT resource FROM router_holds')} == {
+                    f'worker:{identity}' for identity in ids}
+            local = router.claim(principal=env.workers[0],
+                                 prepare_order=lambda rows: [r for r in rows if r['step_key'] == 'local'])
+            assert local is not None
+            assert not processed.is_set()
+            release.set()
+            assert processed.wait(35)
+        finally:
+            release.set()
+            stop.set()
+            pool.result(timeout=45)
+    assert len(set(started)) == 65
+    with env.database.transaction() as db:
+        assert [r[0] for r in db.execute('SELECT resource FROM router_holds')] == ['cpu:0']
 
 
 @pytest.fixture(scope="module")

@@ -193,6 +193,7 @@ def load_application(path: Path):
                 for identity in image_worker_ids(worker, config.precision.image_workers):
                     if any(p.actor_id == identity for p in config.credentials.values()):
                         raise ValueError('private image worker identity already assigned')
+                    router.dedicated_worker_filters[identity] = lambda row: remote_image(row, config.precision.visual_provider)
                     connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
                         DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (identity, '["precision"]'))
     router.recover(principal=bootstrap)
@@ -329,7 +330,7 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
         for identity in image_worker_ids(worker_id, config.precision.image_workers):
             worker = Principal(actor_id=identity, role='worker')
             image_workers.append(LocalExecutor(router, worker, PrecisionHandlers(router, worker, config.precision),
-                after_task=adopt, prepare_order=lambda rows: [row for row in rows if remote_image(row, config.precision.visual_provider)]))
+                after_task=adopt))
     executor = LocalExecutor(router,principal,handle,after_task=adopt,
                          prepare_order=prepare_order,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)
