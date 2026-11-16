@@ -38,6 +38,14 @@ def media_part(kind, mime):
     raise ModelFailure('precision_api_media_format')
 
 
+def prompt_context(request):
+    context = {key: request[key] for key in ('request_id', 'content_kind', 'duration_seconds',
+        'evidence_start_seconds', 'evidence_end_seconds', 'fields', 'field_types', 'published_options')}
+    if request.get('field_guidance'):
+        context['field_guidance'] = request['field_guidance']
+    return context
+
+
 def request_body(provider, request, max_input_bytes):
     with Path(request['input_path']).open('rb') as stream:
         size = os.fstat(stream.fileno()).st_size
@@ -63,11 +71,7 @@ def request_body(provider, request, max_input_bytes):
         media = stream.read(size + 1)
     if len(media) != size or sha256(media).hexdigest() != request['source_sha256']:
         raise ModelFailure('precision_source_integrity')
-    context = {key: request[key] for key in ('request_id', 'content_kind', 'duration_seconds',
-        'evidence_start_seconds', 'evidence_end_seconds', 'fields', 'field_types', 'published_options')}
-    if request.get('field_guidance'):
-        context['field_guidance'] = request['field_guidance']
-    content = [{'type': 'text', 'text': json.dumps(context, ensure_ascii=False)}, part]
+    content = [{'type': 'text', 'text': json.dumps(prompt_context(request), ensure_ascii=False)}, part]
     envelope = {'model': provider.model_id, 'messages': [
         {'role': 'system', 'content': INSTRUCTIONS}, {'role': 'user', 'content': content}]}
     # The media value is the last JSON string, after every configurable value.

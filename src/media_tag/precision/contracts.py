@@ -28,7 +28,7 @@ class ProviderIdentity(ContractModel):
 
     @property
     def revision(self):
-        value = self.model_dump(mode='json', exclude={'adapter_path', 'api_key_env'})
+        value = self.model_dump(mode='json', exclude={'adapter_path', 'api_key_env', 'cli_path'})
         value['inputs'] = sorted(value['inputs'])
         return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
@@ -67,11 +67,32 @@ class ChatProvider(ProviderIdentity):
         return self
 
 
+class CodexProvider(ProviderIdentity):
+    execution: Literal['codex_cli']
+    model_id: Literal['gpt-6.1-terra'] = 'gpt-6.1-terra'
+    model_revision: Text = 'gpt-6.1-terra'
+    inputs: tuple[Literal['image']] = ('image',)
+    device: Literal['cpu'] = 'cpu'
+    protocol_version: Literal['codex-image-v1'] = 'codex-image-v1'
+    cli_path: str | None = None
+
+    @model_validator(mode='after')
+    def check_cli(self):
+        if self.cli_path is not None:
+            path = Path(self.cli_path)
+            if not path.is_absolute() or path.name.lower() not in ('codex', 'codex.exe'):
+                raise ValueError('absolute Codex CLI executable path required')
+        return self
+
+
+ExternalProvider = ChatProvider | CodexProvider
+
+
 class PrecisionDeployment(ContractModel):
     enabled: bool = False
     auto_dispatch: bool = False
     dispatch_limit: Annotated[int, Field(ge=1, le=256)] = 32
-    providers: Annotated[tuple[PrecisionProvider | ChatProvider, ...], Field(max_length=8)] = ()
+    providers: Annotated[tuple[PrecisionProvider | ExternalProvider, ...], Field(max_length=8)] = ()
     visual_provider: Identifier | None = None
     audio_provider: Identifier | None = None
     timeout_seconds: Annotated[int, Field(ge=1, le=600)] = 120
@@ -147,7 +168,7 @@ class PrecisionReport(ContractModel):
     schema_version: Literal['ct-precision-report-v1'] = 'ct-precision-report-v1'
     analysis_layer: Literal['precision', 'local_audio'] = 'precision'
     request_id: Identifier
-    provider: PrecisionProvider | ChatProvider
+    provider: PrecisionProvider | ExternalProvider
     policy_digest: Sha256
     prompt_version: Literal['ct-precision-prompt-v1'] = PROMPT
     document: AnalysisDocument

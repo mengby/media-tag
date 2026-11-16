@@ -1,0 +1,16 @@
+{
+  "analysis": { "enabled": true },
+  "precision": {
+    "enabled": true,
+    "auto_dispatch": false,
+    "visual_provider": "codex-terra",
+    "providers": [
+      {
+        "provider_id": "codex-terra",
+        "execution": "codex_cli",
+        "model_id": "gpt-6.1-terra",
+        "inputs": ["image"]
+      }
+    ]
+  }
+}

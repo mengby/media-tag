@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import subprocess
 import sys
 import time
@@ -21,7 +22,7 @@ from media_tag.transforms.processes import ProcessTree
 from media_tag.workers.evidence import _directory
 from media_tag.workers.probe import file_sha256
 
-from .contracts import PROMPT, VERSION, ChatProvider, PrecisionOptions, PrecisionReply, PrecisionReport
+from .contracts import PROMPT, VERSION, ChatProvider, CodexProvider, ExternalProvider, PrecisionOptions, PrecisionReply, PrecisionReport
 
 
 def stage():
@@ -135,7 +136,7 @@ class PrecisionHandlers:
                 or task.versions.rules_version != 'sha256:'+options.policy_digest
                 or task.versions.taxonomy_version != policy.config.taxonomy_version):
             raise ModelFailure('precision_configuration_changed')
-        if isinstance(provider, ChatProvider):
+        if isinstance(provider, ExternalProvider):
             self.authorize_transfer(task)
         else:
             path = Path(provider.adapter_path)
@@ -193,7 +194,7 @@ class PrecisionHandlers:
         guidance = {name: prompt for name, prompt in policy.tag_fields.guidance.items() if name in task.target_fields}
         if guidance:
             bridge_input['field_guidance'] = guidance
-        if isinstance(provider, ChatProvider):
+        if isinstance(provider, ExternalProvider):
             bridge_input['field_types'] = {field: policy.asset_fields[field].field_type for field in task.target_fields}
         check()
         response = self.invoke(provider, bridge_input, output, task, stopped, deadline=deadline)
@@ -243,17 +244,25 @@ class PrecisionHandlers:
             if not key or not key.isascii() or not key.isprintable() or any(c.isspace() for c in key):
                 raise ModelFailure('precision_api_key_missing')
             environment['MEDIA_TAG_PRECISION_BEARER'] = key
+        if isinstance(provider, ExternalProvider):
             settings['max_input_bytes'] = self.deployment.max_input_bytes
             settings['timeout_seconds'] = task.limits.timeout_seconds
-        request = encode(settings)
-        if len(request.encode()) > self.deployment.max_request_bytes:
-            raise ModelFailure('precision_request_budget')
-        request_path.write_text(request, encoding='utf8')
         tree, process = ProcessTree(), None
+        scratch = None
         try:
+            if isinstance(provider, CodexProvider):
+                # The parent owns cleanup even when cancellation kills the runner and CLI.
+                scratch = TemporaryDirectory(prefix='media-tag-codex-')
+                settings['codex_dir'] = scratch.name
+                if 'CODEX_HOME' in os.environ:
+                    environment['CODEX_HOME'] = os.environ['CODEX_HOME']
+            request = encode(settings)
+            if len(request.encode()) > self.deployment.max_request_bytes:
+                raise ModelFailure('precision_request_budget')
+            request_path.write_text(request, encoding='utf8')
             with (output/'native.stdout.log').open('wb') as stdout, (output/'native.stderr.log').open('wb') as stderr:
                 process = subprocess.Popen([sys.executable, '-m', 'media_tag.precision.runner', str(request_path), str(response_path)],
-                    stdin=subprocess.PIPE if isinstance(provider, ChatProvider) else subprocess.DEVNULL,
+                    stdin=subprocess.PIPE if isinstance(provider, ExternalProvider) else subprocess.DEVNULL,
                     stdout=stdout, stderr=stderr, env=environment,
                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
                 tree.assign(process)
@@ -279,12 +288,17 @@ class PrecisionHandlers:
                 process.wait()
                 if process.stdin is not None:
                     process.stdin.close()
+            if scratch is not None:
+                scratch.cleanup()
         if not response_path.is_file() or response_path.stat().st_size > 512*1024:
             raise ModelFailure('precision_process_failed')
         response = json.loads(response_path.read_text(encoding='utf8'))
         if not response.get('ok'):
-            if isinstance(provider, ChatProvider):
-                from .chat import ERROR_CODES
+            if isinstance(provider, ExternalProvider):
+                if isinstance(provider, CodexProvider):
+                    from .codex_cli import ERROR_CODES
+                else:
+                    from .chat import ERROR_CODES
                 code = response.get('error_code')
                 if code in ERROR_CODES:
                     raise ModelFailure(code)

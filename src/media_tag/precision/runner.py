@@ -9,7 +9,7 @@ import time
 from media_tag.models.contracts import ModelFailure
 from media_tag.contracts.templates import read_local_file
 
-from .contracts import ChatProvider, PrecisionProvider, PrecisionReply
+from .contracts import ChatProvider, CodexProvider, PrecisionProvider, PrecisionReply
 
 
 def run_local(provider, bridge_input):
@@ -34,16 +34,24 @@ def main():
             return 2
         time.sleep(.01)
     try:
-        if request['provider'].get('execution') == 'chat_completions':
-            from .chat import analyze
-            provider = ChatProvider.model_validate_json(json.dumps(request['provider']))
+        execution = request['provider'].get('execution', 'local')
+        if execution in ('chat_completions', 'codex_cli'):
+            options = {}
+            if execution == 'codex_cli':
+                from .codex_cli import analyze
+                provider = CodexProvider.model_validate_json(json.dumps(request['provider']))
+                options['work_dir'] = Path(request['codex_dir'])
+            else:
+                from .chat import analyze
+                provider = ChatProvider.model_validate_json(json.dumps(request['provider']))
+
             def authorize_send():
                 request_path.with_name('transfer.ready').touch()
                 if sys.stdin.buffer.read(1) != b'1':
                     raise ModelFailure('precision_transfer_denied')
 
             result = analyze(provider, request['input'], max_input_bytes=request['max_input_bytes'],
-                timeout_seconds=request['timeout_seconds'], authorize_send=authorize_send)
+                timeout_seconds=request['timeout_seconds'], authorize_send=authorize_send, **options)
         else:
             provider = PrecisionProvider.model_validate_json(json.dumps(request['provider']))
             result = run_local(provider, request['input'])

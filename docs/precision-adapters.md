@@ -1,10 +1,20 @@
 # 可替换精标桥接与字段采用
 
-精标 Worker 支持本地 Python 桥接与外部多模态 API，两种方式共用原队列、证据和字段审核流程。外部 API 的工程验证使用本机 HTTP 服务与合成素材。实际供应商连通性、模型效果及医学准确率待选定提供方后验证。
+精标 Worker 支持 Codex CLI 图片精标、本地 Python 桥接和外部多模态 API。三种方式共用队列、证据校验与字段审核流程。
 
 ## 配置与调用入口
 
 本机配置在 `data/local/runtime.local.json` 的 `precision` 段。默认 `enabled=false`、`auto_dispatch=false`、`providers=[]`。视觉和音频可用 `visual_provider`、`audio_provider` 分别选择。
+
+### Codex CLI 图片精标
+
+将[图片精标配置示例](../config/precision-codex.example.json)中的设置合并到本机运行配置。已有其他提供方时，将 `codex-terra` 追加到 `precision.providers` 并选作 `visual_provider`。API 和 Worker 应加载相同配置，开启 `analysis.enabled`、`review.enabled` 和 `precision.enabled`。示例保留手动派发，从现有精标入口请求选定图片与字段。
+
+Worker 使用运行账户已登录的原生 Codex CLI，通过 `codex exec --model gpt-6.1-terra --image … --output-schema …` 传入图片。当前实现需要支持 `--ignore-user-config`、`--ephemeral`、`--output-schema` 的 CLI，本机实测版本为 `0.167.0-alpha.3.2`。在 Worker 账户终端用 `codex login status` 检查登录。如果登录任务的 PATH 找不到 CLI，在该提供方的 `cli_path` 填入 PowerShell `(Get-Command codex.exe).Source` 返回的绝对路径，客户端更新后若路径变动需同步。此方式沿用 CLI 登录凭证。[OpenAI 官方模型说明](https://learn.chatgpt.com/docs/models) · [非交互调用](https://learn.chatgpt.com/docs/non-interactive-mode)
+
+支持静态 PNG、JPEG、WebP 和单帧 GIF。Worker 校验原图哈希和静态格式，再复核本次外发权限；CLI 在独立临时目录接收匿名附件和所选字段的提示词、类型与词表。返回的字段进入原精标建议与人工复核流程。子进程退出、超时或取消后回收临时文件。CLI 缺失报 `precision_codex_missing`；登录、模型权限或 CLI 执行异常导致非零退出时记为 `precision_codex_process`。
+
+2026-11-16 在隔离库通过真实 Worker 和本机已登录的 CLI 验证了十个基础字段。测试使用新生成的白底红圆 PNG，模型返回全部十个字段，观测值包含红色及圆形，报告源哈希与附件一致，未写入人工有效值。业务图片准确率与医学字段仍需分别复核。
 
 ### 外部模型 API
 
