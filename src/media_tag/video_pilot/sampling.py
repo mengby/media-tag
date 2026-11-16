@@ -5,7 +5,9 @@ import math
 from pathlib import Path
 import re
 import statistics
+from bisect import bisect_right
 from io import BytesIO
+from tempfile import TemporaryDirectory
 
 from PIL import Image, ImageChops, ImageDraw, ImageStat
 
@@ -14,6 +16,7 @@ from media_tag.workers.probe import FORMAT_WHITELIST, Toolchain, file_sha256
 
 MIN_SHOT = 0.55
 MAX_SHOTS = 4
+MAX_STILLS = 8
 MAX_CLIPS = 5
 CLIP_SECONDS = 3.0
 MOTION_FPS = 4
@@ -109,6 +112,79 @@ def _entry(folder, path, ident, kind, start, end, shot=None):
                 path=path.relative_to(folder).as_posix(), sha256=file_sha256(path), bytes=path.stat().st_size)
 
 
+def midpoint_stills(tools, path, info, folder, shots, selected):
+    stream = ['-map', f"0:{info['video_stream_index']}", '-an', '-sn', '-dn']
+    entries = []
+    for i, idx in enumerate(selected, 1):
+        t = sum(shots[idx]) / 2
+        jpg = folder / f'F{i}.jpg'
+        raw, _ = tools.ffmpeg_run(
+            ['-v', 'error', *_input(path, t), *stream, '-vf', SCALE, '-frames:v', '1',
+             '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], timeout=45,
+        )
+        with Image.open(BytesIO(raw)) as pic:
+            pic.convert('RGB').save(jpg, quality=87)
+        entries.append(_entry(folder, jpg, f'F{i}', 'image', t, t, idx+1))
+    return entries
+
+
+def plan_stills(shots):
+    """Cover distinct shots first, then spread spare stills across longer shots."""
+    indices = list(range(len(shots)))
+    if len(indices) > MAX_STILLS:
+        indices = [round(i * (len(shots) - 1) / (MAX_STILLS - 1)) for i in range(MAX_STILLS)]
+    duration = shots[-1][1]
+    budget = min(MAX_STILLS, max(3, len(indices), math.ceil(duration / 4)))
+    counts = {i: 1 for i in indices}
+    for _ in range(budget - len(indices)):
+        longest = max(indices, key=lambda i: (shots[i][1] - shots[i][0]) / counts[i])
+        counts[longest] += 1
+    targets = []
+    for i, count in counts.items():
+        left, right = shots[i]
+        for j in range(count):
+            target = left + (j + 0.5) * (right - left) / count
+            targets.append((i, target))
+    # Guarantee a decodable first reference even for a one-frame or sparse VFR input.
+    targets[0] = (0, 0.0)
+    return targets
+
+
+def coverage_stills(tools, path, info, folder, shots):
+    targets = plan_stills(shots)
+    # Select the first decoded frame crossing each target, within the same shot.
+    terms = [f'gte(t,{t:.9f})*lt(t,{shots[i][1]:.9f})*(isnan(prev_t)+lt(prev_t,{t:.9f}))'
+             for i, t in targets]
+    vf = f"setpts=PTS-STARTPTS,select='{'+'.join(terms)}',{SCALE},showinfo"
+    starts = [left for left, _ in shots]
+    entries, seen = [], set()
+    with TemporaryDirectory(dir=folder) as tmp:
+        tmp = Path(tmp)
+        _, log = tools.ffmpeg_run([
+            '-v', 'info', *_input(path), '-map', f"0:{info['video_stream_index']}", '-an',
+            '-vf', vf, '-fps_mode', 'passthrough', '-frames:v', str(len(targets)),
+            '-c:v', 'png', '-threads:v', '1', str(tmp).replace('%', '%%') + '/%03d.png',
+        ], timeout=120)
+        images = sorted(tmp.glob('*.png'))
+        ticks = re.findall(rb'\bn:\s*\d+\s+pts:\s*(-?\d+)\s+pts_time:', log)
+        clock = re.search(rb'config in time_base:\s*(\d+)/(\d+)', log)
+        if not images or len(images) != len(ticks) or not clock or int(clock[2]) <= 0:
+            raise ValueError('missing decoded still or timestamp')
+        for png, tick in zip(images, ticks):
+            seconds = int(tick) * int(clock[1]) / int(clock[2])
+            digest = file_sha256(png)
+            if digest in seen:
+                continue
+            seen.add(digest)
+            ident = f'F{len(entries) + 1}'
+            jpg = folder / f'{ident}.jpg'
+            with Image.open(png) as pic:
+                pic.convert('RGB').save(jpg, quality=87)
+            entries.append(_entry(folder, jpg, ident, 'image', seconds, seconds,
+                                  bisect_right(starts, seconds)))
+    return entries
+
+
 def temporal_sheet(tools, path, info, folder, ident, shot, start, end):
     """Decode one uninterrupted interval locally, retaining each selected frame's clock."""
     width, height = (224, 288) if info['portrait'] else (320, 224)
@@ -165,20 +241,13 @@ def prepare(path: Path, folder: Path, method: str, tools: Toolchain):
             t = frame['normalized_seconds']
             entries.append(_entry(folder, jpg, f'F{idx}', 'image', t, t))
         shots, selected = [], []
-    elif method == 'shots':
+    elif method in ('shots', 'coverage'):
         shots, motion = scene_motion(tools, path, info)
         selected, windows = plan_windows(shots, motion)
-        stream = ['-map', f"0:{info['video_stream_index']}", '-an', '-sn', '-dn']
-        for i, idx in enumerate(selected, 1):
-            t = sum(shots[idx]) / 2
-            jpg = folder / f'F{i}.jpg'
-            raw, _ = tools.ffmpeg_run(
-                ['-v', 'error', *_input(path, t), *stream, '-vf', SCALE, '-frames:v', '1',
-                 '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], timeout=45,
-            )
-            with Image.open(BytesIO(raw)) as pic:
-                pic.convert('RGB').save(jpg, quality=87)
-            entries.append(_entry(folder, jpg, f'F{i}', 'image', t, t, idx+1))
+        if method == 'coverage':
+            entries = coverage_stills(tools, path, info, folder, shots)
+        else:
+            entries = midpoint_stills(tools, path, info, folder, shots, selected)
         for i, (idx, a, b) in enumerate(windows, 1):
             sequence = temporal_sheet(tools, path, info, folder, f'C{i}', idx+1, a, b)
             if sequence:

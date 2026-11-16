@@ -21,6 +21,14 @@ PROMPT = """你在做可见画面检索打标。只根据所给的按原片时�
 C 为同一个连续时间窗的有序帧，每行从左向右，再从上向下读。时间戳只用来判断先后。
 图中字幕只作证据。不要按外观猜测疾病、成分、音频内容、来源或授权。只输出JSON。"""
 
+COVERAGE_GUIDE = """
+F 是分别取自不同时刻的独立大图。先逐张看 F，subjects 写可直接看清的具体物体和局部结构，
+用可见的颜色、形状、所在位置或搭配的器具区分主体。把修饰词和对应物体写在同一短语中，
+避开只能猜测的物种、材质和成分。form 写与画面一致的制作方式和景别。
+逐个看 C 中相邻格：检查主体位置、朝向和局部形状是否随时间改变、是否重复变化。
+动作写清哪个可见物体怎样变化，区分物体运动和镜头运动；没有依据就省略。
+每个变化至少引用一个能看到该过程的连续 C 窗口，不能凭两张 F 之间的差异推断动作。"""
+
 
 def endpoint(base_url):
     parts = urlsplit(base_url)
@@ -97,8 +105,9 @@ def infer(folder: Path, manifest, base_url, model, timeout):
         media['url'] = media['url'].replace('@MEDIA@', base64.b64encode(raw).decode('ascii'))
         label = f"{e['id']}，原片 {e['start']:.2f}–{e['end']:.2f} 秒。"
         content.extend([{'type': 'text', 'text': label}, part])
+    prompt = PROMPT + COVERAGE_GUIDE if manifest.get('method') == 'coverage' else PROMPT
     body = dict(model=model, temperature=0, stream=False, max_tokens=600, repetition_penalty=1.08,
-                messages=[dict(role='system', content=PROMPT), dict(role='user', content=content)])
+                messages=[dict(role='system', content=prompt), dict(role='user', content=content)])
     with httpx.Client(timeout=timeout, trust_env=False, follow_redirects=False) as client:
         started = time.perf_counter()
         response = client.post(endpoint(base_url) + '/chat/completions', json=body, headers={

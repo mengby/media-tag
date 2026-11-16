@@ -112,7 +112,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('videos', nargs='+', type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--method', choices=['three', 'shots'], default='shots')
+    parser.add_argument('--method', choices=['coverage', 'shots', 'three'], default='coverage',
+                        help='frame sampling method (default: coverage)')
     parser.add_argument('--concurrency', type=int, choices=range(1, 9), default=2,
                         help='maximum simultaneous A800 requests (default: 2)')
     parser.add_argument('--staged', action='store_true',

@@ -5,7 +5,7 @@ import pytest
 
 from media_tag.video_pilot.__main__ import request_peak
 from media_tag.video_pilot.api import endpoint, validate_tags
-from media_tag.video_pilot.sampling import plan_windows, prepare
+from media_tag.video_pilot.sampling import plan_stills, plan_windows, prepare
 from media_tag.workers.probe import Toolchain
 
 
@@ -19,6 +19,37 @@ def test_plan_keeps_sequences_inside_selected_shots():
         assert shot in selected
         assert shots[shot][0] <= start < end <= shots[shot][1]
         assert end - start <= 3
+
+
+def test_still_budget_covers_single_takes_and_cuts():
+    long_take = plan_stills([(0, 29)])
+    assert len(long_take) == 8
+    times = [t for _, t in long_take]
+    assert times == sorted(set(times)) and times[0] == 0 and times[-1] > 25
+    shots = [(i, i + 1) for i in range(12)]
+    selected = plan_stills(shots)
+    assert len(set(i for i, _ in selected)) == 8
+    assert selected[0][0] == 0 and selected[-1][0] == 11
+    assert all(shots[i][0] <= t < shots[i][1] for i, t in selected)
+
+
+def test_coverage_deduplicates_unchanged_frames_and_keeps_cut_clocks(tmp_path, media_tools):
+    source = tmp_path / 'cut.mp4'
+    media_tools.ffmpeg_run([
+        '-v', 'error', '-f', 'lavfi', '-i', 'color=black:size=64x48:rate=5:d=5',
+        '-f', 'lavfi', '-i', 'color=white:size=64x48:rate=5:d=5',
+        '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[out]', '-map', '[out]',
+        '-c:v', 'libx264', '-output_ts_offset', '3', str(source),
+    ], timeout=30)
+    out = tmp_path / 'coverage'
+    evidence = prepare(source, out, 'coverage', media_tools)['evidence']
+    stills = [e for e in evidence if e['kind'] == 'image']
+    assert [e['shot'] for e in stills] == [1, 2]
+    assert stills[0]['start'] == 0 and 5 <= stills[1]['start'] < 10
+    for e in stills:
+        with Image.open(out / e['path']) as frame:
+            assert frame.convert('L').getpixel((0, 0)) == (0 if e['shot'] == 1 else 255)
+    assert {e['shot'] for e in evidence if e['kind'] == 'sequence'} == {1, 2}
 
 
 def test_local_sequences_have_ordered_source_clocks_and_no_cross_cut_frames(tmp_path, media_tools):
@@ -53,7 +84,7 @@ def test_local_sequences_have_ordered_source_clocks_and_no_cross_cut_frames(tmp_
         prepare(source, out, 'shots', media_tools)
 
 
-@pytest.mark.parametrize('method', ['three', 'shots'])
+@pytest.mark.parametrize('method', ['three', 'shots', 'coverage'])
 @pytest.mark.parametrize('source_name', ['vfr', 'offset'])
 def test_parallel_decode_preserves_evidence(tmp_path, generated_media, media_tools, method, source_name):
     source = getattr(generated_media, source_name)
