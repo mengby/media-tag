@@ -42,6 +42,12 @@ producer_revision填写实际完整Git提交。有人工确认记录时必须提
 
 publisher.json包含base_url（HTTPS服务origin，本机可用loopback HTTP）、token_file（发布专用令牌绝对路径）和expected_active_release（预期当前版本，首次null）。云端实际采用后才写cloud-receipt.json。不使用人员reader token或本地全局管理员凭证。
 
+## OSS 直传及对象路径
+
+在 `publisher.json` 设置 `"upload_transport": "oss"` 后，`publish push` 为每个缺失对象向 media-cloud 申请限时 PUT 地址，再用与 wy-backend 同版本的 `oss2==2.19.1` 从文件流上传。需要云端启用 OSS 后端并提供 `upload-url` 接口，本地安装 `publish` 可选依赖即可。Bucket、前缀与签名凭证由云端管理。省略该设置时，整包发布继续通过原服务上传接口传输。
+
+对象地址为 `oss://<oss.bucket>/<oss.prefix>/blobs/<SHA256前两位>/<完整SHA256>`。原件、预览和证据各用自身的摘要，不附加文件扩展名。例如云端若配置 Bucket 为 `check-videos`、前缀为 `media-tag/library`，摘要以 `a1` 开头的对象就位于 `oss://check-videos/media-tag/library/blobs/a1/<完整SHA256>`。此处的 Bucket 和前缀仅为示例。现有库的云端绑定包含前缀，更改已有对象的位置需要同步迁移。
+
 ## 当前边界与验证
 
 云服务使用独立文件对象后端、cloud-state.db和只读每版catalog.db。仅实现字面/已发布字段查询；模型查询编码、完整D17搜索响应兼容、四工具客户端迁移、企业SSO、多人收件和在线处理仍未实施。真实OSS/ECS及Linux目标运行验收另列待办。

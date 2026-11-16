@@ -1,7 +1,9 @@
 """Bounded authenticated publisher; no redirects, ambient proxy or credential logging."""
+from functools import partial
 from hashlib import sha256
 import json
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict
 import httpx
@@ -14,6 +16,7 @@ class PublishSettings(BaseModel):
     base_url: str
     token_file: str
     expected_active_release: str | None
+    upload_transport: Literal["service", "oss"] = "service"
 
 
 def push_bundle(bundle, settings):
@@ -66,10 +69,18 @@ def push_bundle(bundle, settings):
                 raise ValueError("publication transport failed") from None
         prepared = request("POST", "/internal/releases", content=canonical(manifest), headers={"Content-Type": "application/json"})
         missing = prepared.get("missing_objects")
-        if not isinstance(missing, list) or set(missing) - {b.sha256 for b in manifest.objects}:
+        refs = {ref.sha256: ref for ref in manifest.objects}
+        if not isinstance(missing, list) or set(missing) - refs.keys():
             raise ValueError("publication response object scope invalid")
         uploaded = 0
         for object_sha in missing:
+            if settings.upload_transport == "oss":
+                from .oss import upload_object
+
+                ticket = request("POST", f"/internal/releases/{manifest.release_id}/objects/{object_sha}/upload-url")
+                reader = partial((bundle / "objects" / object_sha).open, "rb")
+                uploaded += upload_object(ticket, refs[object_sha], reader)
+                continue
             with (bundle / "objects" / object_sha).open("rb") as stream:
                 def chunks():
                     while data := stream.read(1024 * 1024):
