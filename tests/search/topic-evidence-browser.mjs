@@ -34,7 +34,9 @@ test('topic detail renders current content evidence, legacy frames, and absent m
     await page.evaluate(async({origin,labels})=>{
       const {installSearchUI}=await import(origin+'/search.js');
       window.bulkFixture=null;window.bulkCalls=[];
-      const ui=installSearchUI({api:async path=>path.endsWith('/concepts')?{links:[],can_edit:false}:{stages:{local_topics:'ready',audio_topics:'ready',precision:'not_requested'},labels,field_states:{表现形式:{state:'not_applicable'}},uncertainties:[]},
+      const screen={state:'succeeded',task_id:'task-example',report:{samples:[{frame_sha256:'1'.repeat(64),seconds:58.4}],
+        watermark:{state:'candidate_review',candidates:[{sample:0,text:'SAMPLE USE ONLY'}],visual_observations:[{state:'uncertain'}]}}};
+      const ui=installSearchUI({api:async path=>path.endsWith('/concepts')?{links:[],can_edit:false}:path.endsWith('/pretag-cleaning')?screen:{stages:{local_topics:'ready',audio_topics:'ready',precision:'not_requested'},labels,field_states:{表现形式:{state:'not_applicable'}},uncertainties:[]},
         post:async path=>{
           if(!window.bulkFixture)throw Error('unexpected mutation');
           window.bulkCalls.push(path);
@@ -48,6 +50,12 @@ test('topic detail renders current content evidence, legacy frames, and absent m
     },{origin,labels});
     const cards=page.locator('#details details.evidence-card');
     assert.equal(await cards.count(),5);
+    await t.test('watermark evidence opens the frame of the current cleaning task',async()=>{
+      const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'打标前清洗'})}).last();
+      assert.match(await panel.innerText(),/SAMPLE USE ONLY/);
+      const frame=panel.getByRole('link',{name:'查看 58.40 秒画面'});
+      assert.equal(await frame.getAttribute('href'),'/v1/assets/synthetic/pretag-cleaning/frames/'+'1'.repeat(64)+'?task_id=task-example');
+    });
     await t.test('new hashes take precedence and actual evidence modality is named',async()=>{
       const image=await cards.nth(0).innerText(),audio=await cards.nth(1).innerText(),content=await cards.nth(2).innerText();
       // Closed details still have actual paragraph text in the DOM.

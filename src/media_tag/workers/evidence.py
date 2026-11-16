@@ -22,6 +22,7 @@ EVIDENCE_VERSION = "d02-evidence-v1"
 
 
 class EvidenceOptions(ContractModel):
+    sample_across_duration: bool = False
     max_frames: Annotated[int, Field(ge=1, le=12)] = 3
     max_packets: Annotated[int, Field(ge=1, le=2400)] = 600
     horizon_seconds: Annotated[float, Field(gt=0, le=120)] = 30.0
@@ -69,6 +70,52 @@ def _frame_file(path: Path, root: Path, *, source_sha256: str, requested_index: 
             "width": width, "height": height, "sample_has_transparent_pixels": transparent}
 
 
+def _duration_samples(path, info, output, root, tools, options, source_sha256):
+    """Seek in the selected stream and retain decoder timestamps, including for VFR inputs."""
+    duration = info["duration_seconds"]
+    if not duration or duration <= 0:
+        raise MediaError("unknown_duration", "cannot sample across an unknown duration")
+    fractions = (0.,) if options.max_frames == 1 else (0., .9) if options.max_frames == 2 else (0., .5, .9)
+    edge = options.thumbnail_edge
+    frames, missing = [], []
+    for fraction in fractions:
+        requested = duration * fraction
+        target = output / f"frame-{len(frames)+1:03d}.png"
+        _, log = tools.ffmpeg_run(["-v","info","-xerror","-ss",f"{requested:.6f}","-copyts",
+            "-protocol_whitelist","file,pipe","-format_whitelist",FORMAT_WHITELIST,"-i",str(path),
+            "-map",f"0:{info['video_stream_index']}","-an","-vf",
+            f"scale=w='min({edge},iw)':h='min({edge},ih)':force_original_aspect_ratio=decrease:reset_sar=1,showinfo",
+            "-frames:v","1","-fps_mode","passthrough","-threads:v","1","-pix_fmt","rgba",str(target)],
+            timeout=options.timeout_seconds)
+        if not target.exists():
+            missing.append(requested)
+            continue
+        tick = re.search(rb"\bn:\s*0\s+pts:\s*(-?\d+)\s+pts_time:", log)
+        clock = re.search(rb"config in time_base:\s*(\d+)/(\d+)", log)
+        if not tick or not clock or int(clock[1]) < 1 or int(clock[2]) < 1:
+            raise MediaError("missing_frame_timestamps", "decoded seek frame lacks a clock")
+        time_base = Fraction(int(clock[1]), int(clock[2]))
+        ticks = int(tick[1])
+        pts = float(ticks * time_base)
+        normalized = pts - info["start_seconds"]
+        if normalized < -max(.00001, float(time_base)):
+            raise MediaError("frame_timestamp_mismatch", "decoded frame precedes source start")
+        if frames and pts <= frames[-1]["source_pts_seconds"]:
+            target.unlink()
+            missing.append(requested)
+            continue
+        frame = _frame_file(target, root, source_sha256=source_sha256, requested_index=None,
+            source_pts=pts, normalized_pts=max(normalized, 0.), source_pts_ticks=ticks,
+            decoded_clock={"pts":ticks,"time_base":str(time_base)})
+        frame["requested_seconds"] = requested
+        frames.append(frame)
+    if not frames:
+        raise MediaError("missing_frame_output", "no visual evidence could be decoded")
+    return {"status":"succeeded","frames":frames,"coverage_kind":"sparse_duration_seeks",
+            "continuous_observation":False,"full_video_observed":False,"unobserved_between_samples":True,
+            "unavailable_requested_seconds":missing,"sampled_normalized_seconds":[f["normalized_seconds"] for f in frames]}
+
+
 def extract_frames(path: Path, info: dict, output: Path, root: Path, tools: Toolchain,
                    options: EvidenceOptions, source_sha256: str) -> dict:
     if info["video_stream_index"] is None:
@@ -87,6 +134,8 @@ def extract_frames(path: Path, info: dict, output: Path, root: Path, tools: Tool
                 "transform": {"image_orientation": "exif_transpose", "format": "PNG", "max_edge": options.thumbnail_edge}}
     if info["start_seconds"] is None:
         raise MediaError("unknown_time_origin", "source timestamp origin is missing; do not assume zero")
+    if options.sample_across_duration and info["kind"] == "video":
+        return _duration_samples(path, info, output, root, tools, options, source_sha256)
     raw = tools.probe_run(path, timeout=options.timeout_seconds, extra=["-select_streams", str(info["video_stream_index"]),
                          "-read_intervals", f"%+#{options.max_packets}", "-show_frames", "-show_entries",
                          "frame=best_effort_timestamp,best_effort_timestamp_time,pts,pts_time,duration_time"])

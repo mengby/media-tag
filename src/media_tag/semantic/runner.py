@@ -79,7 +79,10 @@ def execute(request,*,diagnostic_path=None):
 def main():
     request=json.loads(Path(sys.argv[1]).read_text(encoding='utf8'));watch_parent(request['executor_pid'])
     try:
-        if request.get('prefetch'):
+        if request.get('kind') == 'watermark':
+            from .native_batch import execute as batch_execute
+            result = {'ok':True,'data':batch_execute(request, watermark=True)}
+        elif request.get('prefetch'):
             from .native_batch import execute as batch_execute
             reports=batch_execute(request,diagnostic_path=Path(sys.argv[2]).with_name('raw-output.txt'))
             result={'ok':True,'data':reports[0]['report'],'prefetched':reports[1:]}

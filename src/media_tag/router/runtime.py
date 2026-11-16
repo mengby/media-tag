@@ -18,10 +18,13 @@ from .service import Router
 
 
 def cpu_stages(tools: Toolchain) -> dict[str, StageDefinition]:
+    from media_tag.cleaning.pretag import STAGE, VERSION, ScreenOptions
     identity = sha256(json.dumps(tools.identity, sort_keys=True).encode()).hexdigest()
     return {
         "probe": StageDefinition(ProbeOptions, f"{PROBE_VERSION}:{identity}", metadata_sensitive=False),
         "evidence": StageDefinition(EvidenceOptions, f"{EVIDENCE_VERSION}:{identity}", metadata_sensitive=False),
+        STAGE: StageDefinition(ScreenOptions, VERSION, metadata_sensitive=False, requires_no_model=True,
+                               required_preprocess_version=VERSION, allowed_target_fields=()),
     }
 
 
@@ -30,8 +33,9 @@ def _artifact(path, workspace, kind):
 
 
 class CPUHandlers:
-    def __init__(self, router: Router, worker: Principal, tools: Toolchain):
+    def __init__(self, router: Router, worker: Principal, tools: Toolchain, *, watermark_handler=None):
         self.router, self.worker, self.tools = router, worker, tools
+        self.watermark_handler = watermark_handler
 
     def __call__(self, lease: Lease, stopped: threading.Event) -> dict:
         task, workspace = lease.task, self.router.workspace
@@ -41,6 +45,18 @@ class CPUHandlers:
         (output / "README.md").write_text("Private D03 execution artifacts; source media is read only.\n", encoding="utf-8")
         (output / "task.json").write_text(task.model_dump_json(indent=2), encoding="utf-8")
         (output / "config.json").write_text(json.dumps(lease.config, sort_keys=True), encoding="utf-8")
+        if task.stage == "pretag_cleaning":
+            from media_tag.cleaning.pretag import ScreenOptions, screen
+            visual = None
+            if task.versions.model_revision:
+                if self.watermark_handler is None:
+                    raise MediaError("missing_visual_model", "the planned watermark model is unavailable")
+                def visual(frames):
+                    return self.watermark_handler(task, frames, output, stopped)
+            report = screen(self.router.files, task.input_refs, ScreenOptions(**lease.config), stopped, visual)
+            target = output / "pretag-cleaning.json"
+            target.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+            return {"status": "succeeded", "artifacts": (_artifact(target, workspace, "pretag_cleaning_report"),)}
         # Share verified source copies within the job; keep Windows CAS paths below deep attempt paths.
         inputs = _directory(workspace, f"jobs/{task.job_id}/inputs")
         store = FilesystemBackend(inputs, writable=True)

@@ -122,6 +122,10 @@ class Router:
                            (task_id, job_id, step.key, generation, step.model_dump_json(), self.clock()))
         return task_id
 
+    def analysis_steps(self, connection, asset_id, steps):
+        from media_tag.cleaning.pretag import STAGE, plan
+        return plan(connection, asset_id, steps, self.stages[STAGE]) if STAGE in self.stages else steps
+
     def submit(self, spec: JobSpec, *, request_id: str, principal: Principal) -> dict:
         if principal.role not in ("editor", "admin"):
             raise AccessDenied("human job owner required")
@@ -130,6 +134,10 @@ class Router:
         with self.database.transaction(write=True) as connection:
             asset = self.catalog._authorize(connection, spec.asset_id, Principal(actor_id=principal.actor_id),
                                              "edit" if any(step.target_fields for step in spec.steps) else "read")
+            planned = self.analysis_steps(connection, spec.asset_id, spec.steps)
+            if planned != spec.steps:
+                spec = JobSpec(**{**spec.model_dump(), "steps": planned})
+                self._validate_steps(spec.steps)
             fingerprint = _digest({"spec": spec.model_dump(mode="json"), "source_sha256": asset["blob_sha256"], "revision": asset["revision"]})
             previous = connection.execute("SELECT * FROM router_requests WHERE owner_id=? AND request_id=?", (principal.actor_id, request_id)).fetchone()
             if previous:
@@ -521,10 +529,14 @@ class Router:
         old = {row["step_key"]: row for row in connection.execute("SELECT * FROM router_tasks WHERE job_id=? AND active=1", (job_id,))}
         specs = {key: StepSpec.model_validate_json(row["spec_json"]) for key, row in old.items()}
         specs.update({step.key: step for step in patches})
+        planned = self.analysis_steps(connection, job["asset_id"], tuple(specs.values()))
+        injected = {s.key for s in planned if specs.get(s.key) != s}
+        specs = {s.key: s for s in planned}
+        self._validate_steps([specs[key] for key in injected])
         JobSpec(asset_id=job["asset_id"], steps=tuple(specs.values()))
         for spec in specs.values():
             self._task_source(connection, job, spec)
-        changed = {step.key for step in patches}
+        changed = {step.key for step in patches} | injected
         while True:
             more = {key for key, spec in specs.items() if set(spec.depends_on) & changed}
             if more <= changed:

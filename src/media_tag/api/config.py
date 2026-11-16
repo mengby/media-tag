@@ -134,7 +134,8 @@ def load_application(path: Path):
         if not root.is_absolute():
             raise ValueError('enabled local topic model root must be absolute')
         require_local_path(root)
-        router.stages['local_topics'] = local_topic_stage(SemanticRegistry(root))
+        router.watermark_registry = SemanticRegistry(root)
+        router.stages['local_topics'] = local_topic_stage(router.watermark_registry)
     if config.precision.enabled:
         if not config.review.enabled:
             raise ValueError('precision drafts require the template validation policy')
@@ -154,6 +155,14 @@ def load_application(path: Path):
         require_local_path(root)
         semantic_registry=SemanticRegistry(root)
         router.stages['visual_fields']=semantic_stage(semantic_registry)
+        router.watermark_registry = semantic_registry
+    if getattr(router, 'watermark_registry', None):
+        from dataclasses import replace
+        from media_tag.cleaning.pretag import STAGE, VERSION, PROMPT_VERSION
+        revision = router.watermark_registry.revision
+        router.stages[STAGE] = replace(router.stages[STAGE], requires_no_model=False,
+            implementation_version=VERSION+':'+PROMPT_VERSION+':'+revision,
+            gpu_allowed=True, required_gpu_slots=1, required_model_revision=revision)
     if config.text.enabled:
         if not config.terminology.enabled:raise ValueError('text resolution requires the terminology service')
         if config.text.model_enabled:
@@ -201,7 +210,6 @@ def executor_from_config(path: Path, worker_id: str):
             raise ValueError("worker must be enabled in the local configuration")
     principal = Principal(actor_id=worker_id, role="worker")
     config = LocalConfig.model_validate_json(path.read_bytes())
-    cpu = CPUHandlers(router, principal, tools)
     processing_handler = ProcessingHandlers(router, principal, tools, options=config.processing) if config.processing.enabled else None
     similarity_handler = None
     if config.similarity.enabled:
@@ -213,6 +221,11 @@ def executor_from_config(path: Path, worker_id: str):
         from media_tag.semantic.registry import SemanticRegistry
         from media_tag.semantic.runtime import SemanticHandlers
         semantic_handler=SemanticHandlers(router,SemanticRegistry(Path(config.semantic.model_root)))
+    watermark = None
+    if getattr(router, 'watermark_registry', None):
+        from media_tag.semantic.runtime import SemanticHandlers
+        watermark = (semantic_handler or SemanticHandlers(router,router.watermark_registry)).screen_watermarks
+    cpu = CPUHandlers(router, principal, tools, watermark_handler=watermark)
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
     transform=RedactionHandlers(redactions) if redactions else None
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
@@ -235,7 +248,7 @@ def executor_from_config(path: Path, worker_id: str):
     latest_asset=[None]
     def handle(lease,stopped):
         latest_asset[0]=lease.task.asset_id
-        if lease.task.stage in ('probe','evidence'): return cpu(lease,stopped)
+        if lease.task.stage in ('probe','evidence','pretag_cleaning'): return cpu(lease,stopped)
         if lease.task.stage in ('cleaning_output','image_mask_output') and processing_handler:
             return processing_handler(lease, stopped)
         if lease.task.stage == 'similarity' and similarity_handler: return similarity_handler(lease, stopped)

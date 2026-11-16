@@ -1,6 +1,7 @@
 from hashlib import sha256
 import os
 from pathlib import Path
+from importlib.resources import files
 import shutil
 import time
 from media_tag.catalog.service import encode
@@ -38,9 +39,16 @@ def _verified(client,asset_id,row):
     return detail,member
 
 
+def pretag_source(source):
+    import json
+    roots = json.loads(files('media_tag.intake').joinpath('pretag-roots.json').read_text(encoding='utf-8'))
+    return any(Path(root).is_absolute() and source.is_relative_to(Path(root)) for root in roots)
+
+
 def apply(batch,client,*,limit=None,destination_root=None):
     batch,inventory,progress=load_batch(batch)
     source=directory(Path(inventory.source_root))
+    clean_before_tag = pretag_source(source)
     if source.is_relative_to(batch) or batch.is_relative_to(source):raise IntakeError('source_and_batch_roots_overlap')
     if limit is not None and (type(limit) is not int or limit<1):raise IntakeError('invalid_batch_limit')
     if destination_root is not None:
@@ -80,6 +88,8 @@ def apply(batch,client,*,limit=None,destination_root=None):
                         body={'request_id':base_request+('-r'+str(generation) if generation else ''),'filename':display_name(row),'size_bytes':row.size_bytes,
                               'sha256':row.sha256,'purpose':'library','source':{'label':'本地导入：'+row.key[:1800],
                               'attribution':'只读源文件SHA256='+row.sha256+'；源根目录和原相对路径见本批次inventory.json','license_status':'unverified'}}
+                        if clean_before_tag:
+                            body['pretag_cleaning'] = True
                         upload=client.call('POST','/uploads',payload=body)
                         if upload.get('state') in ('rejected','cancelled'):
                             history=current.setdefault('closed_uploads',[])

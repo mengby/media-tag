@@ -144,6 +144,18 @@ def create_app(router: Router, credentials: dict[str, Principal], *, max_body_by
     def asset_details(asset_id: Identifier, principal=Depends(identity)):
         return files.details(asset_id, principal=principal)
 
+    @app.get('/v1/assets/{asset_id}/pretag-cleaning')
+    def pretag_cleaning(asset_id: Identifier, principal=Depends(identity)):
+        from media_tag.cleaning.pretag import current_screen
+        return current_screen(files, asset_id, principal)
+
+    @app.get('/v1/assets/{asset_id}/pretag-cleaning/frames/{frame_sha}')
+    def pretag_frame(asset_id: Identifier, frame_sha: Sha256, task_id: Identifier, principal=Depends(identity)):
+        from fastapi.responses import Response
+        from media_tag.cleaning.pretag import current_screen
+        raw = current_screen(files, asset_id, principal, frame_sha=frame_sha, task_id=task_id)
+        return Response(raw, media_type='image/png', headers={'Cache-Control':'private, no-store'})
+
     @app.get('/v1/assets/{asset_id}/download-manifest')
     def download_manifest(asset_id: Identifier, sha256: Sha256, principal=Depends(identity)):
         return files.download_manifest(asset_id, sha256, principal=principal)

@@ -141,7 +141,8 @@ def repair(service, asset_id, spec, *, principal):
         if not service.options.enabled:
             raise RevisionConflict('analysis dispatch is disabled')
         rules = connection.execute("SELECT value FROM catalog_metadata WHERE key='template_fingerprint'").fetchone()[0]
-        desired = {step.key: step for step in service._steps(rules, intent['content_kind'])}
+        planned = service.router.analysis_steps(connection, asset_id, service._steps(rules, intent['content_kind']))
+        desired = {step.key: step for step in planned}
         rows = {row['step_key']: row for row in connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
             FROM router_tasks t LEFT JOIN router_attempts a ON a.task_id=t.task_id AND a.lease_epoch=t.lease_epoch
             WHERE t.job_id=? AND t.active=1''', (job['job_id'],))}

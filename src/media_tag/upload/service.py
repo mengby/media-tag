@@ -55,7 +55,9 @@ class UploadService:
         _human(principal)
         if spec.size_bytes > self.options.max_file_bytes or Path(spec.filename).suffix.lower() not in EXTENSIONS:
             raise ValueError('file exceeds intake policy or has an unsupported filename type')
-        fingerprint = sha256(spec.model_dump_json().encode()).hexdigest()
+        # Existing upload request IDs keep their original payload fingerprint.
+        excluded = set() if spec.pretag_cleaning else {'pretag_cleaning'}
+        fingerprint = sha256(spec.model_dump_json(exclude=excluded).encode()).hexdigest()
         with self.database.transaction(write=True) as connection:
             old = connection.execute('SELECT * FROM uploads WHERE owner_id=? AND request_id=?', (principal.actor_id, spec.request_id)).fetchone()
             if old:

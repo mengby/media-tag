@@ -79,6 +79,11 @@ def _suffix(info):
     raise CleaningError('supported copy container extension unavailable')
 
 
+def edge_variance(image):
+    edges = image.convert('L').filter(ImageFilter.FIND_EDGES)
+    return ImageStat.Stat(edges).var[0]
+
+
 def image_quality(path, limits):
     frames = []
     pixels = 0
@@ -98,11 +103,10 @@ def image_quality(path, limits):
             image.load()
             rgba = image.convert('RGBA')
             alpha = rgba.getchannel('A')
-            edges = rgba.convert('L').filter(ImageFilter.FIND_EDGES)
             frames.append({'index': index, 'duration_ms': image.info.get('duration'),
                 'width': image.width, 'height': image.height, 'alpha_sha256': sha256(alpha.tobytes()).hexdigest(),
                 'has_transparent_pixels': alpha.getextrema()[0] < 255,
-                'edge_variance': ImageStat.Stat(edges).var[0]})
+                'edge_variance': edge_variance(rgba)})
     return {'full_decode': True, 'frame_count': len(frames), 'loop': loop, 'frames': frames,
         'decoded_pixels': pixels, 'sharpness_metric_calibrated': False,
         'quality_approval': False, 'semantic_labels_generated': False}

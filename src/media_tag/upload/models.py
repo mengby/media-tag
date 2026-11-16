@@ -14,9 +14,12 @@ class UploadSpec(ContractModel):
     source: SourceInput = Field(default_factory=SourceInput)
     purpose: Literal['library', 'processing'] = 'library'
     known_asset_id: Identifier | None = None
+    pretag_cleaning: bool = False
 
     @model_validator(mode='after')
     def filename_only(self):
+        if self.pretag_cleaning and (self.purpose != 'library' or self.known_asset_id is not None):
+            raise ValueError('pretag cleaning requires a new library upload')
         validate_relative_path(self.filename)
         if '/' in self.filename:
             raise ValueError('filename must be a display leaf name')

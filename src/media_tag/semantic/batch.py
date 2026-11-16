@@ -102,6 +102,8 @@ def submit(search,spec,*,principal):
                 request='auto-tag-'+sha256(encode([row['asset_id'],row['source_sha256'],registry.revision]).encode()).hexdigest()
                 search.router.submit(JobSpec(asset_id=row['asset_id'],steps=tuple(steps)),request_id=request,principal=principal);added+=1
             else:
+                from media_tag.cleaning.pretag import retry_failed_screen
+                retry_failed_screen(search.router, row['job_id'], principal)
                 reply=ensure(search,row['asset_id'],SemanticSubmission.model_validate({k:v for k,v in row.items() if k!='asset_id'}),principal=principal)
                 if reply['reused']:reused+=1
                 else:added+=1
@@ -211,7 +213,8 @@ def _submit_topics(search,spec,*,principal):
                 job=search.router._job_auth(c,binding['job_id'],principal)
                 tasks=c.execute('SELECT step_key,spec_json,task_id,state,lease_epoch FROM router_tasks WHERE job_id=? AND active=1 ORDER BY step_key',
                     (job['job_id'],)).fetchall()
-                desired={step.key:step for step in service._steps(fingerprint,intent['content_kind'])}
+                planned=search.router.analysis_steps(c,row['asset_id'],service._steps(fingerprint,intent['content_kind']))
+                desired={step.key:step for step in planned}
                 incompatible=any(t['step_key'] in desired and StepSpec.model_validate_json(t['spec_json'])!=desired[t['step_key']] for t in tasks)
                 revision=asset['revision'];job_revision=job['revision']
                 basis=[tuple(t) for t in tasks]

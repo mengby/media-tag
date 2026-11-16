@@ -96,6 +96,22 @@ class SemanticHandlers:
         return {'status':'succeeded','artifacts':(self.artifact(path),),'evidence':(evidence,),
             'suggestions':suggestions(caption,task,evidence.evidence_id)}
 
+    def screen_watermarks(self, task, frames, output, stopped):
+        from media_tag.cleaning.watermark import PROMPT_VERSION as watermark_version
+        if task.versions.model_revision != self.registry.revision:
+            raise ModelFailure('watermark_version_mismatch')
+        items = [{"source_sha256":f["source_sha256"],"frame":f} for f in frames]
+        request = dict(items[0], kind="watermark", prefetch=items[1:], workspace=str(self.router.workspace),
+            model_root=str(self.registry.root.resolve()),model_revision=self.registry.revision,
+            prompt_version=watermark_version,executor_pid=os.getpid(), options=SemanticOptions().model_dump())
+        response = self.invoke(request, output, task, stopped)
+        if not response.get("ok"):
+            raise ModelFailure(response.get("error_code","watermark_execution_failed"))
+        observations = response["data"]
+        if len(observations)!=len(frames) or any(o["frame"]!=f for o,f in zip(observations,frames)):
+            raise ModelFailure("watermark_frame_binding")
+        return [{k:v for k,v in o.items() if k != "frame"} for o in observations]
+
     def cache_key(self,task_id,frame,config):
         from media_tag.catalog.service import encode
         normalized=SemanticOptions.model_validate(config).model_dump()

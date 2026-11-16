@@ -116,7 +116,7 @@ def test_local_configuration_and_cli_load_private_bindings(env, tools, tmp_path,
     path = tmp_path / "synthetic.local.json"
     path.write_text(config.model_dump_json())
     app, router, checked_tools = load_application(path)
-    assert set(router.stages) == {"probe", "evidence"} and checked_tools.identity == tools.identity
+    assert set(router.stages) == {"probe", "evidence", "pretag_cleaning"} and checked_tools.identity == tools.identity
     assert executor_from_config(path, env.workers[0].actor_id).run_once() is None
     with pytest.raises(ValueError):
         executor_from_config(path, "unregistered")

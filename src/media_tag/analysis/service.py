@@ -87,7 +87,8 @@ class AnalysisService:
                 raise ValueError('probe report integrity changed')
             info = json.loads(data)
             kind = semantic_content_kind(info)
-            expected = {step.key: step for step in self._steps(fingerprint, kind)}
+            planned = self.router.analysis_steps(connection, intent['asset_id'], self._steps(fingerprint, kind))
+            expected = {step.key: step for step in planned}
             current = {row['step_key']: StepSpec.model_validate_json(row['spec_json']) for row in
                 connection.execute('SELECT step_key,spec_json FROM router_tasks WHERE job_id=? AND active=1', (job_id,))}
             if any(key not in expected or spec != expected[key] for key, spec in current.items()):

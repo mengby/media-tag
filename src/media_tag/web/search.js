@@ -199,6 +199,29 @@ export function installSearchUI({api,post,notify,getPerson,refreshLibrary,showPa
     for(const [field,value] of Object.entries(draft.field_states||{}))if(value.state!=='observed')draftHost.append(el('p',`${field}：${value.state==='no_match'?'模型候选不在模板选项内':value.state==='not_applicable'?'该字段不适用':'内容证据不足'}，保留空值。`,'muted'));
     for(const note of draft.uncertainties||[])draftHost.append(el('p',`模型记录的不确定性：${note}`,'muted'));
     draftHost.append(el('p','OCR 原文和人脸检测均为模型观察；未检出不证明无人脸，检测到也不表示打码完成。','muted'));panel.append(draftHost);
+    const base='/v1/assets/'+encodeURIComponent(data.asset_id)+'/pretag-cleaning';
+    try {
+      const cleaning=await api(base);
+      if(generation!==assetEpoch||!ctx.isCurrent()||cleaning.state==='not_requested')return;
+      const box=el('section');box.append(el('h3','打标前清洗'));panel.append(box);
+      const states={queued:'排队中',leased:'执行中',running:'执行中',retry_wait:'等待重试',awaiting_release:'正在保存',failed:'执行失败',needs_attention:'需处理',cancelled:'已取消'};
+      if(!cleaning.report){box.append(el('p',states[cleaning.state]||cleaning.state));return;}
+      const {samples,watermark}=cleaning.report;
+      const marks={candidate_review:'有疑似水印，待复核',no_hit_in_samples:'抽样未见水印',no_text_hit_in_samples:'抽样未命中文本水印，图形未筛查',awaiting_ocr:'OCR 未配置，需复核',needs_review:'抽样结果需复核'};
+      box.append(el('p',marks[watermark.state]||watermark.state));
+      samples.forEach((s,i)=>{
+        const line=el('p'),link=el('a',s.seconds===null?'查看样图':'查看 '+s.seconds.toFixed(2)+' 秒画面');
+        link.href=base+'/frames/'+s.frame_sha256+'?task_id='+encodeURIComponent(cleaning.task_id);
+        link.target='_blank';link.rel='noopener';line.append(link);
+        const hints=watermark.candidates.filter(h=>h.sample===i).map(h=>h.text);
+        const visual=watermark.visual_observations[i];
+        if(visual?.state==='candidate_review')hints.push(visual.position+' '+visual.description);
+        if(hints.length)line.append(document.createTextNode(' · '+hints.join('，')));
+        box.append(line);
+      });
+    } catch {
+      if(generation===assetEpoch&&ctx.isCurrent())panel.append(el('p','清洗报告暂时无法读取','muted'));
+    }
   }
   function reset(){epoch++;reviewEpoch++;assetEpoch++;taggingBusy=false;tagging.replaceChildren();vocabulary=null;result=null;selected=[];selectionVersion=null;editing=null;lastQuery='';summary.replaceChildren();mySubmissions.replaceChildren();mySubmissions.hidden=true;
     conceptHost.replaceChildren();expression.value='';quote.value='';target.replaceChildren();department.replaceChildren();organ.replaceChildren();polarity.value='unspecified';direction.value='unspecified';include.checked=true;visual.checked=false;literal.checked=false;aliasCheckbox.checked=false;dialog.close();wrapper.hidden=true;termsUI.reset();}
