@@ -46,7 +46,9 @@ publisher.json包含base_url（HTTPS服务origin，本机可用loopback HTTP）�
 
 在 `publisher.json` 设置 `"upload_transport": "oss"` 后，`publish push` 为每个缺失对象向 media-cloud 申请限时 PUT 地址，再用与 wy-backend 同版本的 `oss2==2.19.1` 从文件流上传。需要云端启用 OSS 后端并提供 `upload-url` 接口，本地安装 `publish` 可选依赖即可。Bucket、前缀与签名凭证由云端管理。省略该设置时，整包发布继续通过原服务上传接口传输。
 
-对象地址为 `oss://<oss.bucket>/<oss.prefix>/blobs/<SHA256前两位>/<完整SHA256>`。原件、预览和证据各用自身的摘要，不附加文件扩展名。例如云端若配置 Bucket 为 `check-videos`、前缀为 `media-tag/library`，摘要以 `a1` 开头的对象就位于 `oss://check-videos/media-tag/library/blobs/a1/<完整SHA256>`。此处的 Bucket 和前缀仅为示例。现有库的云端绑定包含前缀，更改已有对象的位置需要同步迁移。
+素材库使用 `check-videos` 桶和 `media-tag/library` 前缀。上传路径为 `oss://check-videos/media-tag/library/blobs/<SHA256前两位>/<完整SHA256>`。原件、预览和证据各按自身字节计算 SHA256，对象名不带扩展名。
+
+启用 OSS 后，media-cloud 的 `oss.bucket` 和 `oss.prefix` 默认采用上述值。部署配置中若显式填写这两个字段，应分别填 `check-videos` 和 `media-tag/library`。已有库绑定了其他位置时，需要先迁移对象及其绑定记录。
 
 ## 当前边界与验证
 
