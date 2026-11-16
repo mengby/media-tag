@@ -21,4 +21,6 @@
 
 纳入打标前清洗的原件完成打标后，Worker 在本地数据库的 `item_deliveries` 记录版本。后台发布线程复用原清洗报告、十字段初稿及证据，按 SHA256 向云端查缺，本机直接 PUT 缺少的对象到 OSS。随后把标签 JSON 提交至云端 `index-item` 接口。单条收到匹配的回执即记为 `indexed`。候选和待审状态随版本保留。
 
-失败保留为 `pending`，记录 `attempts`、`retry_at` 和 `error`，退避从 5 秒到最多 5 分钟。Worker 恢复后继续处理，重试复用原件与已上传对象。运行库同级的 `item-publications/` 暂存清单和证据，成功后清理。原件从现有本地对象库读取。未配置 `item_publication` 时，Worker 继续只做本地处理。当前实现待整链路联调。
+失败保留为 `pending`，记录 `attempts`、`retry_at` 和 `error`，退避从 5 秒到最多 5 分钟。Worker 恢复后继续处理，重试复用原件与已上传对象。运行库同级的 `item-publications/` 暂存清单和证据，成功后清理。
+
+使用 WY 内网索引服务时，`ssh_host` 指定本机已信任的 SSH 主机别名，`base_url` 指向该主机上的回环 HTTP 服务，`token_file` 是远端发布凭证的绝对路径。索引请求在该主机上携带凭证；素材仍通过已验证的 OSS 签名上传。部署时根据 WY 实际账号映射设置 `published_owner_id`，仅适用于已验证归属的单个原件。可配置 `required_precision_provider`，仅在指定提供方完成该素材的正式打标后入发布队列。

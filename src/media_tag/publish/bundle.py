@@ -252,7 +252,12 @@ def build_bundle(settings, destination, *, item=None):
             technical = Technical(kind=tech.get("kind") or "unknown", width=tech.get("display_width") or tech.get("width"),
                 height=tech.get("display_height") or tech.get("height"), duration_seconds=tech.get("duration_seconds"),
                 has_audio=tech.get("has_audio"), report_state=tech["report_state"])
-            assets.append(Asset(asset_id=asset_id, owner_id=row["owner_id"], root_asset_id=row["root_asset_id"],
+            published_owner = row["owner_id"]
+            if item and item.get("published_owner_id"):
+                if row["kind"] != "original" or row["owner_id"] != principal.actor_id or len(settings.asset_ids) != 1:
+                    raise ValueError("single owner publication requires an authorized original")
+                published_owner = item["published_owner_id"]
+            assets.append(Asset(asset_id=asset_id, owner_id=published_owner, root_asset_id=row["root_asset_id"],
                 parent_asset_id=row["parent_asset_id"], parent_sha256=parent_sha, revision=row["revision"], name=row["name"], kind=row["kind"],
                 blob=blob, media_type=mime, technical=technical, fields=tuple(fields), sources=tuple(Source(**s) for s in detail["sources"]),
                 previews=tuple(previews), evidence=tuple(evidence), index_status=detail["index_status"], privacy_state=privacy,

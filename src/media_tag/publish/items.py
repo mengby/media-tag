@@ -70,7 +70,7 @@ class ItemPublisher:
                           and p.role in ("editor","admin"))
         self.root = Path(config.database).resolve().parent / "item-publications"
         self.client = PublishSettings(base_url=self.options.base_url, token_file=self.options.token_file,
-                                      expected_active_release=None)
+                                      ssh_host=self.options.ssh_host, expected_active_release=None)
         with router.database.transaction(write=True) as conn:
             conn.execute("""CREATE TABLE IF NOT EXISTS item_deliveries (
                 seq INTEGER PRIMARY KEY,asset_id TEXT NOT NULL,tag_version TEXT NOT NULL UNIQUE,
@@ -81,6 +81,11 @@ class ItemPublisher:
             conn.execute("CREATE INDEX IF NOT EXISTS item_delivery_asset ON item_deliveries(asset_id,seq)")
 
     def enqueue(self, conn, job_id):
+        provider = self.options.required_precision_provider
+        if provider and not conn.execute("""SELECT 1 FROM router_tasks WHERE job_id=? AND active=1
+                AND state='succeeded' AND json_extract(spec_json,'$.stage')='precision'
+                AND json_extract(spec_json,'$.config.provider_id')=?""", (job_id, provider)).fetchone():
+            return
         ready = ready_version(conn, job_id, self.owner.actor_id)
         if ready:
             conn.execute("""INSERT OR IGNORE INTO item_deliveries(asset_id,tag_version,job_id,owner_id)
@@ -112,6 +117,8 @@ class ItemPublisher:
                         release_id="item-"+version)
             item = dict(job_id=row["job_id"],tag_version=version,
                         previous_release="item-"+previous[0] if previous else None)
+            if self.options.published_owner_id:
+                item["published_owner_id"] = self.options.published_owner_id
             with tempfile.TemporaryDirectory(dir=self.root) as scratch:
                 bundle = Path(scratch) / "bundle"
                 build_bundle(spec,bundle,item=item)

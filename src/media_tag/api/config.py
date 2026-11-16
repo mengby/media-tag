@@ -9,6 +9,7 @@ from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.analysis.fields import DEFAULT_FIELDS_FILE
 from media_tag.precision.contracts import ExternalProvider, PrecisionDeployment
+from media_tag.precision.pool import image_worker_ids, remote_image
 from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
 from media_tag.local_topics.contracts import LocalTopicDeployment
 from media_tag.processing_queue import ProcessingDeployment, ProcessingHandlers, ProcessingService, stages as processing_stages
@@ -46,6 +47,9 @@ from media_tag.semantic.contracts import SemanticDeployment
 
 class ItemPublicationConfig(ContractModel):
     owner_id: Identifier
+    published_owner_id: Identifier | None = None
+    required_precision_provider: Identifier | None = None
+    ssh_host: Identifier | None = None
     base_url: str
     token_file: str
     producer_revision: str
@@ -185,6 +189,12 @@ def load_application(path: Path):
         for worker in config.workers:
             connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
                 DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, json.dumps(sorted(router.stages))))
+            if config.precision.enabled:
+                for identity in image_worker_ids(worker, config.precision.image_workers):
+                    if any(p.actor_id == identity for p in config.credentials.values()):
+                        raise ValueError('private image worker identity already assigned')
+                    connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
+                        DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (identity, '["precision"]'))
     router.recover(principal=bootstrap)
     reviews=ReviewService(router,config.review) if config.review.enabled else None
     if config.item_publication:
@@ -213,7 +223,7 @@ def load_application(path: Path):
     return app, router, tools
 
 
-def executor_from_config(path: Path, worker_id: str):
+def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
     app, router, tools = load_application(path)
     with router.database.transaction() as connection:
         worker = connection.execute("SELECT enabled FROM router_workers WHERE worker_id=?", (worker_id,)).fetchone()
@@ -259,9 +269,7 @@ def executor_from_config(path: Path, worker_id: str):
     if config.audio_topics.enabled:
         from media_tag.audio_topics.runtime import AudioTopicHandlers
         audio_topic_handler = AudioTopicHandlers(router, principal, config.audio_topics)
-    latest_asset=[None]
     def handle(lease,stopped):
-        latest_asset[0]=lease.task.asset_id
         if lease.task.stage in ('probe','evidence','pretag_cleaning'): return cpu(lease,stopped)
         if lease.task.stage in ('cleaning_output','image_mask_output') and processing_handler:
             return processing_handler(lease, stopped)
@@ -274,15 +282,15 @@ def executor_from_config(path: Path, worker_id: str):
         if lease.task.stage=='retime_render' and retime_handler: return retime_handler(lease,stopped)
         if lease.task.stage=='terminology_resolve' and terms:return terms(lease,stopped)
         return models(lease,stopped)
-    def adopt():
+    def adopt(task):
         if processing_handler:
             app.state.processing_derived.adopt_ready(principals=tuple(config.credentials.values()))
         for service in (redactions,retiming):
             if service: service.adopt_ready()
-        if config.search.enabled and latest_asset[0]:
+        if config.search.enabled:
             from media_tag.drafts.service import DraftIndex
             with router.database.transaction(write=True) as c:
-                asset=c.execute('SELECT * FROM assets WHERE asset_id=? AND deleted_at IS NULL',(latest_asset[0],)).fetchone()
+                asset=c.execute('SELECT * FROM assets WHERE asset_id=? AND deleted_at IS NULL',(task.asset_id,)).fetchone()
                 if asset:DraftIndex(router).sync(c,asset)
     def dispatch_analysis():
         if processing_handler:
@@ -302,12 +310,22 @@ def executor_from_config(path: Path, worker_id: str):
                     dispatch_pending(app.state.analysis, config.precision, principal=requester)
                 seen.add(requester.actor_id)
     def prepare_order(rows):
+        if image_workers:
+            rows = [row for row in rows if not remote_image(row, config.precision.visual_provider)]
         if local_topic_handler:
             rows = local_topic_handler.batch.prepare_order(rows)
         if watermark_handler:
             rows = watermark_handler.watermark_batch.prepare_order(rows)
         return rows
 
-    return LocalExecutor(router,principal,handle,after_release=adopt,
+    image_workers = []
+    if parallel_images and precision_handler:
+        for identity in image_worker_ids(worker_id, config.precision.image_workers):
+            worker = Principal(actor_id=identity, role='worker')
+            image_workers.append(LocalExecutor(router, worker, PrecisionHandlers(router, worker, config.precision),
+                after_task=adopt, prepare_order=lambda rows: [row for row in rows if remote_image(row, config.precision.visual_provider)]))
+    executor = LocalExecutor(router,principal,handle,after_task=adopt,
                          prepare_order=prepare_order,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)
+    executor.image_workers = image_workers
+    return executor

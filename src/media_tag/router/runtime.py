@@ -108,11 +108,12 @@ class LocalExecutor:
     """
 
     def __init__(self, router: Router, principal: Principal, handler, *, after_release=None, before_acquire=None,
-                 prepare_order=None):
+                 prepare_order=None, after_task=None):
         self.router, self.principal, self.handler = router, principal, handler
         self.after_release = after_release
         self.before_acquire = before_acquire
         self.prepare_order = prepare_order
+        self.after_task = after_task
 
     def run_once(self) -> dict | None:
         if self.before_acquire:
@@ -154,3 +155,5 @@ class LocalExecutor:
             self.router.release(task.task_id, task.lease_epoch, principal=self.principal)
             if self.after_release:
                 self.after_release()
+            if self.after_task:
+                self.after_task(task)

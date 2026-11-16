@@ -29,6 +29,8 @@ class ProviderIdentity(ContractModel):
     @property
     def revision(self):
         value = self.model_dump(mode='json', exclude={'adapter_path', 'api_key_env', 'cli_path'})
+        if value.get('image_reply_format') == 'full':
+            value.pop('image_reply_format')
         value['inputs'] = sorted(value['inputs'])
         return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
@@ -49,6 +51,7 @@ class PrecisionProvider(ProviderIdentity):
 
 class ChatProvider(ProviderIdentity):
     execution: Literal['chat_completions']
+    image_reply_format: Literal['full', 'compact'] = 'full'
     base_url: Annotated[str, Field(min_length=1, max_length=2048)]
     api_key_env: Annotated[str, Field(pattern=r'^[A-Z_][A-Z0-9_]{0,127}$')] = 'MEDIA_TAG_PRECISION_API_KEY'
     model_revision: Text = 'unspecified'
@@ -91,6 +94,8 @@ ExternalProvider = ChatProvider | CodexProvider
 class PrecisionDeployment(ContractModel):
     enabled: bool = False
     auto_dispatch: bool = False
+    auto_dispatch_after_intent: Annotated[int, Field(ge=0)] = 0
+    image_workers: Annotated[int, Field(ge=0, le=8)] = 0
     dispatch_limit: Annotated[int, Field(ge=1, le=256)] = 32
     providers: Annotated[tuple[PrecisionProvider | ExternalProvider, ...], Field(max_length=8)] = ()
     visual_provider: Identifier | None = None
@@ -103,6 +108,8 @@ class PrecisionDeployment(ContractModel):
     @model_validator(mode='after')
     def check(self):
         ids = {p.provider_id for p in self.providers}
+        if self.image_workers and not any(isinstance(p, ChatProvider) and p.provider_id == self.visual_provider and 'image' in p.inputs for p in self.providers):
+            raise ValueError('parallel image workers require a configured visual chat provider')
         if len(ids) != len(self.providers) or any(p is not None and p not in ids for p in (self.visual_provider, self.audio_provider)):
             raise ValueError('unique explicitly configured providers required')
         return self

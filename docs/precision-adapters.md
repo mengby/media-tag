@@ -45,6 +45,12 @@ Worker 使用运行账户已登录的原生 Codex CLI，通过 `codex exec --mod
 
 ### 本地 Python 桥接
 
+租用的 Qwen3-VL-8B-Instruct 可以通过 SSH 转发的回环端口接入。该图片提供方可设置
+`"image_reply_format":"compact"`，一次请求全部已配置字段，文本检索词数组在写入单元格时以分号连接。
+`precision.image_workers` 设置桌面 Worker 的独立图片请求数（0 至 8）；每张图独立持有租约并复查外发权限。
+本地前处理和线上发布可与远端推理同时进行。开启自动派发时，可将 `auto_dispatch_after_intent` 设为启用前最后一个
+`analysis_intents.rowid`，限定到后续新入库的分析意图。已有素材仍可显式请求精标。
+
 `execution=local` 配置绝对 `adapter_path`、代码 SHA256、`model_id`、`model_revision`、支持的输入和 CPU/CUDA 设备。执行端和子进程复验代码哈希后才加载，代码大小上限 4 MiB。
 
 隔离API已验证`POST /analysis/assets/{asset_id}/precision`：request_id、expected_asset_revision、source_sha256、expected_job_revision、fields（原十字段，默认全部）。复用现有认证/请求体上限/严格JSON检查，仅当前请求人自己的绑定分析意图、edit权限、当前文件门槛及未暂停/取消作业可以请求。模型未配或模态不支持时保持缺能力，不用视觉接口替代声音。

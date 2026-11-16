@@ -17,6 +17,7 @@ class PublishSettings(BaseModel):
     token_file: str
     expected_active_release: str | None
     upload_transport: Literal["service", "oss"] = "service"
+    ssh_host: str | None = None
 
 
 def push_bundle(bundle, settings, *, item=None, open_original=None):
@@ -26,12 +27,21 @@ def push_bundle(bundle, settings, *, item=None, open_original=None):
         raise ValueError("explicit service origin required")
     if url.scheme != "https" and not (url.scheme == "http" and url.hostname in ("127.0.0.1", "localhost", "::1")):
         raise ValueError("HTTPS or local loopback required")
-    token_path = Path(settings.token_file)
-    if not token_path.is_absolute():
-        raise ValueError("absolute private token file required")
-    token = token_path.read_text(encoding="utf-8").strip()
-    if not 1 <= len(token) <= 4096 or any(ord(c) < 33 or ord(c) > 126 for c in token):
-        raise ValueError("invalid publisher credential")
+    transport = None
+    headers = {}
+    if settings.ssh_host is not None:
+        from .ssh import ItemTransport
+        if item is None:
+            raise ValueError("SSH publication supports individual indexed items")
+        transport = ItemTransport(settings.ssh_host, settings.base_url, settings.token_file)
+    else:
+        token_path = Path(settings.token_file)
+        if not token_path.is_absolute():
+            raise ValueError("absolute private token file required")
+        token = token_path.read_text(encoding="utf-8").strip()
+        if not 1 <= len(token) <= 4096 or any(ord(c) < 33 or ord(c) > 126 for c in token):
+            raise ValueError("invalid publisher credential")
+        headers["Authorization"] = "Bearer " + token
     bundle = Path(bundle)
     raw = (bundle / "manifest.json").read_bytes()
     if len(raw) > 4 * 1024**2:
@@ -51,7 +61,7 @@ def push_bundle(bundle, settings, *, item=None, open_original=None):
         if size != ref.size_bytes or actual.hexdigest() != ref.sha256:
             raise ValueError("bundle object changed")
     origin = settings.base_url.rstrip("/")
-    with httpx.Client(base_url=origin, headers={"Authorization": "Bearer " + token}, timeout=120, follow_redirects=False, trust_env=False) as client:
+    with httpx.Client(base_url=origin, headers=headers, transport=transport, timeout=120, follow_redirects=False, trust_env=False) as client:
         def request(method, path, **kwargs):
             try:
                 with client.stream(method, path, **kwargs) as response:

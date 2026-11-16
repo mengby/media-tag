@@ -24,7 +24,7 @@ def assessments(reply, task, policy, kind, *, layer='precision', evidence_id='pr
         proposed_na = layer == 'local_audio' and value.state == 'not_applicable'
         if proposed_na:
             value = FieldValue(state='unknown', reason='local_audio_applicability_requires_review')
-        if item.field in policy.tag_fields.guidance and value.state == 'observed' and len(value.values) > 1:
+        if (definition.field_type == '文本' or item.field in policy.tag_fields.guidance) and value.state == 'observed' and len(value.values) > 1:
             value = FieldValue(state='observed', values=('；'.join(value.values),))
         policy.validate(definition, value)
         action = ('vocabulary' if candidates or value.state == 'no_match' else

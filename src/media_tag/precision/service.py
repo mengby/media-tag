@@ -162,7 +162,7 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
                 WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage') IN (?,?) AND tf.value=f.value))
             ORDER BY i.rowid LIMIT ?'''
         def scan(after):
-            return connection.execute(query, (encode(kinds), principal.actor_id, INTAKE_POLICY, after,
+            return connection.execute(query, (encode(kinds), principal.actor_id, INTAKE_POLICY, max(after, deployment.auto_dispatch_after_intent),
                 principal.role, principal.actor_id, principal.actor_id, stage, stage, 'precision', deployment.dispatch_limit)).fetchall()
         rows = scan(position)
         if not rows and position:
