@@ -48,6 +48,7 @@ Worker 使用运行账户已登录的原生 Codex CLI，通过 `codex exec --mod
 租用的 Qwen3-VL-8B-Instruct 可以通过 SSH 转发的回环端口接入。该图片提供方可设置
 `"image_reply_format":"compact"`，一次请求全部已配置字段，文本检索词数组在写入单元格时以分号连接。
 `precision.image_workers` 设置桌面 Worker 的独立图片请求数（0 至 8）；每张图独立持有租约并复查外发权限。
+本机 A800 图片打标配置为 4 个请求，`options.cpu_slots` 为 4。每个在途任务占用一个共享调度槽，其他任务也会使用这些槽。桌面 Worker 启动时读取两项配置。
 本地前处理和线上发布可与远端推理同时进行。开启自动派发时，可将 `auto_dispatch_after_intent` 设为启用前最后一个
 `analysis_intents.rowid`，限定到后续新入库的分析意图。已有素材仍可显式请求精标。
 

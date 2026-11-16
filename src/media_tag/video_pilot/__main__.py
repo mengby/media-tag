@@ -108,7 +108,8 @@ def main():
     parser.add_argument('videos', nargs='+', type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--method', choices=['three', 'shots'], default='shots')
-    parser.add_argument('--concurrency', type=int, choices=range(1, 9), default=1)
+    parser.add_argument('--concurrency', type=int, choices=range(1, 9), default=2,
+                        help='maximum simultaneous A800 requests (default: 2)')
     parser.add_argument('--staged', action='store_true',
                         help='prepare every video before the first request, for concurrency comparisons')
     parser.add_argument('--base-url', default='http://127.0.0.1:18080/v1')
