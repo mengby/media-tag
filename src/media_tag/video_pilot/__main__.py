@@ -87,6 +87,7 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
                 pending.append(work)
             else:
                 submit(work)
+        prepare_phase_end = time.perf_counter()
         for work in pending:
             submit(work)
         for future in as_completed(futures):
@@ -95,12 +96,14 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
                 rows[item] = future.result()
             except Exception as exc:
                 rows[item] = failure(item, 'inference', exc)
-    wall = time.perf_counter() - started
+    finished = time.perf_counter()
+    wall = finished - started
     results = [rows[k] for k in sorted(rows)]
     count = sum(row['ok'] for row in results)
     report = dict(method=method, model=model, concurrency=concurrency, staged=staged,
                   peak_active=request_peak(results), completed=count, expected=len(files),
-                  wall_seconds=wall, videos_per_minute=count * 60 / wall, results=results)
+                  wall_seconds=wall, after_prepare_seconds=finished - prepare_phase_end,
+                  videos_per_minute=count * 60 / wall, results=results)
     write(out / 'run.json', report)
     return report
 
