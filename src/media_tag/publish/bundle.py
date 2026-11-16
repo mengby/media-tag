@@ -54,7 +54,7 @@ class CatalogView:
     _snapshot = Catalog._snapshot
 
 
-def build_bundle(settings, destination, *, item=None):
+def build_bundle(settings, destination, *, item=None, video_draft=None):
     settings = ExportSettings.model_validate(settings)
     principal = Principal(actor_id=settings.actor_id, role=settings.role)
     # Validate wire identifiers and revision before any output side effects.
@@ -164,10 +164,16 @@ def build_bundle(settings, destination, *, item=None):
         assets = []
         for asset_id, row in sorted(selected.items()):
             detail = files.details(asset_id, principal=principal)
+            if video_draft is not None and (item is None or len(selected) != 1 or row["kind"] != "original"):
+                raise ValueError("video draft requires a single registered original")
             if item is not None:
-                from .items import item_metadata
-                metadata = item_metadata(view, files, connection, row, detail, principal, item)
-                for evidence in metadata.pop("_artifacts"):
+                if video_draft is None:
+                    from .items import item_metadata
+                    metadata = item_metadata(view, files, connection, row, detail, principal, item)
+                else:
+                    metadata, video_fields, video_evidence = video_draft.export(
+                        files, connection, row, detail, principal, item, save, save_json)
+                for evidence in metadata.pop("_artifacts", ()):
                     if evidence.sha256 != row["blob_sha256"] and evidence.sha256 not in output_refs:
                         with workspace.open_read(evidence.ref) as stream:
                             if save(stream.read).sha256 != evidence.sha256:
@@ -202,6 +208,9 @@ def build_bundle(settings, destination, *, item=None):
             if "unavailable" in projected["stages"].values():
                 raise ValueError("current draft evidence unavailable; refuse incomplete publication")
             evidence = []
+            if video_draft is not None:
+                evidence.append(video_evidence)
+                fields.extend(video_fields)
             by_task = {}
             for label in projected["labels"]:
                 by_task.setdefault(label["task_id"], []).append(label)

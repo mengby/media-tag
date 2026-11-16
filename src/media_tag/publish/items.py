@@ -20,7 +20,7 @@ from .bundle import build_bundle
 from .client import PublishSettings, push_bundle
 
 
-def ready_version(conn, job_id, owner, precision_provider=None):
+def ready_version(conn, job_id, owner, precision_provider=None, *, video_fingerprint=None):
     job = conn.execute("""SELECT j.asset_id,a.revision,a.blob_sha256 FROM router_jobs j JOIN assets a USING(asset_id)
         WHERE j.job_id=? AND j.owner_id=? AND a.owner_id=? AND j.cancelled=0 AND a.deleted_at IS NULL
         AND a.kind='original'""", (job_id, owner, owner)).fetchone()
@@ -30,7 +30,12 @@ def ready_version(conn, job_id, owner, precision_provider=None):
         FROM router_tasks t LEFT JOIN router_attempts r ON r.task_id=t.task_id AND r.lease_epoch=t.lease_epoch
         WHERE t.job_id=? AND t.active=1 ORDER BY t.task_id""", (job_id,)).fetchall()
     stages = {json.loads(t["spec_json"])["stage"] for t in tasks}
-    if "pretag_cleaning" not in stages or not stages.intersection(("local_topics","visual_fields","precision")):
+    if "pretag_cleaning" not in stages:
+        return None
+    if video_fingerprint is not None:
+        if precision_provider or not {"probe","evidence","ocr","face","clip"} <= stages:
+            return None
+    elif not stages.intersection(("local_topics","visual_fields","precision")):
         return None
     if precision_provider:
         from media_tag.analysis.scopes import latest_topic_fields
@@ -39,6 +44,8 @@ def ready_version(conn, job_id, owner, precision_provider=None):
     if not all(_analysis_complete(t) for t in tasks):
         return None
     signature = [*tuple(job), job_id, [(t["task_id"],t["lease_epoch"]) for t in tasks]]
+    if video_fingerprint is not None:
+        signature.extend(["video-coverage-report-v1", video_fingerprint])
     if precision_provider:
         specs = [json.loads(t["spec_json"]) for t in tasks]
         if not any(s["stage"] == "precision" and s["config"].get("provider_id") == precision_provider for s in specs):

@@ -29,8 +29,7 @@ class ScreenOptions(ContractModel):
 
 
 def plan(connection, asset_id, steps, definition):
-    by_key = {s.key: s for s in steps}
-    if not all(k in by_key and by_key[k].stage == k for k in ("probe", "evidence")):
+    if not {"probe", "evidence"} <= {s.key for s in steps if s.stage == s.key}:
         return steps
     enrolled = connection.execute("""SELECT 1 FROM uploads u JOIN assets a USING(asset_id)
         WHERE u.asset_id=? AND a.kind='original' AND u.state='completed' AND u.owner_id=a.owner_id
@@ -39,6 +38,12 @@ def plan(connection, asset_id, steps, definition):
         (asset_id,)).fetchone()
     if not enrolled:
         return steps
+    return with_screen(steps, definition)
+
+
+def with_screen(steps, definition):
+    """Add the standard sampling and cleaning stages to an explicitly enrolled job."""
+    by_key = {s.key: s for s in steps}
     evidence = by_key["evidence"]
     config = {**evidence.config, "sample_across_duration": True, "max_frames": min(3, evidence.config.get("max_frames", 3))}
     by_key["evidence"] = evidence.model_copy(update={"config": config})
