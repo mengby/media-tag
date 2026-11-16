@@ -37,9 +37,13 @@ def read_json(backend, artifact, *, limit=4 * 1024**2):
 
 
 class ModelHandlers:
-    def __init__(self, router, principal, registry, *, clip_device='cuda', clip_batch_size=1):
+    def __init__(self, router, principal, registry, *, clip_device='cuda', clip_batch_size=1, clip_resident=False):
         self.router, self.principal, self.registry, self.clip_device = router, principal, registry, clip_device
-        self.clip_batch = StageBatch(router, clip_batch_size if clip_device == 'cuda' else 1, 'clip')
+        self.resident = None
+        if clip_resident and clip_device == 'cuda':
+            from .resident import ResidentCLIP
+            self.resident = ResidentCLIP(router.workspace, registry.root, registry.revision)
+        self.clip_batch = StageBatch(router, clip_batch_size if clip_device == 'cuda' and self.resident is None else 1, 'clip')
 
     def _neighbor(self, row, source, parents, index):
         if source['kind'] != 'original':
@@ -58,6 +62,8 @@ class ModelHandlers:
             {'artifact': artifact.model_dump(), 'source_sha256': source['blob_sha256'], 'normalized_seconds': None}]}
 
     def _run(self, request, output, task, stopped):
+        if self.resident and task.stage == 'clip':
+            return self.resident.run(request, output, stopped, task.limits.timeout_seconds)['data']
         batch = self.clip_batch
         neighbors = []
         if (task.stage == 'clip' and batch.size > 1 and len(request['frames']) == 1

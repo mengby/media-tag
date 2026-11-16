@@ -12,6 +12,9 @@ from media_tag.deployment.local import initialize,load,lock,status,stop,write_js
 
 @pytest.fixture
 def initialized(tmp_path,monkeypatch):
+    # Load the consumer before mocking the template loader so its module import
+    # cannot retain this fixture's fake function after monkeypatch teardown.
+    from media_tag.api import config as _api_config
     from media_tag.contracts import templates
     from media_tag.contracts.templates import load_template_bundle
     from media_tag.workers.probe import Toolchain

@@ -38,6 +38,8 @@ def execute(request, *, shared_clip=None):
         model = {'ocr': OCRModel, 'face': FaceModel, 'clip': CLIPModel}[kind](registry, **({'device': request['device']} if kind == 'clip' else {}))
         if shared_clip is not None and kind == 'clip':
             shared_clip['model'] = model
+            shared_clip['loads'] = shared_clip.get('loads', 0) + 1
+            shared_clip['load_seconds'] = time.monotonic() - started
     reports = []
     for raw_frame in request['frames']:
         frame = FrameInput.model_validate_json(json.dumps(raw_frame))

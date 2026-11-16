@@ -29,10 +29,13 @@ class ModelDeployment(ContractModel):
     model_root: str = 'cache/models/d04'
     clip_device: Literal['cuda', 'cpu'] = 'cuda'
     clip_batch_size: Annotated[int, Field(ge=1, le=16)] = 1
+    clip_resident: bool = False
     stages: Annotated[tuple[Literal['ocr', 'face', 'clip'], ...], Field(min_length=1, max_length=3)] = ('ocr', 'face', 'clip')
 
     @model_validator(mode='after')
     def unique_stages(self):
+        if self.clip_resident and (not self.enabled or self.clip_device != 'cuda' or 'clip' not in self.stages):
+            raise ValueError('resident CLIP requires an enabled CUDA CLIP stage')
         if len(set(self.stages))!=len(self.stages):raise ValueError('unique model stages required')
         return self
 

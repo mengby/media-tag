@@ -237,7 +237,8 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
         from media_tag.similarity.pipeline import Handlers as SimilarityHandlers
         similarity_handler = SimilarityHandlers(router, principal, tools)
     models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)),
-                           clip_device=config.models.clip_device, clip_batch_size=config.models.clip_batch_size)
+                           clip_device=config.models.clip_device, clip_batch_size=config.models.clip_batch_size,
+                           clip_resident=parallel_images and config.models.clip_resident)
     semantic_handler=None
     if config.semantic.enabled:
         from media_tag.semantic.registry import SemanticRegistry
@@ -271,6 +272,8 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
         from media_tag.audio_topics.runtime import AudioTopicHandlers
         audio_topic_handler = AudioTopicHandlers(router, principal, config.audio_topics)
     def handle(lease,stopped):
+        if models.resident and lease.task.stage != 'clip' and lease.task.limits.gpu_slots:
+            models.resident.close()
         if lease.task.stage in ('probe','evidence','pretag_cleaning'): return cpu(lease,stopped)
         if lease.task.stage in ('cleaning_output','image_mask_output') and processing_handler:
             return processing_handler(lease, stopped)
@@ -331,4 +334,5 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
                          prepare_order=prepare_order,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)
     executor.image_workers = image_workers
+    executor.close_models = models.resident.close if models.resident else lambda: None
     return executor

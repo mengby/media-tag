@@ -240,6 +240,7 @@ def child(root,generation,kind):
                     if executor.run_once() is None:time.sleep(.5)
             finally:
                 done.set()
+                executor.close_models()
 
 
 def resume_owned_process(process):
