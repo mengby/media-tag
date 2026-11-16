@@ -100,6 +100,10 @@ def request_body(provider, request, max_input_bytes):
     context = prompt_context(request)
     if compact:
         context['request_id'] = sha256(request['request_id'].encode()).hexdigest()[:12]
+        if request.get('image_reply_retry_id'):
+            context['request_id'] = request['image_reply_retry_id']
+            context['格式提示'] = '上一次回复有 JSON 语法错误。重新观察图片，逐行填写下方结构。值中避免使用英文引号，每两个字段之间须有英文逗号。'
+            context['输出结构'] = {'request_id': context['request_id'], 'values': dict.fromkeys(request['fields'])}
     content = [{'type': 'text', 'text': json.dumps(context, ensure_ascii=False)}, part]
     envelope = {'model': provider.model_id, 'messages': [
         {'role': 'system', 'content': IMAGE_INSTRUCTIONS if compact else INSTRUCTIONS}, {'role': 'user', 'content': content}]}
@@ -161,7 +165,8 @@ def analyze(provider, request, *, max_input_bytes, timeout_seconds, authorize_se
             raw_text = raw_text[8:-4]
         result = json.loads(raw_text)
         if compact:
-            if result['request_id'] != sha256(request['request_id'].encode()).hexdigest()[:12]:
+            wire_id = request.get('image_reply_retry_id') or sha256(request['request_id'].encode()).hexdigest()[:12]
+            if result['request_id'] != wire_id:
                 raise ValueError('image reply belongs to another request')
             result = compact_fields(result, request['fields'])
             result['request_id'] = request['request_id']

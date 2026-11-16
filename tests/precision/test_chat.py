@@ -115,12 +115,15 @@ def test_complete_encoded_media_and_endpoint(tmp_path, monkeypatch, kind, data, 
     assert reply['usage']['input_tokens'] == 20 and reply['request_id'] == req['request_id']
 
 
+@pytest.mark.parametrize('retry', [False, True])
 @pytest.mark.parametrize('wrong_id', [False, True])
-def test_compact_image_preserves_request_and_declared_fields(tmp_path, monkeypatch, wrong_id):
+def test_compact_image_preserves_request_and_declared_fields(tmp_path, monkeypatch, wrong_id, retry):
     monkeypatch.setenv('MEDIA_TAG_PRECISION_BEARER', KEY)
     data = b'\x89PNG\r\n\x1a\n' + bytes(80)
     req = request(tmp_path/'source.png', data, 'image')
     tag = sha256(req['request_id'].encode()).hexdigest()[:12]
+    if retry:
+        req['image_reply_retry_id'] = tag = 'c0ffee123456'
     values = {field: ['绿色', '水果'] for field in req['fields']}
     with endpoint({'request_id': 'different' if wrong_id else tag, 'values': values}) as (url, calls):
         settings = provider(url, image_reply_format='compact')
@@ -129,6 +132,10 @@ def test_compact_image_preserves_request_and_declared_fields(tmp_path, monkeypat
                 analyze(settings, req, max_input_bytes=len(data), timeout_seconds=5, authorize_send=lambda: None)
         else:
             reply = analyze(settings, req, max_input_bytes=len(data), timeout_seconds=5, authorize_send=lambda: None)
+            context = json.loads(calls[0][2]['messages'][1]['content'][0]['text'])
+            assert ('输出结构' in context) == retry
+            if retry:
+                assert set(context['输出结构']['values']) == set(req['fields'])
             assert reply['request_id'] == req['request_id']
             assert [f['field'] for f in reply['fields']] == list(req['fields'])
             assert reply['fields'][0]['value']['values'] == ['绿色', '水果']

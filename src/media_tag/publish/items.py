@@ -92,6 +92,9 @@ class ItemPublisher:
                 receipt TEXT,error TEXT)""")
             conn.execute("CREATE INDEX IF NOT EXISTS item_delivery_due ON item_deliveries(owner_id,state,retry_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS item_delivery_asset ON item_deliveries(asset_id,seq)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS item_delivery_timings (
+                seq INTEGER PRIMARY KEY REFERENCES item_deliveries(seq), started_at REAL NOT NULL,
+                acknowledged_at REAL NOT NULL, elapsed_seconds REAL NOT NULL, stages_json TEXT NOT NULL)""")
 
     def enqueue(self, conn, job_id):
         provider = self.options.required_precision_provider
@@ -109,7 +112,8 @@ class ItemPublisher:
             with self.router.database.transaction(write=True) as conn:
                 self.enqueue(conn,job[0])
 
-    def deliver(self, row, destination):
+    def deliver(self, row, destination, *, timings=None):
+        started = time.monotonic()
         asset_id, version = row["asset_id"], row["tag_version"]
         with self.router.database.transaction() as conn:
             if ready_version(conn, row["job_id"], self.owner.actor_id, self.options.required_precision_provider) != (asset_id, version):
@@ -137,7 +141,9 @@ class ItemPublisher:
                 build_bundle(spec,bundle,item=item)
                 bundle.rename(destination)
         data = json.loads((destination/"item.json").read_bytes())
-        return push_bundle(destination,self.client,item=data,
+        if timings is not None:
+            timings["bundle_seconds"] = time.monotonic()-started
+        return push_bundle(destination,self.client,item=data,timings=timings,
                            open_original=lambda: closing(files.open(asset_id,source,principal=self.owner)))
 
     def once(self):
@@ -149,8 +155,9 @@ class ItemPublisher:
         if row is None:
             return False
         destination = self.root / row["tag_version"]
+        started_at, started, timings = time.time(), time.monotonic(), {}
         try:
-            receipt = self.deliver(row,destination)
+            receipt = self.deliver(row,destination,timings=timings)
         except Superseded:
             state, receipt = "superseded", None
         except Exception as exc:
@@ -168,6 +175,9 @@ class ItemPublisher:
         with self.router.database.transaction(write=True) as conn:
             conn.execute("UPDATE item_deliveries SET state=?,receipt=?,error=NULL WHERE seq=?",
                          (state,json.dumps(receipt) if receipt else None,row["seq"]))
+            if state == "indexed":
+                conn.execute("INSERT OR REPLACE INTO item_delivery_timings VALUES(?,?,?,?,?)",
+                    (row["seq"], started_at, time.time(), time.monotonic()-started, json.dumps(timings)))
         if destination.is_dir() and destination.resolve().parent == self.root:
             shutil.rmtree(destination)
         return True

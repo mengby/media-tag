@@ -162,6 +162,12 @@ class PrecisionHandlers:
         with self.router.database.transaction() as connection:
             source_size = connection.execute('SELECT size_bytes FROM blobs WHERE sha256=?',
                 (task.input_refs[0].sha256,)).fetchone()
+            retry_image_reply = (isinstance(provider, ChatProvider) and kind == 'image'
+                and provider.image_reply_format == 'compact' and connection.execute("""
+                    SELECT 1 FROM router_tasks current JOIN router_tasks old
+                    ON old.job_id=current.job_id AND old.step_key=current.step_key AND old.generation<current.generation
+                    WHERE current.task_id=? AND old.error_code='precision_api_reply' LIMIT 1
+                    """, (task.task_id,)).fetchone() is not None)
         if source_size is None or source_size[0] > self.deployment.max_input_bytes:
             raise ModelFailure('precision_input_budget')
         output = _directory(self.router.workspace, task.output_prefix.rstrip('/'))
@@ -194,6 +200,8 @@ class PrecisionHandlers:
         guidance = {name: prompt for name, prompt in policy.tag_fields.guidance.items() if name in task.target_fields}
         if guidance:
             bridge_input['field_guidance'] = guidance
+        if retry_image_reply:
+            bridge_input['image_reply_retry_id'] = sha256(f'{task.task_id}:{task.lease_epoch}'.encode()).hexdigest()[:12]
         if isinstance(provider, ExternalProvider):
             bridge_input['field_types'] = {field: policy.asset_fields[field].field_type for field in task.target_fields}
         check()
