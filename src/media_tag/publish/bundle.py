@@ -218,16 +218,19 @@ def build_bundle(settings, destination, *, item=None):
             for task_id, labels in by_task.items():
                 attempt = attempts[task_id]
                 task = TaskEnvelope.model_validate_json(attempt["envelope_json"])
+                if item is not None and task.stage in ("local_topics", "precision", "audio_topics"):
+                    # item_metadata already verified and exported these fields and their evidence.
+                    continue
                 result = WorkerResult.model_validate_json(attempt["result_json"])
                 report_ref, report = drafts._report(task, result)
                 frame_refs = []
-                for item in result.evidence:
-                    if item.artifact.sha256 == blob.sha256:
+                for observation in result.evidence:
+                    if observation.artifact.sha256 == blob.sha256:
                         frame_refs.append(blob)
                     else:
-                        with workspace.open_read(item.artifact.ref) as stream:
+                        with workspace.open_read(observation.artifact.ref) as stream:
                             ref = save(stream.read)
-                        if ref.sha256 != item.artifact.sha256:
+                        if ref.sha256 != observation.artifact.sha256:
                             raise ValueError("evidence frame changed")
                         frame_refs.append(ref)
                 texts = tuple(dict.fromkeys(label["text"] for label in labels))

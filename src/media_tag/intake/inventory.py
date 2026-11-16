@@ -41,9 +41,19 @@ def csv_bytes(rows,columns):
     return ('\ufeff'+stream.getvalue()).encode('utf8')
 
 
+def deferred_state(path):
+    if path.suffix.casefold() == '.swf':
+        return 'deferred_swf'
+    if '论文' in path.parent.parts or '论文' in path.stem:
+        return 'deferred_paper'
+    return None
+
+
 def summary(inventory):
     rows=inventory.entries;ready=[r for r in rows if r.state=='ready']
     return {'batch_id':inventory.batch_id,'source_files':len(rows),'ready':len(ready),
+        'deferred_swf':sum(r.state=='deferred_swf' for r in rows),
+        'deferred_paper':sum(r.state=='deferred_paper' for r in rows),
         'unsupported':sum(r.state=='unsupported' for r in rows),'excluded':sum(r.state=='excluded' for r in rows),
         'failed':sum(r.state=='failed' for r in rows),'source_bytes':sum(r.size_bytes for r in ready),
         'unique_sha256':len({r.sha256 for r in ready}),'duplicate_paths':sum(r.duplicate_of is not None for r in ready)}
@@ -80,6 +90,10 @@ def scan(source,jobs_root,*,max_files=10000,max_file_bytes=MAX_SOURCE_BYTES):
                 if stat.S_ISDIR(info.st_mode):pending.append(path);continue
                 if not stat.S_ISREG(info.st_mode):
                     rows.append(InventoryEntry(key=key,state='excluded',error_code='not_regular_file'));continue
+                deferred = deferred_state(path)
+                if deferred:
+                    rows.append(InventoryEntry(key=key,state=deferred,size_bytes=info.st_size,mtime_ns=info.st_mtime_ns))
+                    continue
                 if path.suffix.lower() not in EXTENSIONS:
                     rows.append(InventoryEntry(key=key,state='unsupported',size_bytes=info.st_size,error_code='unsupported_extension'));continue
                 if not 0<info.st_size<=max_file_bytes:

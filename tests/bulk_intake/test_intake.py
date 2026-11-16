@@ -65,6 +65,22 @@ def test_inventory_source_untouched_and_same_bytes_reported_as_duplicates(tmp_pa
     assert not (root/'README.md').exists()
 
 
+def test_swf_and_paper_media_stay_out_of_ready_queue(tmp_path):
+    root,jobs,_,_=source(tmp_path)
+    papers=root/'论文'
+    papers.mkdir()
+    (papers/'讲解.mp4').write_bytes(b'video')
+    (papers/'资料.pdf').write_bytes(b'pdf')
+    (papers/'示例.SwF').write_bytes(b'FWS')
+    (root/'论文附图.png').write_bytes(b'image')
+    batch,result=scan(root,jobs)
+    _,inventory,_=load_batch(batch)
+    assert result['ready']==1 and result['deferred_swf']==1 and result['deferred_paper']==3
+    assert all(r.sha256 is None for r in inventory.entries if r.state.startswith('deferred_'))
+    _,sub=scan(papers,jobs)
+    assert sub['ready']==0 and sub['deferred_paper']==2 and sub['deferred_swf']==1
+
+
 def test_source_output_overlap_and_manifest_tampering_rejected(tmp_path):
     root,jobs,_,_=source(tmp_path)
     with pytest.raises(IntakeError,match='overlap'):scan(root,root)

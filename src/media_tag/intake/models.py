@@ -12,7 +12,7 @@ class IntakeError(Exception):
 
 class InventoryEntry(ContractModel):
     key: str
-    state: Literal['ready','unsupported','excluded','failed']
+    state: Literal['ready','deferred_swf','deferred_paper','unsupported','excluded','failed']
     size_bytes: Annotated[int,Field(ge=0)]=0
     sha256: Sha256 | None=None
     mtime_ns: int | None=None
