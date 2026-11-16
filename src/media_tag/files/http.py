@@ -8,6 +8,7 @@ import anyio
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+from media_tag.upload.media import EXTENSIONS as UPLOAD_EXTENSIONS
 from .service import FileError
 
 EXTENSIONS = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
@@ -15,8 +16,8 @@ EXTENSIONS = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'i
               'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/mpeg': '.mp3', 'application/ogg': '.ogg'}
 
 
-def disposition(name, asset_id, mime, inline):
-    extension = EXTENSIONS.get(mime, '.bin')
+def disposition(name, asset_id, mime, inline, upload_extension=None):
+    extension = upload_extension if upload_extension in UPLOAD_EXTENSIONS else EXTENSIONS.get(mime, '.bin')
     name = unicodedata.normalize('NFC', name)
     name = ''.join('_' if ord(c) < 32 or ord(c) == 127 or c in '<>:"/\\|?*' or unicodedata.category(c) == 'Cf' else c for c in name)
     name = name.strip(' .')[:120]
@@ -75,7 +76,7 @@ class ManagedStreamingResponse(StreamingResponse):
 def transfer(opened, request, *, inline=False):
     headers = {'ETag': f'"{opened.digest}"', 'Accept-Ranges': 'bytes', 'Content-Type': opened.mime,
                'Cache-Control': 'private, no-store', 'Vary': 'Authorization', 'X-Content-Type-Options': 'nosniff',
-               'Content-Disposition': disposition(opened.name, opened.asset_id, opened.mime, inline)}
+               'Content-Disposition': disposition(opened.name, opened.asset_id, opened.mime, inline, opened.upload_extension)}
     try:
         if inline and opened.mime == 'application/octet-stream':
             raise FileError(415, 'inline_format_unsupported')

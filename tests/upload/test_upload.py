@@ -43,6 +43,7 @@ def test_duplicate_upload_copies_blob_once_but_separates_sources_and_permissions
     other = Principal(actor_id='synthetic-other-uploader')
     second = upload(env, request='another', principal=other)
     assert first['asset_id'] != second['asset_id']
+    assert first['display_name'] != second['display_name']
     assert len(list(env.objects.glob('objects/*/' + sha256(env.data).hexdigest()))) == 1
     with pytest.raises(AccessDenied):
         env.catalog.get_asset(first['asset_id'], principal=other)

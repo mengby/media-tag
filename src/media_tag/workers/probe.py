@@ -126,7 +126,7 @@ class Toolchain:
 
     def probe_run(self, path: Path, *, timeout: float, extra: list[str] | None = None) -> dict:
         args = ["-v", "error", "-threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", FORMAT_WHITELIST,
-                *(extra or ["-show_entries", "format=format_name,duration,start_time:stream=index,codec_name,codec_type,width,height,pix_fmt,avg_frame_rate,r_frame_rate,time_base,start_time,start_pts,duration,duration_ts,sample_rate,channels,nb_frames,sample_aspect_ratio:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation"]),
+                *(extra or ["-show_entries", "format=format_name,duration,start_time:format_tags=major_brand:stream=index,codec_name,codec_type,width,height,pix_fmt,avg_frame_rate,r_frame_rate,time_base,start_time,start_pts,duration,duration_ts,sample_rate,channels,nb_frames,sample_aspect_ratio:stream_disposition=attached_pic:stream_tags=rotate:stream_side_data=rotation"]),
                 "-of", "json", str(path)]
         output, _ = run_bounded(self.ffprobe, args, timeout=timeout)
         try:
@@ -271,6 +271,11 @@ def _audio_track(tools: Toolchain, path: Path, stream: dict, options: ProbeOptio
 def probe_media(path: Path, tools: Toolchain, options: ProbeOptions) -> ProbeResult:
     image = _image_info(path, options)
     raw = tools.probe_run(path, timeout=options.timeout_seconds)
+    container = raw.get('format', {})
+    brand = container.pop('tags', {}).get('major_brand', '')
+    if ('mov' in container.get('format_name', '').split(',') and len(brand) == 4
+            and brand.isascii() and brand.isprintable()):
+        container['tags'] = {'major_brand': brand}
     for stream in raw.get("streams", []):
         if "tags" in stream:
             # Keep numeric rotation only; never retain arbitrary embedded metadata or signed links.

@@ -138,7 +138,9 @@ def test_jfif_keeps_original_filename_bytes_and_is_still_format_checked(tmp_path
     _,api=wire;root,jobs,name,body=source(tmp_path,jfif=True);batch,_=scan(root,jobs)
     assert apply(batch,client(tmp_path,api))['state']=='imported'
     row=inspect(batch)['rows'][0];detail=api.get('/v1/assets/'+row['asset_id'],headers={'Authorization':'Bearer owner-token'}).json()
-    assert detail['name']==name and detail['sha256']==sha256(body).hexdigest()
+    assert detail['name']==f"图片-{row['asset_id'].removeprefix('asset-')}.jpg"
+    assert detail['sha256']==sha256(body).hexdigest()
+    assert api.get('/uploads/'+row['upload_id'],headers={'Authorization':'Bearer owner-token'}).json()['filename']==name
     assert (root/name).read_bytes()==body
 
 

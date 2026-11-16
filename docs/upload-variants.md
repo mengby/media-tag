@@ -8,7 +8,7 @@
 
 | 方法与路径 | 请求与行为 |
 | --- | --- |
-| `POST /uploads` | UploadSpec：request_id、显示用 filename、size_bytes、完整 sha256；可选 source、purpose、known_asset_id |
+| `POST /uploads` | UploadSpec 包含 request_id、原上传 filename、size_bytes、完整 sha256，可选 source、purpose、known_asset_id |
 | `GET /uploads/{id}` | 本人/admin；返回状态、已提交 offset、分块上限、asset_id、job_id、安全错误码、处理历史口径 |
 | `PUT /uploads/{id}/chunks?offset=N` | 原始 body，`X-Chunk-SHA256` 必填；从当前已提交偏移追加 |
 | `POST /uploads/{id}/complete` | 校验、私有登记，再尝试派发持久化待分析事件 |
@@ -23,7 +23,9 @@
 
 默认单文件最大 4GiB，单块 4MiB（配置最大 8MiB），每人最多 8 个进行中会话，声明暂存总额默认 4GiB。`LocalConfig.upload_options` 可收紧/调整。总额保守计算所有保留会话，包括已完成、拒绝、取消；关闭会话不等于磁盘已清理。当前保留块、失败尝试和审计，不自动删除用户数据；正式保留期、磁盘容量和管理员清理工具留 D07，不通过反复取消绕开暂存额度。
 
-文件名仅作受校验的叶子显示名，不拼接为写入路径。私有目录为 `jobs/upload-<uuid>/parts/<chunk-sha256>` 和 `input-<epoch>.bin`；目录拒绝链接/重解析点，块与合并尝试不覆盖旧文件。来源原件从未写入或移动。暂存与对象库不可重叠，CAS 通过原有不可变后端复制/验哈希。
+原上传文件名保存在本人或管理员可读取的上传会话 `filename` 中，用于来源追溯与续传。私有目录为 `jobs/upload-<uuid>/parts/<chunk-sha256>` 和 `input-<epoch>.bin`；目录拒绝链接/重解析点，块与合并尝试不覆盖旧文件。来源原件从未写入或移动。暂存与对象库不可重叠，CAS 通过原有不可变后端复制/验哈希。
+
+新上传原件在登记事务中生成展示名，格式为 `图片-〈素材编号〉.jpg`、`视频-〈素材编号〉.mp4` 等。素材编号采用 asset_id 中的完整 32 位十六进制编号。图片、动画、视频或音频取自实际探测结果，扩展名按验证格式规范化，例如 JFIF 与 JPEG 均使用 `.jpg`。上传完成回执的 `display_name`、人员页素材标题和已完成任务、原件下载首选文件名、后续生成的发布清单使用库内名称。名称生成无需等待模型。引用已有素材或衍生版本时，回执沿用该资产的现有名称。既有素材及已发布版本保留其登记名称。
 
 ## 完成校验、去重与后台事件
 

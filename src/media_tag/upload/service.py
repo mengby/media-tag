@@ -16,7 +16,7 @@ from media_tag.storage import IntegrityError, StorageError, UnsafePath
 from media_tag.storage.filesystem import FilesystemBackend
 from media_tag.workers.evidence import _directory
 from media_tag.workers.probe import MediaError,ProbeOptions
-from .media import EXTENSIONS, validate_media
+from .media import EXTENSIONS, upload_name_parts, validate_media
 from .models import UploadOptions, UploadSpec
 
 
@@ -40,14 +40,15 @@ class UploadService:
         return row
 
     def _view(self, connection, row, principal):
+        display_name = None
         if row['asset_id']:
-            self.catalog._authorize(connection, row['asset_id'], principal)
+            display_name = self.catalog._authorize(connection, row['asset_id'], principal)['name']
         event = connection.execute('SELECT job_id,error_code FROM upload_outbox WHERE upload_id=?', (row['upload_id'],)).fetchone()
         validation = json.loads(row['validation_json']) if row['validation_json'] else {}
         spec = UploadSpec.model_validate_json(row['spec_json'])
         return dict(upload_id=row['upload_id'], state=row['state'], offset=row['offset'],
                     size_bytes=spec.size_bytes, sha256=spec.sha256, purpose=spec.purpose, filename=spec.filename,
-                    chunk_bytes=self.options.chunk_bytes, asset_id=row['asset_id'], error_code=row['error_code'],
+                    chunk_bytes=self.options.chunk_bytes, asset_id=row['asset_id'], display_name=display_name, error_code=row['error_code'],
                     job_id=event['job_id'] if event else None, dispatch_error=event['error_code'] if event else None,
                     processing_history=validation.get('processing_history'))
 
@@ -178,6 +179,7 @@ class UploadService:
             with source.open_verified(name, spec.sha256, spec.size_bytes) as stream:
                 validation = validate_media(Path(stream.name), self.tools, filename=spec.filename,
                     probe_options=ProbeOptions(max_pixels=self.options.probe_max_pixels))
+                name_parts = upload_name_parts(validation, stream.read(4096))
                 stream.seek(0)
                 blob = self.catalog.object_store.ingest(stream)
             if (blob.sha256, blob.size_bytes) != (spec.sha256, spec.size_bytes):
@@ -196,7 +198,8 @@ class UploadService:
                     asset_id = known['asset_id']  # Proven upload receipt keeps its own source specification.
                 else:
                     asset_id = self.catalog._register_blob_tx(connection, blob, source_key=f'jobs/{upload_id}/{name}', source_backend_id='upload-workspace',
-                        principal=Principal(actor_id=owner), request_id=upload_id, name=spec.filename, source=spec.source).asset_id
+                        principal=Principal(actor_id=owner), request_id=upload_id, name=spec.filename,
+                        source=spec.source, upload_name_parts=name_parts).asset_id
                 connection.execute("UPDATE uploads SET state='completed',asset_id=?,validation_json=? WHERE upload_id=?", (asset_id, encode(validation), upload_id))
                 from media_tag.analysis.intake import ensure_intent
                 ensure_intent(connection, asset_id, owner, content_kind=validation['kind'],probe_info=validation)

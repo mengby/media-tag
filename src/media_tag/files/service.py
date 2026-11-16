@@ -44,10 +44,11 @@ def media_type(stream):
 
 class OpenedFile:
     def __init__(self, service, asset_id, source_sha, principal, manager, stream, digest, size, name,
-                 mime, *, preview_id=None, preview_sha=None):
+                 mime, *, preview_id=None, preview_sha=None, upload_extension=None):
         self.service, self.asset_id, self.source_sha, self.principal = service, asset_id, source_sha, principal
         self.manager, self.stream, self.digest, self.size, self.name, self.mime = manager, stream, digest, size, name, mime
         self.preview_id, self.preview_sha = preview_id, preview_sha
+        self.upload_extension = upload_extension
         self.closed = False
         try:
             self.stamp = self._stamp()
@@ -151,7 +152,10 @@ class FileService:
         self.authorize(asset_id, expected_sha, principal=principal, for_bytes=True)
         with self.database.transaction() as connection:
             asset = self._asset(connection, asset_id, expected_sha, principal)
-            size = connection.execute('SELECT size_bytes FROM blobs WHERE sha256=?', (expected_sha,)).fetchone()[0]
+            size, upload_extension = connection.execute("""
+                SELECT b.size_bytes, json_extract(r.after_json,'$.upload_extension')
+                FROM blobs b LEFT JOIN field_revisions r ON r.asset_id=? AND r.revision=1
+                WHERE b.sha256=?""", (asset_id, expected_sha)).fetchone()
             locations = connection.execute('SELECT backend_id,object_key FROM storage_locations WHERE blob_sha256=? ORDER BY CASE WHEN backend_id=? THEN 0 ELSE 1 END,backend_id', (expected_sha, self.catalog.backend_id)).fetchall()
             location = next((row for row in locations if row['backend_id'] in self.catalog.backends), None)
             if location is None:
@@ -164,7 +168,8 @@ class FileService:
         try:
             mime = media_type(stream)
             self.authorize(asset_id, expected_sha, principal=principal, for_bytes=True)
-            return OpenedFile(self, asset_id, expected_sha, principal, manager, stream, expected_sha, size, asset['name'], mime)
+            return OpenedFile(self, asset_id, expected_sha, principal, manager, stream, expected_sha, size,
+                              asset['name'], mime, upload_extension=upload_extension)
         except (OSError, ValueError, StorageError):
             manager.__exit__(None, None, None)
             raise FileError(503, 'backend_stream_unavailable', retryable=True) from None

@@ -208,8 +208,14 @@ class LibraryService:
             uploads = []
             for row in connection.execute('SELECT * FROM uploads WHERE owner_id=? ORDER BY created_at DESC LIMIT 100', (principal.actor_id,)):
                 spec = json.loads(row['spec_json'])
+                filename = spec['filename']
+                if row['asset_id']:
+                    try:
+                        filename = self.catalog._authorize(connection, row['asset_id'], principal)['name']
+                    except CatalogError:
+                        filename = row['asset_id']
                 uploads.append({k: row[k] for k in ('upload_id','state','offset','asset_id','error_code')} |
-                               {'filename': spec['filename'], 'size_bytes': spec['size_bytes'], 'purpose': spec['purpose']})
+                               {'filename': filename, 'size_bytes': spec['size_bytes'], 'purpose': spec['purpose']})
         return {'jobs': jobs, 'uploads': uploads, 'limit': 100}
 
     def retry(self, job_id, revision, *, principal):

@@ -5,6 +5,7 @@ from io import BytesIO
 import math
 import sqlite3
 import struct
+from urllib.parse import unquote
 import wave
 
 from fastapi.testclient import TestClient
@@ -14,10 +15,55 @@ import pytest
 from media_tag.analysis.intake import ensure_intent
 from media_tag.analysis.service import AnalysisService
 from media_tag.catalog import Principal
+from media_tag.files.http import disposition
+from media_tag.files.service import FileService
+from media_tag.upload.media import upload_name_parts
 from media_tag.upload.models import UploadSpec
 
 from .conftest import append, upload
 from .test_api import app, headers
+
+
+@pytest.mark.parametrize('extension,declared,codec,label', [
+    ('.mov', '.mp4', 'mpeg4', '视频'), ('.mp4', '.mov', 'mpeg4', '视频'),
+    ('.webm', '.mkv', 'libvpx-vp9', '视频'), ('.mkv', '.webm', 'mpeg4', '视频'),
+    ('.m4a', '.mp4', 'aac', '音频'),
+])
+def test_upload_uses_actual_container_for_name_and_download(intake, tmp_path, extension, declared, codec, label):
+    env = intake
+    target = tmp_path / ('synthetic' + extension)
+    source = 'sine=frequency=440:sample_rate=8000' if label == '音频' else 'color=c=red:s=32x24:r=4'
+    # Relative fragment offsets stay valid when a legal padding box precedes ftyp.
+    mux_options = ['-movflags', '+frag_keyframe+empty_moov+default_base_moof'] if extension == '.mp4' else []
+    env.uploads.tools.ffmpeg_run(['-v', 'error', '-f', 'lavfi', '-i', source, '-t', '0.25',
+                                  '-c', codec, *mux_options, str(target)], timeout=20)
+    data = target.read_bytes()
+    if extension == '.mp4':
+        data = struct.pack('>I4s', 8, b'free') + data
+    digest = sha256(data).hexdigest()
+    spec = UploadSpec(request_id='container-family', filename='private-name' + declared,
+                      size_bytes=len(data), sha256=digest)
+    session = env.uploads.create(spec, principal=env.owner)
+    for offset in range(0, len(data), session['chunk_bytes']):
+        append(env, session, data[offset:offset + session['chunk_bytes']], offset)
+    done = env.uploads.complete(session['upload_id'], principal=env.owner)
+    asset_id = done['asset_id']
+    expected = f"{label}-{asset_id.removeprefix('asset-')}{extension}"
+    assert done['display_name'] == expected
+    opened = FileService(env.router).open(asset_id, digest, principal=env.owner)
+    try:
+        header = disposition(opened.name, asset_id, opened.mime, False, opened.upload_extension)
+        assert unquote(header).endswith("UTF-8''" + expected)
+    finally:
+        opened.close()
+
+
+def test_matroska_payload_marker_is_not_a_webm_doctype():
+    validation = {'kind': 'video', 'raw_metadata': {'format': {'format_name': 'matroska,webm'}}}
+    # EBML Void carries a convincing marker before the actual Matroska DocType.
+    elements = b'\xec\x87\x42\x82\x84webm\x42\x82\x88matroska'
+    data = b'\x1a\x45\xdf\xa3' + bytes([0x80 + len(elements)]) + elements
+    assert upload_name_parts(validation, data) == ('视频', '.mkv')
 
 
 @pytest.mark.parametrize('kind,suffix', [('image', '.png'), ('animation', '.gif'), ('video', '.mp4'), ('audio', '.wav')])
@@ -47,6 +93,9 @@ def test_all_actual_media_kinds_and_purposes_have_persistent_analysis_intents(in
         chunk = env.data[offset:offset + env.uploads.options.chunk_bytes]
         env.uploads.append(session['upload_id'], offset, chunk, sha256(chunk).hexdigest(), principal=env.owner)
     result = env.uploads.complete(session['upload_id'], principal=env.owner)
+    kind_label = {'image': '图片', 'animation': '动画', 'video': '视频', 'audio': '音频'}[kind]
+    assert result['display_name'] == f"{kind_label}-{result['asset_id'].removeprefix('asset-')}{suffix}"
+    assert result['filename'] == spec.filename
     state = AnalysisService(env.router).status(result['asset_id'], principal=env.owner)
     assert state['content_kind'] == kind and state['state'] == 'pending_analysis'
     assert not state['analysis_complete'] and not state['runtime_dispatched']
@@ -127,6 +176,7 @@ def test_shared_read_upload_does_not_run_as_owner_or_transfer_edit_authority(int
     assert service.status(asset.asset_id, principal=other)['state'] == 'not_requested'
     repeated = upload(env, request='known-read-source', principal=other, known_asset_id=asset.asset_id)
     assert repeated['asset_id'] == asset.asset_id
+    assert repeated['display_name'] == first['display_name'] == asset.name
     state = service.status(asset.asset_id, principal=other)
     assert state['state'] == 'awaiting_edit_permission' and not state['runtime_dispatched']
     assert env.catalog.get_asset(asset.asset_id, principal=env.owner).owner_id == env.owner.actor_id

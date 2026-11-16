@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 from media_contracts import Catalog, Manifest
 from media_tag.publish.bundle import ExportSettings, build_bundle
+from media_tag.upload.service import UploadService
+from media_tag.workers.probe import Toolchain
+from upload.conftest import upload
 
 
 def settings(sought, release="synthetic-release"):
@@ -15,6 +18,19 @@ def settings(sought, release="synthetic-release"):
 
 def read_catalog(path, manifest):
     return Catalog.model_validate_json((path/"objects"/manifest.catalog.sha256).read_bytes())
+
+
+def test_new_upload_publishes_the_registered_display_name(sought, tmp_path):
+    env = sought.env
+    env.uploads = UploadService(env.router, Toolchain())
+    env.data = sought.original.read_bytes()
+    receipt = upload(env)
+    config = settings(sought).model_copy(update={'asset_ids': (receipt['asset_id'],)})
+    destination = tmp_path / 'uploaded-bundle'
+    manifest = build_bundle(config, destination)
+    asset, = read_catalog(destination, manifest).assets
+    assert asset.name == receipt['display_name'] == f"图片-{asset.asset_id.removeprefix('asset-')}.png"
+    assert (destination / 'objects' / asset.blob.sha256).read_bytes() == env.data
 
 
 def test_snapshot_exports_human_values_and_identical_bytes_without_mutations(sought,tmp_path):

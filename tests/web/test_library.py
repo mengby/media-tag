@@ -1,4 +1,5 @@
 from hashlib import sha256
+from urllib.parse import unquote
 import json
 import pytest
 from media_tag.catalog import AccessDenied, RevisionConflict, Principal
@@ -50,7 +51,17 @@ def test_library_upload_listing_literal_query_pagination_and_no_automatic_share(
     assert env.clients.reader.get('/ui/library').json()['items']==[]
     assert env.clients.owner.get('/ui/library?limit=1000').status_code==422
     assert env.clients.owner.get('/ui/library?q='+('x'*201)).status_code==422
-    assert env.clients.owner.get('/ui/tasks').json()['uploads'][0]['filename']=='合成图片.png'
+    expected = {item['asset_id']: item['display_name'] for item in (one, two)}
+    assert {group['root_asset_id']: group['versions'][0]['name']
+            for group in page['items'] + page2['items']} == expected
+    assert {item['asset_id']: item['filename']
+            for item in env.clients.owner.get('/ui/tasks').json()['uploads']} == expected
+    detail = env.clients.owner.get('/v1/assets/' + one['asset_id']).json()
+    assert detail['name'] == one['display_name']
+    manifest = env.clients.owner.get(detail['download_manifest']).json()
+    response = env.clients.owner.get(manifest['content'])
+    assert response.content == env.data
+    assert unquote(response.headers['content-disposition']).endswith("UTF-8''" + one['display_name'])
 
 
 def test_stale_revision_hash_unknown_recipient_and_request_collision(personnel):

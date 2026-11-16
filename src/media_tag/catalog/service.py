@@ -128,7 +128,7 @@ class Catalog:
                                           principal=principal, request_id=request_id, name=name, source=source, aliases=aliases)
 
     def _register_blob_tx(self, connection, blob, *, source_key, source_backend_id, principal, request_id, name,
-                          source, aliases=()):
+                          source, aliases=(), upload_name_parts=None):
         """Trusted publication after immutable ingest; caller owns the surrounding transaction."""
         alias_data = [alias.model_dump() for alias in aliases]
         fingerprint = sha256(encode({"sha256": blob.sha256, "size": blob.size_bytes, "name": name,
@@ -144,6 +144,11 @@ class Catalog:
                                   (principal.actor_id, alias.namespace, alias.alias)).fetchone():
                 raise RevisionConflict("legacy alias is already assigned")
         now, asset_id, source_id = utc_now(), f"asset-{uuid4().hex}", f"source-{uuid4().hex}"
+        registration = {"source_id": source_id, "aliases": alias_data}
+        if upload_name_parts is not None:
+            label, extension = upload_name_parts
+            name = f"{label}-{asset_id.removeprefix('asset-')}{extension}"
+            registration["upload_extension"] = extension
         connection.execute("INSERT OR IGNORE INTO blobs VALUES(?,?,?)", (blob.sha256, blob.size_bytes, now))
         size = connection.execute("SELECT size_bytes FROM blobs WHERE sha256=?", (blob.sha256,)).fetchone()[0]
         if size != blob.size_bytes:
@@ -162,7 +167,7 @@ class Catalog:
         for alias in aliases:
             connection.execute("INSERT INTO asset_aliases VALUES(?,?,?,?)", (principal.actor_id, alias.namespace, alias.alias, asset_id))
         connection.execute("INSERT INTO registrations VALUES(?,?,?,?)", (principal.actor_id, request_id, fingerprint, asset_id))
-        self._event(connection, asset_id, 1, principal, "register", {}, {"name": name, "source_id": source_id, "aliases": alias_data})
+        self._event(connection, asset_id, 1, principal, "register", {}, {"name": name, **registration})
         from media_tag.analysis.intake import ensure_intent
         ensure_intent(connection, asset_id, principal.actor_id)
         return self._snapshot(connection, self._authorize(connection, asset_id, principal))
