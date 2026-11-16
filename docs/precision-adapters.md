@@ -50,6 +50,10 @@ Worker 使用运行账户已登录的原生 Codex CLI，通过 `codex exec --mod
 `precision.image_workers` 设置桌面 Worker 的远端图片并发上限（0 至 64）。本机 A800 的 Qwen3-VL-8B 图片打标统一设为 **64**，桌面 Worker 每次启动时读取。按待打标图片数量派发，每张图独立持有租约，并在发送前复查外发权限。远端图片使用独立调度槽，本机普通任务继续使用 `options.cpu_slots`。视频试跑入口的并发为 2。
 本批需要并行预处理时，设置 `preprocess_batch.owner_id` 和 `preprocess_batch.upload_requests`（已冻结的本地入库请求 ID）。桌面 Worker 最多从现有 CPU 槽中分配三个辅助槽，保留一个普通槽。辅助槽只领取指定所有者这些上传完成的原件作业中的探测、取证、OCR 和人脸 CPU 阶段。CLIP、清洗、A800 打标和发布沿用原有流程。移除 `preprocess_batch` 并重载即关闭辅助槽。
 
+若启动时该清单已有当前图片提供方的推理超时，远端图片并发从最多 4 个在途请求恢复。一轮及时成功后增加 2 个；超时、连接失败、限流或耗时超过阶段时限一半时减少并发，同一轮的迟到失败只触发一次回退。配置的 `precision.image_workers` 仍是上限。
+
+对于 SSH 发布，每张素材的准备、索取 OSS 上传地址及提交索引调用共用一条 SSH 连接，凭证由远端读取。默认一次发布一张；同一冻结清单可设置 `item_publication.batch_workers` 为 1 到 6。发布器在约 5 秒内读取该数值，增加的槽只处理清单内不同素材，同一素材的前一版本取得回执后才发布后一版本。已完成的单项发布在本机 `item_delivery_timings` 留存打包、远端准备、签发地址、OSS 上传和提交索引各环节的客户端耗时。
+
 本地前处理和线上发布可与远端推理同时进行。开启自动派发时，可将 `auto_dispatch_after_intent` 设为启用前最后一个
 `analysis_intents.rowid`，限定到后续新入库的分析意图。已有素材仍可显式请求精标。
 

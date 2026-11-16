@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import time
 from contextlib import closing
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from hashlib import sha256
 from pathlib import Path
 
@@ -75,10 +76,15 @@ class Superseded(Exception):
 
 
 class ItemPublisher:
-    def __init__(self, router, config):
+    def __init__(self, router, config, *, config_path=None):
         self.router = router
         self.config = config
         self.options = config.item_publication
+        self.config_path = config_path
+        self._checked_workers_at = 0.0
+        self._worker_count = 1
+        batch = config.preprocess_batch
+        self._requests = (json.dumps(batch.upload_requests) if batch and batch.owner_id == self.options.owner_id else None)
         self.owner = next(p for p in config.credentials.values() if p.actor_id == self.options.owner_id
                           and p.role in ("editor","admin"))
         self.root = Path(config.database).resolve().parent / "item-publications"
@@ -108,9 +114,16 @@ class ItemPublisher:
             jobs = conn.execute("""SELECT DISTINCT j.job_id FROM router_jobs j JOIN router_tasks t USING(job_id)
                 WHERE j.owner_id=? AND j.cancelled=0 AND t.active=1 AND t.step_key='pretag_cleaning'
                 ORDER BY j.created_at""",(self.owner.actor_id,)).fetchall()
-        for job in jobs:
+            known = {row[0] for row in conn.execute("SELECT tag_version FROM item_deliveries WHERE owner_id=?",
+                                                    (self.owner.actor_id,))}
+            missing = []
+            for job_id, in jobs:
+                ready = ready_version(conn, job_id, self.owner.actor_id, self.options.required_precision_provider)
+                if ready and ready[1] not in known:
+                    missing.append(job_id)
+        for job_id in missing:
             with self.router.database.transaction(write=True) as conn:
-                self.enqueue(conn,job[0])
+                self.enqueue(conn, job_id)
 
     def deliver(self, row, destination, *, timings=None):
         started = time.monotonic()
@@ -146,16 +159,50 @@ class ItemPublisher:
         return push_bundle(destination,self.client,item=data,timings=timings,
                            open_original=lambda: closing(files.open(asset_id,source,principal=self.owner)))
 
-    def once(self):
+    def _workers(self):
+        if self._requests is None:
+            return 1
+        if self.config_path is None:
+            return self.options.batch_workers
+        now = time.monotonic()
+        if now >= self._checked_workers_at:
+            self._checked_workers_at = now + 5
+            try:
+                raw = json.loads(Path(self.config_path).read_bytes())
+                scope = raw.get('preprocess_batch')
+                options = type(self.options).model_validate(raw['item_publication'])
+                unchanged = options.model_copy(update={'batch_workers': self.options.batch_workers}) == self.options
+                self._worker_count = (options.batch_workers if unchanged and scope ==
+                    self.config.preprocess_batch.model_dump(mode='json') else 1)
+            except (OSError, ValueError, KeyError, TypeError):
+                self._worker_count = 1
+        return self._worker_count
+
+    def _next(self, busy=(), *, batch_only=False):
+        scope = ""
+        args = [self.owner.actor_id, time.time(), json.dumps(list(busy))]
+        if batch_only:
+            if self._requests is None:
+                return None
+            scope = """AND d.asset_id IN (SELECT asset_id FROM uploads WHERE owner_id=? AND state='completed'
+                       AND request_id IN (SELECT value FROM json_each(?)))"""
+            args.extend((self.owner.actor_id, self._requests))
         with self.router.database.transaction() as conn:
-            row = conn.execute("""SELECT d.* FROM item_deliveries d WHERE owner_id=? AND state='pending'
-                AND retry_at<=? AND NOT EXISTS (SELECT 1 FROM item_deliveries p WHERE p.asset_id=d.asset_id
-                AND p.seq<d.seq AND p.state='pending') ORDER BY seq LIMIT 1""",
-                (self.owner.actor_id,time.time())).fetchone()
+            return conn.execute(f"""SELECT d.* FROM item_deliveries d WHERE owner_id=? AND state='pending'
+                AND retry_at<=? AND d.asset_id NOT IN (SELECT value FROM json_each(?)) {scope}
+                AND NOT EXISTS (SELECT 1 FROM item_deliveries p WHERE p.asset_id=d.asset_id
+                AND p.seq<d.seq AND p.state='pending') ORDER BY seq LIMIT 1""", args).fetchone()
+
+    def once(self):
+        row = self._next()
         if row is None:
             return False
+        return self._publish(row, workers=1)
+
+    def _publish(self, row, *, workers):
         destination = self.root / row["tag_version"]
-        started_at, started, timings = time.time(), time.monotonic(), {}
+        started_at, started = time.time(), time.monotonic()
+        timings = {'workers': workers, 'ssh_reuse': bool(self.options.ssh_host)}
         try:
             receipt = self.deliver(row,destination,timings=timings)
         except Superseded:
@@ -188,10 +235,27 @@ class ItemPublisher:
         (self.root/"README.md").write_text("Private pending single-asset publication bundles.\n",encoding="utf-8")
         with lock(self.root,name="publisher.lock"):
             self.recover()
-            while not stop.is_set():
-                try:
-                    if self.once():
-                        continue
-                except Exception as exc:
-                    logging.getLogger(__name__).error("Item publisher: %s",type(exc).__name__)
-                stop.wait(2)
+            running = {}
+            with ThreadPoolExecutor(max_workers=6, thread_name_prefix='item-publish') as pool:
+                while not stop.is_set():
+                    try:
+                        for future in tuple(running):
+                            if future.done():
+                                del running[future]
+                                future.result()
+                        count = self._workers()
+                        while len(running) < count and not stop.is_set():
+                            row = self._next((v[0] for v in running.values()),
+                                batch_only=any(v[1] for v in running.values()))
+                            if row is None:
+                                break
+                            primary = not any(v[1] for v in running.values())
+                            future = pool.submit(self._publish, row, workers=count)
+                            running[future] = (row['asset_id'], primary)
+                        if running:
+                            wait(running, timeout=.5, return_when=FIRST_COMPLETED)
+                        else:
+                            stop.wait(2)
+                    except Exception as exc:
+                        logging.getLogger(__name__).error("Item publisher: %s",type(exc).__name__)
+                        stop.wait(2)

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from time import monotonic
 from urllib.parse import urlsplit
 
 from media_tag.files.service import media_type
@@ -136,9 +137,15 @@ def analyze(provider, request, *, max_input_bytes, timeout_seconds, authorize_se
         # Consult the live lease and file gate after TLS and media preparation,
         # immediately before sending the credential or any application bytes.
         authorize_send()
+        started = monotonic()
+        if request['content_kind'] == 'image':
+            print(f'image_request_start bytes={length}', file=sys.stderr, flush=True)
         connection.request('POST', path, body=body, headers={
             'Authorization': 'Bearer ' + os.environ['MEDIA_TAG_PRECISION_BEARER'],
             'Content-Type': 'application/json', 'Content-Length': str(length)})
+        sent = monotonic()
+        if request['content_kind'] == 'image':
+            print(f'image_request_sent seconds={sent-started:.3f}', file=sys.stderr, flush=True)
         with connection.getresponse() as response:
             if response.status in (401, 403):
                 raise ModelFailure('precision_api_auth')
@@ -147,6 +154,8 @@ def analyze(provider, request, *, max_input_bytes, timeout_seconds, authorize_se
             if response.status != 200:
                 raise ModelFailure('precision_api_http')
             raw = response.read(REPLY_LIMIT + 1)
+            if request['content_kind'] == 'image':
+                print(f'image_reply_received seconds={monotonic()-sent:.3f}', file=sys.stderr, flush=True)
             if len(raw) > REPLY_LIMIT:
                 raise ModelFailure('precision_api_reply_budget')
     except (OSError, HTTPException):

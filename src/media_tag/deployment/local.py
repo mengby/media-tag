@@ -245,10 +245,13 @@ def _serve_child(root,generation,kind):
         executor=executor_from_config(root/'runtime.local.json',instance.worker_id,parallel_images=True)
         done=threading.Event()
         publisher=getattr(executor.router,"item_publisher",None)
+        publication = None
         if publisher:
-            threading.Thread(target=publisher.run,args=(done,),name="item-publisher",daemon=True).start()
+            publication = threading.Thread(target=publisher.run,args=(done,),name="item-publisher",daemon=True)
+            publication.start()
         with ThreadPoolExecutor(max_workers=2, thread_name_prefix='tag-dispatch') as pool:
-            images = pool.submit(run_image_workers, executor.image_workers, done)
+            images = pool.submit(run_image_workers, executor.image_workers, done,
+                                 recover_timeouts=executor.recover_image_timeouts)
             preprocessing = pool.submit(run_image_workers, executor.preprocess_workers, done, thread_name='batch-cpu')
             try:
                 while not requested(root,generation):
@@ -262,6 +265,8 @@ def _serve_child(root,generation,kind):
                 executor.close_models()
                 images.result()
                 preprocessing.result()
+                if publication:
+                    publication.join()
 
 
 def resume_owned_process(process):

@@ -43,6 +43,22 @@ def test_preprocessing_requires_selected_owner_completed_upload_and_free_cpu_slo
         assert [r[0] for r in db.execute('SELECT resource FROM router_holds')] == ['cpu:0']
 
 
+def test_timeout_recovery_builds_capacity_and_backs_off_once_per_cohort():
+    from media_tag.precision.pool import RecoveryWindow
+    window = RecoveryWindow(8)
+    for _ in range(20):
+        window.observe(0, 'succeeded', None, 5, 120)
+    assert window.limit == 8
+    window.observe(0, 'failed', 'precision_timeout', 119, 120)
+    window.observe(0, 'failed', 'precision_timeout', 119, 120)
+    assert window.limit == 4
+    window.observe(1, 'succeeded', None, 80, 120)
+    assert window.limit == 2
+    for _ in range(2):
+        window.observe(2, 'succeeded', None, 8, 120)
+    assert window.limit == 4
+
+
 def test_remote_image_pool_holds_64_leases_and_leaves_cpu_available(env):
     from concurrent.futures import ThreadPoolExecutor
 

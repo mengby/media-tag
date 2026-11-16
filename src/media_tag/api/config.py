@@ -47,6 +47,7 @@ from media_tag.semantic.contracts import SemanticDeployment
 
 
 class ItemPublicationConfig(ContractModel):
+    batch_workers: Annotated[int, Field(ge=1, le=6)] = 1
     owner_id: Identifier
     published_owner_id: Identifier | None = None
     required_precision_provider: Identifier | None = None
@@ -216,7 +217,7 @@ def load_application(path: Path):
     reviews=ReviewService(router,config.review) if config.review.enabled else None
     if config.item_publication:
         from media_tag.publish.items import ItemPublisher
-        router.item_publisher = ItemPublisher(router,config)
+        router.item_publisher = ItemPublisher(router,config,config_path=path)
     uploads = UploadService(router, tools, options=config.upload_options)
     uploads.dispatch_pending(principal=bootstrap)
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
@@ -351,8 +352,18 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
                          prepare_order=prepare_order,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)
     executor.image_workers = image_workers
+    executor.recover_image_timeouts = False
     executor.preprocess_workers = []
     if parallel_images and config.preprocess_batch:
+        if image_workers:
+            with router.database.transaction() as connection:
+                executor.recover_image_timeouts = connection.execute("""SELECT 1 FROM router_tasks t
+                    JOIN router_jobs j USING(job_id) WHERE j.owner_id=? AND t.error_code='precision_timeout'
+                    AND json_extract(t.spec_json,'$.config.provider_id')=? AND j.asset_id IN (
+                        SELECT asset_id FROM uploads WHERE owner_id=? AND state='completed'
+                        AND request_id IN (SELECT value FROM json_each(?))) LIMIT 1""",
+                    (config.preprocess_batch.owner_id, config.precision.visual_provider, config.preprocess_batch.owner_id,
+                     json.dumps(config.preprocess_batch.upload_requests))).fetchone() is not None
         def preprocess_handler(identity):
             cpu_handler = CPUHandlers(router, identity, tools)
             model_handler = ModelHandlers(router, identity, ModelRegistry(Path(config.models.model_root)))
