@@ -19,7 +19,7 @@ from .bundle import build_bundle
 from .client import PublishSettings, push_bundle
 
 
-def ready_version(conn, job_id, owner):
+def ready_version(conn, job_id, owner, precision_provider=None):
     job = conn.execute("""SELECT j.asset_id,a.revision,a.blob_sha256 FROM router_jobs j JOIN assets a USING(asset_id)
         WHERE j.job_id=? AND j.owner_id=? AND a.owner_id=? AND j.cancelled=0 AND a.deleted_at IS NULL
         AND a.kind='original'""", (job_id, owner, owner)).fetchone()
@@ -31,15 +31,25 @@ def ready_version(conn, job_id, owner):
     stages = {json.loads(t["spec_json"])["stage"] for t in tasks}
     if "pretag_cleaning" not in stages or not stages.intersection(("local_topics","visual_fields","precision")):
         return None
+    if precision_provider:
+        from media_tag.analysis.scopes import latest_topic_fields
+        current = set(latest_topic_fields(conn, job_id=job_id).values())
+        tasks = [t for t in tasks if json.loads(t["spec_json"])["stage"] != "precision" or t["task_id"] in current]
     if not all(_analysis_complete(t) for t in tasks):
         return None
     signature = [*tuple(job), job_id, [(t["task_id"],t["lease_epoch"]) for t in tasks]]
+    if precision_provider:
+        specs = [json.loads(t["spec_json"]) for t in tasks]
+        if not any(s["stage"] == "precision" and s["config"].get("provider_id") == precision_provider for s in specs):
+            return None
+        signature.extend(["configured-precision-fields-v1", precision_provider])
     return job["asset_id"], sha256(canonical(signature)).hexdigest()
 
 
 def item_metadata(router, files, conn, asset, detail, principal, item):
     asset_id, version = asset["asset_id"], item["tag_version"]
-    if ready_version(conn, item["job_id"], principal.actor_id) != (asset_id, version):
+    provider = item.get("precision_provider")
+    if ready_version(conn, item["job_id"], principal.actor_id, provider) != (asset_id, version):
         raise Superseded()
     screen = current_screen(files, asset_id, principal)
     if screen.get("job_id") != item["job_id"] or screen["state"] != "succeeded":
@@ -47,9 +57,12 @@ def item_metadata(router, files, conn, asset, detail, principal, item):
     job = conn.execute("SELECT * FROM router_jobs WHERE job_id=?", (item["job_id"],)).fetchone()
     projection = TopicProjection(router)
     document, _ = projection.build(conn,asset,semantic_content_kind(detail["technical"]),job)
+    if provider and ('verified_precision_draft' not in projection.precision_states.values()
+                     or 'unavailable' in projection.precision_states.values()):
+        raise ValueError("verified visual provider evidence required")
     fields = [{"field":f.field,"state":f.value.state,"values":list(f.value.values or ()),
                "candidates":list(f.candidates),"evidence_ids":list(f.evidence_ids),
-               "requires_field_review":f.requires_field_review} for f in document.fields if f.field in TOPIC_FIELDS]
+               "requires_field_review":f.requires_field_review} for f in document.fields if provider or f.field in TOPIC_FIELDS]
     return {"asset_id":asset_id,"source_sha256":asset["blob_sha256"],"tag_version":version,
             "previous_release":item["previous_release"],"fields":fields,
             "watermark_state":screen["report"]["watermark"]["state"],
@@ -82,11 +95,7 @@ class ItemPublisher:
 
     def enqueue(self, conn, job_id):
         provider = self.options.required_precision_provider
-        if provider and not conn.execute("""SELECT 1 FROM router_tasks WHERE job_id=? AND active=1
-                AND state='succeeded' AND json_extract(spec_json,'$.stage')='precision'
-                AND json_extract(spec_json,'$.config.provider_id')=?""", (job_id, provider)).fetchone():
-            return
-        ready = ready_version(conn, job_id, self.owner.actor_id)
+        ready = ready_version(conn, job_id, self.owner.actor_id, provider)
         if ready:
             conn.execute("""INSERT OR IGNORE INTO item_deliveries(asset_id,tag_version,job_id,owner_id)
                 VALUES(?,?,?,?)""", (*ready,job_id,self.owner.actor_id))
@@ -103,6 +112,8 @@ class ItemPublisher:
     def deliver(self, row, destination):
         asset_id, version = row["asset_id"], row["tag_version"]
         with self.router.database.transaction() as conn:
+            if ready_version(conn, row["job_id"], self.owner.actor_id, self.options.required_precision_provider) != (asset_id, version):
+                raise Superseded()
             previous = conn.execute("""SELECT tag_version FROM item_deliveries WHERE asset_id=?
                 AND state='indexed' AND seq<? ORDER BY seq DESC LIMIT 1""",(asset_id,row["seq"])).fetchone()
             asset = self.router.catalog._authorize(conn,asset_id,self.owner)
@@ -117,6 +128,8 @@ class ItemPublisher:
                         release_id="item-"+version)
             item = dict(job_id=row["job_id"],tag_version=version,
                         previous_release="item-"+previous[0] if previous else None)
+            if self.options.required_precision_provider:
+                item["precision_provider"] = self.options.required_precision_provider
             if self.options.published_owner_id:
                 item["published_owner_id"] = self.options.published_owner_id
             with tempfile.TemporaryDirectory(dir=self.root) as scratch:
