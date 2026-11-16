@@ -11,6 +11,7 @@ from media_tag.analysis.contracts import TOPIC_FIELDS
 from media_tag.analysis.fields import rules_digest, topic_names
 from media_tag.contracts.models import ArtifactRef, TagSuggestion, TaskLimits, Versions
 from media_tag.models.contracts import ModelFailure
+from media_tag.router.batching import cache_key
 from media_tag.router.models import StageDefinition, StepSpec
 from media_tag.semantic.registry import SemanticRegistry
 from media_tag.storage.filesystem import FilesystemBackend, require_local_path
@@ -18,7 +19,7 @@ from media_tag.transforms.processes import ProcessTree
 from media_tag.workers.evidence import _directory
 
 from .contracts import Generation, LocalTopicOptions, RouterTopicReport
-from .batching import TopicBatch, cache_key
+from .batching import TopicBatch
 from .prompt import PROMPT_VERSION
 from .parser import protocol_fields
 from .service import LocalTopicService, PREPROCESS_VERSION
@@ -149,7 +150,7 @@ class LocalTopicHandlers:
                                 and generation.model_revision == self.model_revision
                                 and generation.prompt_version == PROMPT_VERSION
                                 and len(generation.answers) == len(field_prompts)):
-                            owner.batch.remember(member_key, generation, batch_id, batch_size)
+                            owner.batch.remember(member_key, (generation, batch_id, batch_size))
                     return primary
         result = LocalTopicService(drafts, policy=policy, generator=Generator(), options=options,
             artifact_root=self.router.workspace).run(FilesystemBackend(source_dir), source_path.name,

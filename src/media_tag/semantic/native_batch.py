@@ -16,11 +16,49 @@ from .stopping import criteria
 from .patch_projection import replace_patch_projection
 
 
+def _read_image(backend, item):
+    from PIL import Image
+    frame = FrameInput.model_validate(item['frame'])
+    if frame.source_sha256 != item['source_sha256']:
+        raise ModelFailure('frame_binding_mismatch')
+    with backend.open_read(frame.artifact.ref) as stream:
+        raw = stream.read(16 * 1024**2 + 1)
+    if len(raw) > 16 * 1024**2 or sha256(raw).hexdigest() != frame.artifact.sha256:
+        raise ModelFailure('frame_integrity')
+    with Image.open(BytesIO(raw)) as image:
+        if image.format != 'PNG' or image.width * image.height > 2048**2:
+            raise ModelFailure('pixel_budget')
+        return item, frame, image.convert('RGB')
+
+
+def _generate(model, processor, valid, options, system, prompts, watermark):
+    import torch
+    messages = [[{'role':'system','content':[{'type':'text','text':system}]},
+        {'role':'user','content':[{'type':'image','image':image},{'type':'text','text':prompt}]}]
+        for _, _, image in valid for prompt in prompts]
+    inputs = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, padding=True,
+        return_dict=True, return_tensors='pt').to('cuda')
+    width = inputs['input_ids'].shape[1]
+    if width > 2048:
+        raise ModelFailure('semantic_input_budget')
+    pixels = [int(v[1])*int(v[2])*16**2 for v in inputs['image_grid_thw'].cpu().tolist()]
+    if any(v > options.max_pixels for v in pixels):
+        raise ModelFailure('semantic_pixel_budget_not_applied')
+    prepared = time.monotonic()
+    stopping = {} if watermark else {'stopping_criteria': criteria(processor, width)}
+    with torch.inference_mode():
+        output = model.generate(**inputs, max_new_tokens=min(48, options.max_new_tokens), do_sample=False, **stopping)
+    tokens = output[:, width:]
+    torch.cuda.synchronize()
+    generated = time.monotonic()
+    answers = [v.strip() for v in processor.batch_decode(tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False)]
+    return answers, pixels, int(tokens.shape[1]), prepared, generated
+
+
 def execute(request,*,diagnostic_path=None,watermark=False):
     started=time.monotonic();prepare_native_runtime()
-    from PIL import Image
     import torch
-    from transformers import AutoProcessor,Qwen3VLForConditionalGeneration
+    from transformers import Qwen3VLForConditionalGeneration
     registry=SemanticRegistry(Path(request['model_root']))
     from media_tag.cleaning import watermark as wm
     version = wm.PROMPT_VERSION if watermark else PROMPT_VERSION
@@ -28,16 +66,13 @@ def execute(request,*,diagnostic_path=None,watermark=False):
     registry.verify();verified=time.monotonic()
     options=SemanticOptions.model_validate(request['options']);items=[request,*request.get('prefetch',[])]
     if not 1<=len(items)<=4:raise ModelFailure('semantic_batch_budget')
+    extra = request.get('additional_images', [])
+    if extra and (not watermark or len(items) != 1 or len(extra) > 31):
+        raise ModelFailure('semantic_batch_budget')
     backend=FilesystemBackend(Path(request['workspace']));valid=[]
     for index,item in enumerate(items):
         try:
-            frame=FrameInput.model_validate(item['frame'])
-            if frame.source_sha256!=item['source_sha256']:raise ModelFailure('frame_binding_mismatch')
-            with backend.open_read(frame.artifact.ref) as stream:raw=stream.read(16*1024**2+1)
-            if len(raw)>16*1024**2 or sha256(raw).hexdigest()!=frame.artifact.sha256:raise ModelFailure('frame_integrity')
-            with Image.open(BytesIO(raw)) as image:
-                if image.format!='PNG' or image.width*image.height>2048**2:raise ModelFailure('pixel_budget')
-                valid.append((item,frame,image.convert('RGB')))
+            valid.append(_read_image(backend, item))
         except Exception:
             if index==0 or watermark:raise
             # An invalid queued candidate must not fail the current leased task.
@@ -50,21 +85,27 @@ def execute(request,*,diagnostic_path=None,watermark=False):
     loaded=time.monotonic();processor.tokenizer.padding_side='left'
     system = '按画面提供水印初筛证据。' if watermark else SYSTEM
     prompts = (wm.PROMPT,) if watermark else FIELD_PROMPTS
-    messages=[[{'role':'system','content':[{'type':'text','text':system}]},
-        {'role':'user','content':[{'type':'image','image':image},{'type':'text','text':prompt}]}]
-        for _,_,image in valid for prompt in prompts]
-    inputs=processor.apply_chat_template(messages,add_generation_prompt=True,tokenize=True,padding=True,return_dict=True,return_tensors='pt').to('cuda')
-    if inputs['input_ids'].shape[1]>2048:raise ModelFailure('semantic_input_budget')
-    processed_pixels=[int(v[1])*int(v[2])*16**2 for v in inputs['image_grid_thw'].cpu().tolist()]
-    if any(v>options.max_pixels for v in processed_pixels):raise ModelFailure('semantic_pixel_budget_not_applied')
-    prepared=time.monotonic()
-    stopping = {} if watermark else {"stopping_criteria":criteria(processor,inputs['input_ids'].shape[1])}
-    with torch.inference_mode():output=model.generate(**inputs,max_new_tokens=min(48,options.max_new_tokens),do_sample=False,**stopping)
-    tokens=output[:,inputs['input_ids'].shape[1]:];torch.cuda.synchronize();generated=time.monotonic()
-    answers=[v.strip() for v in processor.batch_decode(tokens,skip_special_tokens=True,clean_up_tokenization_spaces=False)]
+    def infer(group):
+        return _generate(model, processor, group, options, system, prompts, watermark)
+
+    answers, processed_pixels, token_count, prepared, generated = infer(valid)
     if watermark:
-        return [{"frame":frame.model_dump(mode="json"), **wm.interpret(answer)}
-                for (_,frame,_),answer in zip(valid,answers,strict=True)]
+        observations = [{"frame":frame.model_dump(mode="json"), **wm.interpret(answer)}
+                        for (_,frame,_),answer in zip(valid,answers,strict=True)]
+        longest = generated - loaded
+        for item in extra:
+            now = time.monotonic()
+            if now + max(2., 2 * longest) >= request['deadline'] or Path(request['finish_batch']).exists():
+                break
+            try:
+                member = _read_image(backend, item)
+                (answer,), *_ = infer([member])
+            except Exception:
+                # Keep completed observations. The member's own lease handles its failure.
+                break
+            observations.append({'frame': member[1].model_dump(mode='json'), **wm.interpret(answer)})
+            longest = max(longest, time.monotonic() - now)
+        return observations
     if len(answers)!=4*len(valid):raise ModelFailure('semantic_invalid_output')
     reports=[]
     missing=lambda v:v in ('未知','无法确定','无法判断','无法识别','Unknown','unknown','N/A','')
@@ -83,7 +124,7 @@ def execute(request,*,diagnostic_path=None,watermark=False):
             'microbatch_size':len(valid),'inference_batch_id':request.get('inference_batch_id'),
             'processor_budget_policy':'size-v2','processed_pixels':processed_pixels[4*index:4*index+4],'decoding_policy':'three-complete-phrases-v1','patch_projection':projection,
             'phase_seconds':{'imports_and_verify':verified-started,'processor_and_model_load':loaded-verified,
-                'prepare_inputs':prepared-loaded,'generate':generated-prepared},'generated_tokens':int(tokens.shape[1])}
+                'prepare_inputs':prepared-loaded,'generate':generated-prepared},'generated_tokens':token_count}
         reports.append({'task_id':item.get('task_id'),'report':report})
     if diagnostic_path is not None:Path(diagnostic_path).write_text(json.dumps([r['report']['raw_answers'] for r in reports],ensure_ascii=False),encoding='utf8')
     return reports

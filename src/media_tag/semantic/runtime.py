@@ -32,7 +32,9 @@ def suggestions(caption,task,evidence_id):
 
 
 class SemanticHandlers:
-    def __init__(self,router,registry,*,batch_size=2):
+    def __init__(self,router,registry,*,batch_size=2,watermark_batch_size=32):
+        from media_tag.cleaning.watermark_batch import WatermarkBatch
+        self.watermark_batch = WatermarkBatch(router, watermark_batch_size)
         self.router,self.registry=router,registry;self.batch_size=batch_size;self.cache=OrderedDict()
 
     def __call__(self,lease,stopped):
@@ -100,17 +102,44 @@ class SemanticHandlers:
         from media_tag.cleaning.watermark import PROMPT_VERSION as watermark_version
         if task.versions.model_revision != self.registry.revision:
             raise ModelFailure('watermark_version_mismatch')
+        deadline = time.monotonic() + task.limits.timeout_seconds
+        def check():
+            if stopped.is_set():
+                raise ModelFailure('cancelled')
+            if time.monotonic() >= deadline:
+                raise ModelFailure('semantic_timeout')
+
+        check()
+        batch = self.watermark_batch
+        binding = batch.binding(task, frames)
+        candidates = []
+        if binding:
+            key, spec = binding
+            cached = batch.cache.pop(key, None)
+            if cached and cached['frame'] == frames[0]:
+                return [{k: v for k, v in cached.items() if k != 'frame'}]
+            candidates = batch.collect(task, spec, batch.read_image, check)
         items = [{"source_sha256":f["source_sha256"],"frame":f} for f in frames]
         request = dict(items[0], kind="watermark", prefetch=items[1:], workspace=str(self.router.workspace),
             model_root=str(self.registry.root.resolve()),model_revision=self.registry.revision,
             prompt_version=watermark_version,executor_pid=os.getpid(), options=SemanticOptions().model_dump())
-        response = self.invoke(request, output, task, stopped)
+        if candidates:
+            request.update(additional_images=[item for _, item in candidates],
+                           deadline=deadline, finish_batch=str(output/'finish-batch'))
+        check()
+        response = self.invoke(request, output, task, stopped, deadline=deadline)
         if not response.get("ok"):
             raise ModelFailure(response.get("error_code","watermark_execution_failed"))
         observations = response["data"]
-        if len(observations)!=len(frames) or any(o["frame"]!=f for o,f in zip(observations,frames)):
+        if not len(frames) <= len(observations) <= len(frames) + len(candidates):
             raise ModelFailure("watermark_frame_binding")
-        return [{k:v for k,v in o.items() if k != "frame"} for o in observations]
+        primary = observations[:len(frames)]
+        if any(o['frame'] != frame for o, frame in zip(primary, frames)):
+            raise ModelFailure("watermark_frame_binding")
+        for (key, item), observation in zip(candidates, observations[len(frames):]):
+            if isinstance(observation, dict) and observation.get('frame') == item['frame']:
+                batch.remember(key, observation)
+        return [{k:v for k,v in o.items() if k != "frame"} for o in primary]
 
     def cache_key(self,task_id,frame,config):
         from media_tag.catalog.service import encode
@@ -156,6 +185,8 @@ class SemanticHandlers:
         request_path.write_text(json.dumps(request,sort_keys=True),encoding='utf8')
         env=os.environ.copy();env.update(HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',HF_HUB_DISABLE_TELEMETRY='1',TOKENIZERS_PARALLELISM='false',OMP_NUM_THREADS='1',PYTHONUTF8='1')
         started=time.monotonic()
+        check_batch = bool(request.get('additional_images'))
+        next_poll = started
         with (output/('native'+suffix+'.stdout.log')).open('wb') as stdout,(output/('native'+suffix+'.stderr.log')).open('wb') as stderr:
             process=subprocess.Popen([sys.executable,'-m','media_tag.semantic.runner',str(request_path),str(response_path)],env=env,
                 stdin=subprocess.DEVNULL,stdout=stdout,stderr=stderr,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
@@ -163,6 +194,11 @@ class SemanticHandlers:
                 while process.poll() is None:
                     if stopped.wait(.1):raise ModelFailure('cancelled')
                     if time.monotonic()-started>=task.limits.timeout_seconds or deadline is not None and time.monotonic()>=deadline:raise ModelFailure('semantic_timeout')
+                    if check_batch and time.monotonic() >= next_poll:
+                        if self.watermark_batch.should_yield(task.job_id):
+                            (output/'finish-batch').touch()
+                            check_batch = False
+                        next_poll = time.monotonic() + 2.
                     if os.fstat(stdout.fileno()).st_size+os.fstat(stderr.fileno()).st_size>2*1024**2:raise ModelFailure('model_log_budget')
             finally:
                 if process.poll() is None:process.kill()

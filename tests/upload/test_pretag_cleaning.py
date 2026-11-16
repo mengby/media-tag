@@ -1,16 +1,70 @@
+from dataclasses import replace
 from hashlib import sha256
+from io import BytesIO
+from types import SimpleNamespace
 
+from PIL import Image
 import pytest
 
-from media_tag.catalog import AccessDenied
+from media_tag.catalog import AccessDenied, Principal
 from media_tag.cleaning.pretag import current_screen, retry_failed_screen
 from media_tag.cleaning.watermark import interpret
 from media_tag.contracts.models import Versions
 from media_tag.files.service import FileError, FileService
 from media_tag.router.models import JobSpec, StepSpec
 from media_tag.router.runtime import CPUHandlers, LocalExecutor
+from media_tag.semantic.runtime import SemanticHandlers
 from media_tag.storage import IntegrityError
-from .conftest import upload
+from .conftest import append, spec, upload
+
+
+@pytest.mark.parametrize('case', ['shared', 'single_gif', 'other_owner', 'wrong_frame', 'partial'])
+def test_watermark_batch_only_adopts_observations_for_bound_images(intake, tools, monkeypatch, case):
+    router, worker = intake.router, intake.workers[0]
+    registry = SimpleNamespace(revision='watermark-test-v1', root=intake.workspace)
+    stage = 'pretag_cleaning'
+    router.stages[stage] = replace(router.stages[stage], requires_no_model=False, gpu_allowed=True,
+                                   required_gpu_slots=1, required_model_revision=registry.revision)
+    router.register_worker(worker.actor_id, tuple(router.stages), principal=intake.admin)
+    handler = SemanticHandlers(router, registry)
+    calls = []
+
+    def invoke(request, output, task, stopped, **kwargs):
+        others = request.get('additional_images', [])
+        calls.append(len(others) + 1)
+        data = []
+        for item in [request, *others]:
+            data.append({'frame': item['frame'], 'state': 'candidate_review', 'position': 'corner',
+                         'description': item['source_sha256']})
+        if others and case == 'wrong_frame':
+            data[1] = data[0].copy()
+        if others and case == 'partial':
+            data.pop()
+        return {'ok': True, 'data': data}
+
+    monkeypatch.setattr(handler, 'invoke', invoke)
+    owners = [intake.owner, Principal(actor_id='second-owner') if case == 'other_owner' else intake.owner]
+    assets = []
+    for owner, color in zip(owners, ['green', 'blue']):
+        encoded = BytesIO()
+        fmt = 'GIF' if case == 'single_gif' and color == 'blue' else 'PNG'
+        Image.new('RGB', (32, 24), color).save(encoded, fmt)
+        intake.data = encoded.getvalue()
+        upload_spec = spec(intake, request=color, pretag_cleaning=True).model_copy(update={'filename': 'image.' + fmt.lower()})
+        session = intake.uploads.create(upload_spec, principal=owner)
+        append(intake, session, principal=owner)
+        assets.append(intake.uploads.complete(session['upload_id'], principal=owner)['asset_id'])
+        intake.now[0] += 1
+    executor = LocalExecutor(router, worker, CPUHandlers(router, worker, tools, watermark_handler=handler.screen_watermarks),
+                             prepare_order=handler.watermark_batch.prepare_order)
+    for _ in range(6):
+        assert executor.run_once()['accepted']
+    assert executor.run_once() is None
+    assert calls == {'shared': [2], 'single_gif': [2], 'other_owner': [1, 1], 'wrong_frame': [2, 1], 'partial': [2, 1]}[case]
+    for asset, owner in zip(assets, owners):
+        report = current_screen(FileService(router), asset, owner)['report']
+        assert report['watermark']['visual_observations'] == [{
+            'state': 'candidate_review', 'position': 'corner', 'description': report['source_sha256']}]
 
 
 def test_selected_intake_runs_screen_and_verifies_frame(intake, tools):

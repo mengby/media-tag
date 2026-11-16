@@ -231,12 +231,15 @@ def executor_from_config(path: Path, worker_id: str):
     if config.semantic.enabled:
         from media_tag.semantic.registry import SemanticRegistry
         from media_tag.semantic.runtime import SemanticHandlers
-        semantic_handler=SemanticHandlers(router,SemanticRegistry(Path(config.semantic.model_root)))
-    watermark = None
+        semantic_handler=SemanticHandlers(router,SemanticRegistry(Path(config.semantic.model_root)),
+                                          watermark_batch_size=config.local_topics.max_batch_items)
+    watermark_handler = None
     if getattr(router, 'watermark_registry', None):
         from media_tag.semantic.runtime import SemanticHandlers
-        watermark = (semantic_handler or SemanticHandlers(router,router.watermark_registry)).screen_watermarks
-    cpu = CPUHandlers(router, principal, tools, watermark_handler=watermark)
+        watermark_handler = semantic_handler or SemanticHandlers(router, router.watermark_registry,
+            watermark_batch_size=config.local_topics.max_batch_items)
+    cpu = CPUHandlers(router, principal, tools,
+                      watermark_handler=watermark_handler.screen_watermarks if watermark_handler else None)
     redactions=RedactionService(router,tools,ModelRegistry(Path(config.models.model_root)),reviewers=config.redaction.reviewers) if config.redaction.enabled else None
     transform=RedactionHandlers(redactions) if redactions else None
     retiming=RetimeService(router,tools,reviewers=config.retime.reviewers) if config.retime.enabled else None
@@ -298,6 +301,13 @@ def executor_from_config(path: Path, worker_id: str):
                     from media_tag.precision.service import dispatch_pending
                     dispatch_pending(app.state.analysis, config.precision, principal=requester)
                 seen.add(requester.actor_id)
+    def prepare_order(rows):
+        if local_topic_handler:
+            rows = local_topic_handler.batch.prepare_order(rows)
+        if watermark_handler:
+            rows = watermark_handler.watermark_batch.prepare_order(rows)
+        return rows
+
     return LocalExecutor(router,principal,handle,after_release=adopt,
-                         prepare_order=local_topic_handler.batch.prepare_order if local_topic_handler else None,
+                         prepare_order=prepare_order,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)
