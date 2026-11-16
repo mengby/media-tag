@@ -100,7 +100,10 @@ def run_bounded(program: Path, args: list[str], *, timeout: float, stdout_limit:
 
 
 class Toolchain:
-    def __init__(self, directory: Path | None = None) -> None:
+    def __init__(self, directory: Path | None = None, *, decode_threads: int = 1) -> None:
+        if decode_threads < 1:
+            raise ValueError("decode_threads must be positive")
+        self.decode_threads = decode_threads
         explicit = directory is not None or bool(os.environ.get("MEDIA_TAG_TOOL_DIR"))
         directory = Path(directory or os.environ.get("MEDIA_TAG_TOOL_DIR", "cache/media-tools/ffmpeg-9.0.2/bin"))
         self.ffmpeg = (directory / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")).resolve()
@@ -121,8 +124,11 @@ class Toolchain:
             self.identity[name] = {"version": first, "sha256": digest}
 
     def ffmpeg_run(self, args: list[str], *, timeout: float, stdout_limit: int = 8 * 1024 * 1024) -> tuple[bytes, bytes]:
-        return run_bounded(self.ffmpeg, ["-nostdin", "-hide_banner", "-threads", "1", "-filter_threads", "1",
-                                         "-filter_complex_threads", "1", *args], timeout=timeout, stdout_limit=stdout_limit)
+        return run_bounded(
+            self.ffmpeg, ["-nostdin", "-hide_banner", "-threads", str(self.decode_threads),
+                          "-filter_threads", "1", "-filter_complex_threads", "1", *args],
+            timeout=timeout, stdout_limit=stdout_limit,
+        )
 
     def probe_run(self, path: Path, *, timeout: float, extra: list[str] | None = None) -> dict:
         args = ["-v", "error", "-threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", FORMAT_WHITELIST,

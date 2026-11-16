@@ -2,6 +2,7 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 from pathlib import Path
 import time
 
@@ -58,7 +59,8 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
     if len(set(files)) != len(files):
         raise ValueError('duplicate trial input')
     started = time.perf_counter()
-    tools = tools or Toolchain()
+    # Prepare one video at a time; parallelize input decoding within that video.
+    tools = tools or Toolchain(decode_threads=min(8, os.cpu_count() or 1))
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=False)
     (out / 'README.md').write_text(

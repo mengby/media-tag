@@ -6,6 +6,7 @@ import pytest
 from media_tag.video_pilot.__main__ import request_peak
 from media_tag.video_pilot.api import endpoint, validate_tags
 from media_tag.video_pilot.sampling import plan_windows, prepare
+from media_tag.workers.probe import Toolchain
 
 
 def test_plan_keeps_sequences_inside_selected_shots():
@@ -50,6 +51,15 @@ def test_local_sequences_have_ordered_source_clocks_and_no_cross_cut_frames(tmp_
     assert [e['kind'] for e in baseline['evidence']] == ['image'] * 3
     with pytest.raises(FileExistsError):
         prepare(source, out, 'shots', media_tools)
+
+
+@pytest.mark.parametrize('method', ['three', 'shots'])
+@pytest.mark.parametrize('source_name', ['vfr', 'offset'])
+def test_parallel_decode_preserves_evidence(tmp_path, generated_media, media_tools, method, source_name):
+    source = getattr(generated_media, source_name)
+    reference = prepare(source, tmp_path / 'single', method, media_tools)
+    parallel = prepare(source, tmp_path / 'parallel', method, Toolchain(decode_threads=8))
+    assert parallel == reference  # Includes source clocks, shot bounds and hashes of the JPEGs.
 
 
 def test_tunnel_evidence_references_and_actual_overlap():
