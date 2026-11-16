@@ -273,6 +273,39 @@ def test_bounded_auto_cursor_survives_executor_recreation(precise, monkeypatch):
     assert len(outcomes) == 1 and outcomes[0]['asset_id'] == other.asset_id
 
 
+def test_auto_dispatch_scan_work_does_not_grow_with_unrelated_job_tasks(precise, monkeypatch):
+    p = precise
+    db = p.analysis.database
+    connect = db._connect
+    scans = []
+    def traced():
+        conn = connect()
+        conn.set_trace_callback(lambda sql: scans.append(sql) if sql.lstrip().startswith('SELECT i.asset_id,i.rowid AS position') else None)
+        return conn
+    monkeypatch.setattr(db, '_connect', traced)
+    assert dispatch_pending(p.analysis, p.deployment(auto_dispatch=True), principal=p.env.owner)
+    sql = scans[0]
+    with db.transaction(write=True) as c:
+        def measure():
+            ticks = []
+            c.set_progress_handler(lambda: ticks.append(None) or 0, 100)
+            try:
+                rows = c.execute(sql).fetchall()
+            finally:
+                c.set_progress_handler(None, 0)
+            return rows, len(ticks)
+        rows, baseline = measure()
+        c.execute("""INSERT INTO router_jobs(job_id,owner_id,asset_id,priority,max_total_attempts,created_at)
+            SELECT 'unrelated-test-job',owner_id,asset_id,priority,max_total_attempts,created_at FROM router_jobs LIMIT 1""")
+        c.executemany("""INSERT INTO router_tasks(task_id,job_id,step_key,generation,spec_json,state,ready_at)
+            VALUES(?,'unrelated-test-job',?,1,'{}','queued',0)""",
+            [(f'perftest-task-{i}',f'other-{i}') for i in range(2000)])
+        actual, expanded = measure()
+        assert actual == rows
+        # Count SQLite VM instructions, not wall time on a particular machine.
+        assert expanded <= baseline + 10
+
+
 def test_configured_worker_dispatches_and_executes_selected_bridge(precise, tmp_path):
     from pathlib import Path
     from media_tag.api.config import LocalConfig, executor_from_config

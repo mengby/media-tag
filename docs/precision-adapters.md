@@ -79,6 +79,8 @@ v1桥接取得经过当前租约读取的**完整原编码副本**，原件只�
 
 ## 资格、完成状态与修复
 
+批量调度会在本机阶段之间检查哪些素材可以送入精标。检查前置任务和字段覆盖时，按每个作业使用既有的 `router_active_step` 索引；没有 SQLite 统计信息的新库也不会为每个素材、每个字段扫描全部活动任务。已覆盖字段、未放行素材、未完成前置步骤的处理规则不变。排查空等时应分开看“上一张释放→下一张前置完成”“前置完成→提交”和“提交→领取”，用线上已核对的回执增量计算端到端吞吐。
+
 状态采用和修复共用verified：当前active且已释放尝试、实际报告/完整输入哈希、原始probe与实际公共时间范围、源/请求/模态、代码/模型签名、prompt/规则/词表版本、字段origin/versions/证据引用及建议一致性均须通过。失效立即撤下，不从旧成功回退。HTTP仅返回证据/报告摘要，私有路径不进入视图。
 
 所有适用字段有可用初稿时可出现analysis_draft_ready/analysis_complete=true，**仅表示AI分析覆盖完成**，medical_confirmation、privacy_confirmation、effective_values_written仍false。未知/未匹配为analysis_needs_review或相应待办，不计覆盖完成；未经独立校准的本地免精标规则仍不启用。

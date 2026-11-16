@@ -142,6 +142,8 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
         cursor = connection.execute('SELECT value FROM catalog_metadata WHERE key=?', (cursor_key,)).fetchone()
         cursor = json.loads(cursor[0]) if cursor else {}
         position = cursor.get('position', 0) if cursor.get('seed') == seed else 0
+        # These correlated probes concern only one job. Without planner statistics
+        # SQLite can scan every active task once per asset and once per field.
         query = '''SELECT i.asset_id,i.rowid AS position FROM analysis_intents i
             JOIN router_requests r ON r.owner_id=i.requested_by AND r.request_id=i.intent_id
             JOIN router_jobs j ON j.job_id=r.job_id
@@ -154,11 +156,11 @@ def dispatch_pending(analysis, deployment, *, principal, stage='precision'):
                 WHERE ap.asset_id=a.asset_id AND ap.subject_id=? AND ap.permission='edit'))
             AND EXISTS (SELECT 1 FROM router_tasks t JOIN router_attempts z ON z.task_id=t.task_id AND z.lease_epoch=t.lease_epoch
                 WHERE t.job_id=j.job_id AND t.active=1 AND t.step_key='probe' AND t.state='succeeded' AND z.released_at IS NOT NULL)
-            AND NOT EXISTS (SELECT 1 FROM router_tasks t LEFT JOIN router_attempts z ON z.task_id=t.task_id AND z.lease_epoch=t.lease_epoch
+            AND NOT EXISTS (SELECT 1 FROM router_tasks AS t INDEXED BY router_active_step LEFT JOIN router_attempts z ON z.task_id=t.task_id AND z.lease_epoch=t.lease_epoch
                 WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage')!=?
                 AND (t.state NOT IN ('succeeded','failed','needs_attention','cancelled') OR t.lease_epoch>0 AND z.released_at IS NULL))
             AND EXISTS (SELECT 1 FROM json_each(p.value,'$.fields') f WHERE NOT EXISTS (
-                SELECT 1 FROM router_tasks t JOIN json_each(t.spec_json,'$.target_fields') tf
+                SELECT 1 FROM router_tasks AS t INDEXED BY router_active_step JOIN json_each(t.spec_json,'$.target_fields') tf
                 WHERE t.job_id=j.job_id AND t.active=1 AND json_extract(t.spec_json,'$.stage') IN (?,?) AND tf.value=f.value))
             ORDER BY i.rowid LIMIT ?'''
         def scan(after):
