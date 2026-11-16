@@ -21,6 +21,7 @@ class Generation(ContractModel):
     prompt_version: str
     image_sha256: Sha256
     answers: Annotated[tuple[Annotated[str, Field(max_length=16000)], ...], Field(min_length=1, max_length=42)]
+    retried_answers: Annotated[dict[str, Annotated[str, Field(max_length=16000)]], Field(max_length=42)] = Field(default_factory=dict)
 
 
 class LocalTopicResult(ContractModel):
@@ -44,6 +45,8 @@ class LocalTopicResult(ContractModel):
 class LocalTopicDeployment(ContractModel):
     enabled: bool = False
     model_root: str = 'cache/models/semantic'
+    batch_size: Annotated[int, Field(ge=1, le=4)] = 4
+    max_batch_items: Annotated[int, Field(ge=1, le=32)] = 32
 
 
 class LocalTopicOptions(Options):
@@ -60,3 +63,6 @@ class RouterTopicReport(ContractModel):
     source: ArtifactRef
     native_input: ArtifactRef
     result: LocalTopicResult
+    inference_batch_id: str | None = None
+    inference_batch_size: Annotated[int, Field(ge=1, le=32)] = 1
+    batch_cache_hit: bool = False

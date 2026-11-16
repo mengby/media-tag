@@ -299,4 +299,5 @@ def executor_from_config(path: Path, worker_id: str):
                     dispatch_pending(app.state.analysis, config.precision, principal=requester)
                 seen.add(requester.actor_id)
     return LocalExecutor(router,principal,handle,after_release=adopt,
+                         prepare_order=local_topic_handler.batch.prepare_order if local_topic_handler else None,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)

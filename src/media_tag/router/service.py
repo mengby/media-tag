@@ -240,7 +240,7 @@ class Router:
             refs.extend(result.artifacts)
         return ("ready" if ready else "waiting"), tuple(refs)
 
-    def claim(self, *, principal: Principal) -> Lease | None:
+    def claim(self, *, principal: Principal, prepare_order=None) -> Lease | None:
         with self.database.transaction(write=True) as connection:
             worker = self._worker(connection, principal)
             self._expire(connection)
@@ -252,10 +252,13 @@ class Router:
             cpu = next((f"cpu:{i}" for i in range(self.options.cpu_slots) if f"cpu:{i}" not in held), None)
             if cpu is None:
                 return None
-            rows = connection.execute("""SELECT router_tasks.* FROM router_tasks JOIN router_jobs USING(job_id)
+            rows = connection.execute("""SELECT router_tasks.*, owner_id AS job_owner, priority AS job_priority
+                FROM router_tasks JOIN router_jobs USING(job_id)
                 WHERE active=1 AND state IN ('queued','retry_wait') AND ready_at<=? AND paused=0 AND cancelled=0
                 ORDER BY (priority * ? + (? - router_jobs.created_at)) DESC,router_jobs.created_at,step_key""",
                 (self.clock(), self.options.interactive_bonus_seconds, self.clock())).fetchall()
+            if prepare_order is not None:
+                rows = prepare_order(rows)
             for task in rows:
                 step = StepSpec.model_validate_json(task["spec_json"])
                 if step.stage not in json.loads(worker["stages_json"]):

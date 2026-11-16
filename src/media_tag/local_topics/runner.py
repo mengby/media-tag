@@ -15,13 +15,7 @@ from .native import LocalQwenGenerator
 from .prompt import PROMPT_VERSION
 
 
-def execute(request):
-    if request['prompt_version'] != PROMPT_VERSION:
-        raise ModelFailure('local_topic_prompt_changed')
-    options = LocalTopicOptions.model_validate_json(json.dumps(request['options']))
-    generator = LocalQwenGenerator(request['model_root'], enabled=True)
-    if generator.model_revision != request['model_revision'] or generator.model_revision != options.model_revision:
-        raise ModelFailure('local_topic_model_changed')
+def read_image(request):
     path = Path(request['image_path'])
     if path.stat().st_size > 16*1024**2:
         raise ModelFailure('local_topic_model_image_budget')
@@ -32,7 +26,27 @@ def execute(request):
     with Image.open(BytesIO(raw)) as image:
         if image.format != 'PNG' or image.mode != 'RGB' or image.width*image.height > 2048**2 or getattr(image,'n_frames',1) != 1:
             raise ModelFailure('local_topic_model_image_format')
-    return generator(image_bytes=raw, field_prompts=tuple(request['field_prompts']), options=options)
+    return raw
+
+
+def execute(request):
+    if request['prompt_version'] != PROMPT_VERSION:
+        raise ModelFailure('local_topic_prompt_changed')
+    options = LocalTopicOptions.model_validate_json(json.dumps(request['options']))
+    generator = LocalQwenGenerator(request['model_root'], enabled=True)
+    if generator.model_revision != request['model_revision'] or generator.model_revision != options.model_revision:
+        raise ModelFailure('local_topic_model_changed')
+    members = request.get('prefetch', [])
+    if len(members) > 31:
+        raise ModelFailure('local_topic_batch_budget')
+    # Check the leased image first. Optional images are read one GPU microbatch at a time.
+    images = [read_image(request), *members]
+    results = generator.generate_batch(images=images, field_prompts=tuple(request['field_prompts']), options=options,
+        field_rules=request.get('protocol_fields'), microbatch_size=request.get('microbatch_size', 4),
+        deadline=request.get('deadline'), read_input=lambda item: item if isinstance(item, bytes) else read_image(item),
+        yield_requested=Path(request['start_gate']).with_name('finish-batch').exists)
+    return {'ok': True, 'generation': results[0].model_dump(mode='json'),
+            'prefetched': [result.model_dump(mode='json') for result in results[1:]]}
 
 
 def main():
@@ -47,8 +61,7 @@ def main():
         if time.monotonic() >= deadline:return 2
         time.sleep(.01)
     try:
-        generation = execute(request)
-        response = {'ok':True, 'generation':generation.model_dump(mode='json')}
+        response = execute(request)
     except Exception as exc:
         response = {'ok':False, 'error_code':exc.code if isinstance(exc,ModelFailure) else 'local_topic_model_failed'}
     response_path.write_text(json.dumps(response, allow_nan=False), encoding='utf8')

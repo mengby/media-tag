@@ -23,6 +23,91 @@ from media_tag.semantic.registry import SemanticRegistry
 from .test_topics import answer
 
 
+@pytest.mark.parametrize('barrier', ['none', 'other_owner', 'lower_priority', 'incompatible'])
+def test_prepare_order_collects_only_compatible_adjacent_jobs(topic_router, barrier):
+    batch = topic_router.handler.batch
+    spec = topic_router.spec.model_copy(update={'depends_on': ('screen',)})
+    def row(job, key, stage, parents=()):
+        step = spec.model_copy(update={'key': key, 'stage': stage, 'depends_on': parents})
+        if barrier == 'incompatible' and job == 'second' and stage == 'local_topics':
+            step = step.model_copy(update={'target_fields': ('画面主体',)})
+        return {'job_id': job, 'task_id': job + key, 'step_key': key, 'spec_json': step.model_dump_json(),
+                'job_owner': 'other' if job == 'second' and barrier == 'other_owner' else 'owner',
+                'job_priority': int(barrier == 'lower_priority' and job == 'first')}
+    first = row('first', spec.key, 'local_topics', ('screen',))
+    second = row('second', spec.key, 'local_topics', ('screen',))
+    screen = row('second', 'screen', 'pretag_cleaning', ('probe',))
+    probe = row('second', 'probe', 'probe')
+    received = [first, second, probe, screen]
+    expected = [probe, screen, first, second] if barrier == 'none' else received
+    assert batch.prepare_order(received) == expected
+
+
+@pytest.mark.parametrize('scenario', ['success', 'batch_failure', 'bad_candidate', 'cancel_candidate'])
+def test_batch_prefetch_keeps_each_owner_lease_and_source_binding(topic_router, monkeypatch, scenario):
+    from PIL import Image
+    from media_tag.storage.filesystem import FilesystemBackend
+    t = topic_router
+    root = t.sought.original.parent
+    assets = []
+    jobs = []
+    for owner, colour in ((t.env.owner, 'blue'), (t.env.other, 'green')):
+        fname = colour + '.png'
+        Image.new('RGB', (15, 16), colour).save(root / fname)
+        asset = t.env.catalog.register_file(FilesystemBackend(root), fname, source_backend_id='fixture',
+            principal=owner, request_id=colour, name=fname)
+        job = t.env.router.submit(JobSpec(asset_id=asset.asset_id, steps=(t.spec,)),
+                                  request_id=colour, principal=owner)['job_id']
+        inputs = t.env.router.workspace / 'jobs' / job / 'inputs'
+        inputs.mkdir(parents=True)
+        with (root / fname).open('rb') as stream:
+            FilesystemBackend(inputs, writable=True).ingest(stream)
+        jobs.append(job)
+        assets.append(asset)
+
+    calls = []
+    single = t.handler.invoke
+    def invoke(request, output, task, stopped, *, deadline):
+        primary = single(request, output, task, stopped, deadline=deadline)
+        members = request.get('prefetch', ())
+        calls.append((task.job_id, len(members)))
+        if not members:
+            return primary
+        assert len(members) == 1
+        if scenario == 'batch_failure':
+            raise ModelFailure('local_topic_model_failed')
+        item = members[0]
+        assert sha256(Path(item['image_path']).read_bytes()).hexdigest() == item['image_sha256']
+        assert primary.image_sha256 != item['image_sha256']
+        candidate = primary if scenario == 'bad_candidate' else primary.model_copy(update={'image_sha256': item['image_sha256']})
+        return primary, (candidate,)
+    monkeypatch.setattr(t.handler, 'invoke', invoke)
+    assert t.executor.run_once() is not None
+    if scenario == 'cancel_candidate':
+        t.env.router.cancel(jobs[0], principal=t.env.owner)
+    for _ in range(1 if scenario == 'cancel_candidate' else 2):
+        assert t.executor.run_once() is not None
+    with t.env.database.transaction() as connection:
+        for i, asset in enumerate(assets):
+            row = connection.execute('''SELECT t.*,a.envelope_json,a.result_json,a.released_at
+                FROM router_tasks t JOIN router_attempts a USING(task_id,lease_epoch)
+                WHERE t.job_id=?''', (jobs[i],)).fetchone()
+            if scenario == 'cancel_candidate' and i == 0:
+                assert row is None
+                continue
+            current = connection.execute('SELECT * FROM assets WHERE asset_id=?', (asset.asset_id,)).fetchone()
+            _, _, report, _ = verified(t.env.router, row, current)
+            assert report.source.sha256 == asset.sha256
+            assert report.batch_cache_hit == (i == 0 and scenario == 'success')
+            assert report.inference_batch_size == (2 if report.batch_cache_hit else 1)
+    if scenario == 'batch_failure':
+        assert calls == [(t.job_id, 1), (t.job_id, 0), (jobs[0], 0), (jobs[1], 0)]
+    elif scenario == 'bad_candidate':
+        assert calls == [(t.job_id, 1), (jobs[0], 0), (jobs[1], 0)]
+    else:
+        assert calls == [(t.job_id, 1), (jobs[1], 0)]
+
+
 @pytest.fixture
 def topic_router(sought,tmp_path):
     e = sought.env
