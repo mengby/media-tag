@@ -140,6 +140,25 @@ def test_missing_visual_dependency_is_not_silently_inferred(prepared):
         handler(lease, threading.Event())
 
 
+def test_clip_group_isolates_unusable_neighbors_and_shares_only_the_model(tmp_path, monkeypatch):
+    from media_tag.models import runner
+    calls = []
+    def fake(request, *, shared_clip):
+        calls.append((request['source_sha256'], id(shared_clip), request['device']))
+        if request['source_sha256'] == 'bad':
+            raise ModelFailure('frame_integrity')
+        return {'source_sha256': request['source_sha256']}
+    monkeypatch.setattr(runner, 'execute', fake)
+    request, response = tmp_path/'request.json', tmp_path/'response.json'
+    request.write_text(json.dumps(dict(kind='clip', device='cuda', source_sha256='anchor', frames=[{}],
+        clip_neighbors=[dict(source_sha256='bad', frames=[{}]), dict(source_sha256='override', frames=[{}], device='cpu'),
+                        dict(source_sha256='next', frames=[{}])])))
+    assert runner.main([str(request), str(response)]) == 0
+    saved = json.loads(response.read_bytes())
+    assert saved['data']['source_sha256'] == 'anchor' and saved['neighbors'] == [None, None, {'source_sha256':'next'}]
+    assert [c[0] for c in calls] == ['anchor','bad','next'] and len({c[1:] for c in calls}) == 1
+
+
 @pytest.mark.parametrize('fault', ['oom', 'missing_dependency'])
 def test_runner_records_safe_explicit_failures(tmp_path, monkeypatch, fault):
     from media_tag.models import runner

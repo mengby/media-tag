@@ -28,6 +28,7 @@ class ModelDeployment(ContractModel):
     enabled: bool = False
     model_root: str = 'cache/models/d04'
     clip_device: Literal['cuda', 'cpu'] = 'cuda'
+    clip_batch_size: Annotated[int, Field(ge=1, le=16)] = 1
     stages: Annotated[tuple[Literal['ocr', 'face', 'clip'], ...], Field(min_length=1, max_length=3)] = ('ocr', 'face', 'clip')
 
     @model_validator(mode='after')

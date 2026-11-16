@@ -13,7 +13,7 @@ from .calibration import candidate_fingerprint, rank
 from .runtime import PREPROCESS_VERSION
 
 
-def execute(request):
+def execute(request, *, shared_clip=None):
     from PIL import Image
     prepare_native_runtime()
     import psutil
@@ -33,7 +33,11 @@ def execute(request):
     if candidates and not request.get('diagnostic_only', False):
         raise ModelFailure('unpublished_vocabulary')
     started = time.monotonic()
-    model = {'ocr': OCRModel, 'face': FaceModel, 'clip': CLIPModel}[kind](registry, **({'device': request['device']} if kind == 'clip' else {}))
+    model = shared_clip.get('model') if shared_clip is not None and kind == 'clip' else None
+    if model is None:
+        model = {'ocr': OCRModel, 'face': FaceModel, 'clip': CLIPModel}[kind](registry, **({'device': request['device']} if kind == 'clip' else {}))
+        if shared_clip is not None and kind == 'clip':
+            shared_clip['model'] = model
     reports = []
     for raw_frame in request['frames']:
         frame = FrameInput.model_validate_json(json.dumps(raw_frame))
@@ -75,7 +79,22 @@ def main(argv=None):
         if 'executor_pid' in request:
             from .lifecycle import watch_parent
             watch_parent(request['executor_pid'])
-        result = {'ok': True, 'data': execute(request)}
+        neighbors = request.pop('clip_neighbors', [])
+        if neighbors and (request['kind'] != 'clip' or not isinstance(neighbors, list) or len(neighbors) > 15):
+            raise ModelFailure('frame_budget')
+        if neighbors:
+            shared = {}
+            result = {'ok': True, 'data': execute(request, shared_clip=shared), 'neighbors': []}
+            for item in neighbors:
+                try:
+                    if set(item) != {'source_sha256', 'frames'} or len(item['frames']) != 1:
+                        raise ModelFailure('frame_budget')
+                    result['neighbors'].append(execute(dict(request, **item), shared_clip=shared))
+                except Exception:
+                    # The queued item's own lease will retry using its own verified inputs.
+                    result['neighbors'].append(None)
+        else:
+            result = {'ok': True, 'data': execute(request)}
     except BaseException as exc:
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise

@@ -236,7 +236,8 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
     if config.similarity.enabled:
         from media_tag.similarity.pipeline import Handlers as SimilarityHandlers
         similarity_handler = SimilarityHandlers(router, principal, tools)
-    models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)), clip_device=config.models.clip_device)
+    models = ModelHandlers(router, principal, ModelRegistry(Path(config.models.model_root)),
+                           clip_device=config.models.clip_device, clip_batch_size=config.models.clip_batch_size)
     semantic_handler=None
     if config.semantic.enabled:
         from media_tag.semantic.registry import SemanticRegistry
@@ -316,6 +317,8 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
             rows = local_topic_handler.batch.prepare_order(rows)
         if watermark_handler:
             rows = watermark_handler.watermark_batch.prepare_order(rows)
+        if models.clip_batch.size > 1:
+            rows = models.clip_batch.prepare_order(rows)
         return rows
 
     image_workers = []
