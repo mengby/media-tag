@@ -1,15 +1,16 @@
 """Local configuration is private, explicitly selected and never loaded from adjacent projects."""
 
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from media_tag.catalog import Catalog, Database, Principal
 from media_tag.contracts.models import ContractModel, Identifier, Sha256
 from media_tag.analysis.deployment import AnalysisDeployment
 from media_tag.analysis.fields import DEFAULT_FIELDS_FILE
 from media_tag.precision.contracts import ExternalProvider, PrecisionDeployment
-from media_tag.precision.pool import image_worker_ids, remote_image
+from media_tag.precision.pool import MAX_PREPROCESS_WORKERS, image_worker_ids, preprocess_worker_ids, remote_image
 from media_tag.similarity.pipeline import Deployment as SimilarityDeployment
 from media_tag.local_topics.contracts import LocalTopicDeployment
 from media_tag.processing_queue import ProcessingDeployment, ProcessingHandlers, ProcessingService, stages as processing_stages
@@ -55,6 +56,11 @@ class ItemPublicationConfig(ContractModel):
     producer_revision: str
 
 
+class PreprocessBatch(ContractModel):
+    owner_id: Identifier
+    upload_requests: Annotated[tuple[Identifier, ...], Field(min_length=1, max_length=10000)]
+
+
 class LocalConfig(ContractModel):
     workspace: str
     database: str
@@ -63,6 +69,7 @@ class LocalConfig(ContractModel):
     template_fingerprint: Sha256
     credentials: dict[Sha256, Principal]
     workers: tuple[Identifier, ...]
+    preprocess_batch: PreprocessBatch | None = None
     options: RouterOptions = RouterOptions()
     tool_dir: str | None = None
     upload_options: UploadOptions = UploadOptions()
@@ -189,6 +196,15 @@ def load_application(path: Path):
         for worker in config.workers:
             connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
                 DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (worker, json.dumps(sorted(router.stages))))
+            if config.preprocess_batch:
+                scope = (config.preprocess_batch.owner_id, json.dumps(config.preprocess_batch.upload_requests))
+                stages = sorted({'probe', 'evidence', 'ocr', 'face'}.intersection(router.stages))
+                for identity in preprocess_worker_ids(worker, min(MAX_PREPROCESS_WORKERS, config.options.cpu_slots - 1)):
+                    if identity in config.workers or any(p.actor_id == identity for p in config.credentials.values()):
+                        raise ValueError('private preprocessing worker identity already assigned')
+                    router.worker_intake_scopes[identity] = scope
+                    connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
+                        DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (identity, json.dumps(stages)))
             if config.precision.enabled:
                 for identity in image_worker_ids(worker, config.precision.image_workers):
                     if any(p.actor_id == identity for p in config.credentials.values()):
@@ -335,5 +351,18 @@ def executor_from_config(path: Path, worker_id: str, *, parallel_images=False):
                          prepare_order=prepare_order,
                          before_acquire=dispatch_analysis if config.analysis.enabled or (config.processing.enabled and config.processing.auto_adopt) else None)
     executor.image_workers = image_workers
+    executor.preprocess_workers = []
+    if parallel_images and config.preprocess_batch:
+        def preprocess_handler(identity):
+            cpu_handler = CPUHandlers(router, identity, tools)
+            model_handler = ModelHandlers(router, identity, ModelRegistry(Path(config.models.model_root)))
+            def handle_cpu(lease, stopped):
+                if lease.task.stage in ('probe', 'evidence'):
+                    return cpu_handler(lease, stopped)
+                return model_handler(lease, stopped)
+            return handle_cpu
+        for identity in preprocess_worker_ids(worker_id, min(MAX_PREPROCESS_WORKERS, config.options.cpu_slots - 1)):
+            principal_cpu = Principal(actor_id=identity, role='worker')
+            executor.preprocess_workers.append(LocalExecutor(router, principal_cpu, preprocess_handler(principal_cpu), after_task=adopt))
     executor.close_models = models.resident.close if models.resident else lambda: None
     return executor

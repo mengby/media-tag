@@ -10,6 +10,14 @@ def image_worker_ids(primary, count):
     return [f'{prefix}-{number}' for number in range(count)]
 
 
+MAX_PREPROCESS_WORKERS = 3
+
+
+def preprocess_worker_ids(primary, count):
+    prefix = 'local-preprocess-' + sha256(primary.encode()).hexdigest()[:24]
+    return [f'{prefix}-{number}' for number in range(count)]
+
+
 def remote_image(row, provider_id):
     if not row['step_key'].startswith('precision-'):
         return False
@@ -17,13 +25,13 @@ def remote_image(row, provider_id):
     return spec['config'].get('content_kind') == 'image' and spec['config'].get('provider_id') == provider_id
 
 
-def run_image_workers(workers, stop):
+def run_image_workers(workers, stop, *, thread_name='remote-image'):
     """Poll once when idle and dispatch each claimed lease to its owning worker."""
     if not workers:
         return
     idle = deque(workers)
     running = {}
-    with ThreadPoolExecutor(max_workers=len(workers), thread_name_prefix='remote-image') as pool:
+    with ThreadPoolExecutor(max_workers=len(workers), thread_name_prefix=thread_name) as pool:
         while not stop.is_set():
             for future in tuple(running):
                 if future.done():

@@ -48,6 +48,8 @@ Worker 使用运行账户已登录的原生 Codex CLI，通过 `codex exec --mod
 租用的 Qwen3-VL-8B-Instruct 可以通过 SSH 转发的回环端口接入。该图片提供方可设置
 `"image_reply_format":"compact"`，一次请求全部已配置字段，文本检索词数组在写入单元格时以分号连接。
 `precision.image_workers` 设置桌面 Worker 的远端图片并发上限（0 至 64）。本机 A800 的 Qwen3-VL-8B 图片打标统一设为 **64**，桌面 Worker 每次启动时读取。按待打标图片数量派发，每张图独立持有租约，并在发送前复查外发权限。远端图片使用独立调度槽，本机普通任务继续使用 `options.cpu_slots`。视频试跑入口的并发为 2。
+本批需要并行预处理时，设置 `preprocess_batch.owner_id` 和 `preprocess_batch.upload_requests`（已冻结的本地入库请求 ID）。桌面 Worker 最多从现有 CPU 槽中分配三个辅助槽，保留一个普通槽。辅助槽只领取指定所有者这些上传完成的原件作业中的探测、取证、OCR 和人脸 CPU 阶段。CLIP、清洗、A800 打标和发布沿用原有流程。移除 `preprocess_batch` 并重载即关闭辅助槽。
+
 本地前处理和线上发布可与远端推理同时进行。开启自动派发时，可将 `auto_dispatch_after_intent` 设为启用前最后一个
 `analysis_intents.rowid`，限定到后续新入库的分析意图。已有素材仍可显式请求精标。
 

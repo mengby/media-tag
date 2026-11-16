@@ -16,6 +16,33 @@ from media_tag.workers.probe import Toolchain, file_sha256
 from .conftest import result, step, submit
 
 
+def test_preprocessing_requires_selected_owner_completed_upload_and_free_cpu_slot(env):
+    import json
+    from media_tag.contracts.models import TaskLimits
+    router = env.router
+    lane = env.workers[0]
+    submit(env, steps=(step('a-gpu', limits=TaskLimits(gpu_slots=1)), step('b-cpu')))
+    router.worker_intake_scopes[lane.actor_id] = (env.owner.actor_id, json.dumps(['selected']))
+    def claim():
+        return router.claim(principal=lane)
+    assert claim() is None
+    with env.database.transaction(write=True) as db:
+        db.execute("""INSERT INTO uploads(upload_id,owner_id,request_id,fingerprint,spec_json,state,asset_id,created_at)
+            VALUES('test',?,'selected','test','{}','receiving',?,0)""", (env.owner.actor_id, env.asset.asset_id))
+    assert claim() is None
+    with env.database.transaction(write=True) as db:
+        db.execute("UPDATE uploads SET state='completed'")
+    router.worker_intake_scopes[lane.actor_id] = ('different-owner', json.dumps(['selected']))
+    assert claim() is None
+    router.worker_intake_scopes[lane.actor_id] = (env.owner.actor_id, json.dumps(['other']))
+    assert claim() is None
+    router.worker_intake_scopes[lane.actor_id] = (env.owner.actor_id, json.dumps(['selected']))
+    lease = claim()
+    assert lease and lease.task.limits.gpu_slots == 0
+    with env.database.transaction() as db:
+        assert [r[0] for r in db.execute('SELECT resource FROM router_holds')] == ['cpu:0']
+
+
 def test_remote_image_pool_holds_64_leases_and_leaves_cpu_available(env):
     from concurrent.futures import ThreadPoolExecutor
 

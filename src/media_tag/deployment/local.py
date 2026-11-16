@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from uuid import uuid4
 from pydantic import Field
 from typing import Annotated,Literal
@@ -189,12 +190,13 @@ def recover_owned(root,instance):
     # Called only after this instance's named OS job has no living members.
     from media_tag.api.config import load_application
     from media_tag.catalog import Principal
-    from media_tag.precision.pool import image_worker_ids
+    from media_tag.precision.pool import MAX_PREPROCESS_WORKERS, image_worker_ids, preprocess_worker_ids
     from media_tag.precision.contracts import MAX_IMAGE_WORKERS
     app,router,_=load_application(root/'runtime.local.json')
     try:
         with router.database.transaction() as c:
             identities = [instance.worker_id, *image_worker_ids(instance.worker_id, MAX_IMAGE_WORKERS)]
+            identities.extend(preprocess_worker_ids(instance.worker_id, MAX_PREPROCESS_WORKERS))
             owned={(r['task_id'],r['lease_epoch']) for r in c.execute('SELECT task_id,lease_epoch FROM router_attempts WHERE worker_id IN (SELECT value FROM json_each(?)) AND released_at IS NULL',(json.dumps(identities),))}
         router.process_stopped=lambda task,epoch:(task,epoch) in owned
         for task,epoch in owned:router.confirm_stopped(task,epoch,principal=Principal(actor_id='local-process-supervisor',role='admin'))
@@ -204,6 +206,23 @@ def recover_owned(root,instance):
 
 
 def child(root,generation,kind):
+    try:
+        return _serve_child(root, generation, kind)
+    except Exception as exc:
+        # Record locations and stable error identifiers without exception text or user data.
+        frames = traceback.extract_tb(exc.__traceback__)
+        event = {'generation': generation, 'kind': kind, 'type': type(exc).__name__,
+                 'code': getattr(exc, 'sqlite_errorname', None),
+                 'frames': [f'{Path(frame.filename).name}:{frame.lineno}:{frame.name}' for frame in frames[-10:]]}
+        handler = RotatingFileHandler(Path(root)/'logs'/f'{kind}-failure.log', maxBytes=65536, backupCount=1, encoding='utf8')
+        try:
+            handler.emit(logging.LogRecord(__name__, logging.ERROR, '', 0, encode(event), (), None))
+        finally:
+            handler.close()
+        raise
+
+
+def _serve_child(root,generation,kind):
     if sys.stdin.buffer.read(1)!=b'1':raise DeploymentError('missing_process_containment_gate')
     root,instance=load(root)
     os.chdir(instance.project_root)
@@ -228,17 +247,21 @@ def child(root,generation,kind):
         publisher=getattr(executor.router,"item_publisher",None)
         if publisher:
             threading.Thread(target=publisher.run,args=(done,),name="item-publisher",daemon=True).start()
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix='image-dispatch') as pool:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix='tag-dispatch') as pool:
             images = pool.submit(run_image_workers, executor.image_workers, done)
+            preprocessing = pool.submit(run_image_workers, executor.preprocess_workers, done, thread_name='batch-cpu')
             try:
                 while not requested(root,generation):
                     if images.done():
                         images.result()
+                    if preprocessing.done():
+                        preprocessing.result()
                     if executor.run_once() is None:time.sleep(.5)
             finally:
                 done.set()
                 executor.close_models()
                 images.result()
+                preprocessing.result()
 
 
 def resume_owned_process(process):

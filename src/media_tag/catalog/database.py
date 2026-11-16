@@ -1,10 +1,11 @@
 """Versioned, local-only SQLite state with explicit transaction boundaries."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
+from threading import RLock
 from typing import Iterator
 
 from media_tag.storage.filesystem import require_local_path
@@ -104,6 +105,7 @@ SCHEMA_CHECKSUM = sha256("\n".join(SCHEMA).encode()).hexdigest()
 
 class Database:
     def __init__(self, path: Path) -> None:
+        self._writer_lock = RLock()
         require_local_path(Path(path))
         self.path = Path(path).resolve()
         require_local_path(self.path)
@@ -119,17 +121,21 @@ class Database:
 
     @contextmanager
     def transaction(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
-            yield connection
-            connection.execute("COMMIT")
-        except BaseException:
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
-            raise
-        finally:
-            connection.close()
+        # Worker lanes share one writer. SQLite arbitrates with other processes.
+        with self._writer_lock if write else nullcontext():
+            connection = self._connect()
+            try:
+                if write:
+                    connection.execute("PRAGMA busy_timeout=30000")
+                connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                yield connection
+                connection.execute("COMMIT")
+            except BaseException:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            finally:
+                connection.close()
 
     def initialize(self) -> None:
         migrations = ((1, SCHEMA, SCHEMA_CHECKSUM), (2, ROUTER_SCHEMA, sha256("\n".join(ROUTER_SCHEMA).encode()).hexdigest()),

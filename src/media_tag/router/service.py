@@ -37,6 +37,7 @@ class Router:
         self.stages = dict(stages)
         # Trusted bootstrap assigns a private I/O slot only to workers with a restricted task filter.
         self.dedicated_worker_filters = {}
+        self.worker_intake_scopes = {}
         self.legacy_image_topics = False
         self.upload_configured_fields = False
         self.options = options or RouterOptions()
@@ -229,18 +230,19 @@ class Router:
 
     def _parents(self, connection, task):
         rows = connection.execute("SELECT p.* FROM router_dependencies d JOIN router_tasks p ON p.task_id=d.parent_id WHERE d.task_id=? ORDER BY p.step_key", (task["task_id"],)).fetchall()
-        ready, refs = True, []
+        if any(row["state"] in ("failed", "needs_attention", "cancelled") for row in rows):
+            return "blocked", ()
+        if any(row["state"] != "succeeded" for row in rows):
+            return "waiting", ()
+        refs = []
         for parent in rows:
-            if parent["state"] in ("failed", "needs_attention", "cancelled"):
-                return "blocked", ()
-            if parent["state"] != "succeeded" or connection.execute("SELECT 1 FROM router_attempts WHERE task_id=? AND released_at IS NULL", (parent["task_id"],)).fetchone():
-                ready = False
-                continue
+            if connection.execute("SELECT 1 FROM router_attempts WHERE task_id=? AND released_at IS NULL", (parent["task_id"],)).fetchone():
+                return "waiting", ()
             attempt = connection.execute("SELECT * FROM router_attempts WHERE task_id=? AND lease_epoch=?", (parent["task_id"], parent["lease_epoch"])).fetchone()
             result = WorkerResult.model_validate_json(attempt["result_json"])
             self._artifacts(TaskEnvelope.model_validate_json(attempt["envelope_json"]), result)
             refs.extend(result.artifacts)
-        return ("ready" if ready else "waiting"), tuple(refs)
+        return "ready", tuple(refs)
 
     def claim(self, *, principal: Principal, prepare_order=None) -> Lease | None:
         with self.database.transaction(write=True) as connection:
@@ -258,11 +260,28 @@ class Router:
                 slot = f"worker:{principal.actor_id}"
             if slot is None or slot in held:
                 return None
-            rows = connection.execute("""SELECT router_tasks.*, owner_id AS job_owner, priority AS job_priority
+            intake_scope = self.worker_intake_scopes.get(principal.actor_id)
+            # Batching callbacks need their full candidate group. Independent lanes only
+            # need rows their worker can run, with parents ready or a failure to propagate.
+            scope_sql = "" if prepare_order is not None else """
+                AND json_extract(spec_json,'$.stage') IN (SELECT value FROM json_each(?))
+                AND (NOT EXISTS (SELECT 1 FROM router_dependencies d JOIN router_tasks p ON p.task_id=d.parent_id
+                       WHERE d.task_id=router_tasks.task_id AND p.state!='succeeded')
+                     OR EXISTS (SELECT 1 FROM router_dependencies d JOIN router_tasks p ON p.task_id=d.parent_id
+                       WHERE d.task_id=router_tasks.task_id AND p.state IN ('failed','needs_attention','cancelled')))"""
+            scope_params = () if prepare_order is not None else (worker["stages_json"],)
+            if intake_scope is not None:
+                owner, requests = intake_scope
+                scope_sql += """AND router_jobs.owner_id=? AND router_jobs.asset_id IN (
+                    SELECT asset_id FROM uploads WHERE owner_id=? AND state='completed'
+                    AND request_id IN (SELECT value FROM json_each(?)))
+                    AND json_extract(spec_json,'$.limits.gpu_slots')=0"""
+                scope_params += (owner, owner, requests)
+            rows = connection.execute(f"""SELECT router_tasks.*, owner_id AS job_owner, priority AS job_priority
                 FROM router_tasks JOIN router_jobs USING(job_id)
-                WHERE active=1 AND state IN ('queued','retry_wait') AND ready_at<=? AND paused=0 AND cancelled=0
+                WHERE active=1 AND state IN ('queued','retry_wait') AND ready_at<=? AND paused=0 AND cancelled=0 {scope_sql}
                 ORDER BY (priority * ? + (? - router_jobs.created_at)) DESC,router_jobs.created_at,step_key""",
-                (self.clock(), self.options.interactive_bonus_seconds, self.clock())).fetchall()
+                (self.clock(), *scope_params, self.options.interactive_bonus_seconds, self.clock())).fetchall()
             if task_filter is not None:
                 rows = [row for row in rows if task_filter(row)]
             if prepare_order is not None:
