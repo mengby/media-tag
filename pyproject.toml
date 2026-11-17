@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = ["pydantic==2.14.3", "Pillow==13.0.0", "fastapi==0.162.0", "uvicorn==0.54.0"]
 
 [project.optional-dependencies]
+pipeline = ["httpx==0.28.1", "aiosqlite==0.21.0", "tqdm==4.67.1"]
 video-pilot = ["httpx==0.28.1"]
 publish = ["media-contracts==0.3.0", "httpx==0.28.1", "oss2==2.19.1"]
 sync = ["media-contracts==0.3.0", "httpx==0.28.1"]
@@ -37,6 +38,7 @@ where = ["src"]
 "media_tag.semantic" = ["model.lock.json"]
 "media_tag.web" = ["*.html", "*.js", "*.css"]
 "media_tag.terminology.embedding" = ["bge.lock.json"]
+"media_tag.pipeline" = ["schema/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

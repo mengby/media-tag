@@ -1,0 +1,68 @@
+# 本地素材流水线配置样例（复制为 config/pipeline.toml 后按实际环境修改）
+# 相对路径以本配置文件所在目录为基准；不要在此文件中写入密钥，
+# 密钥只通过环境变量（默认 MEDIA_TAG_AUTODL_API_KEY）提供。
+
+job_id = ""                     # 留空则使用时间戳作为批次目录名
+log_level = "INFO"
+
+[scan]
+input_dirs = ["../素材/待处理"]  # 可多个；只读扫描，不移动/不覆盖源文件
+recursive = true
+max_file_bytes = 2147483648
+skip_hidden = true
+follow_symlinks = false
+
+[preprocess]
+workers = 12                    # 进程数；10 核 16 线程留 4 线程给网络与系统
+image_max_edge = 896
+jpeg_quality = 85
+max_image_bytes = 153600        # 单图 JPEG 上限 150KB
+video_max_edge = 1280
+video_max_frames = 9            # 3x3 拼图格数上限
+video_columns = 3
+video_max_seconds = 120.0
+video_max_wire_bytes = 409600
+video_quality = 3               # FFmpeg -q:v，约等于 JPEG 85
+decoder = "auto"                # auto | cuda(NVDEC) | cpu
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"
+ffmpeg_threads = 0
+
+[inference]
+base_url = "http://127.0.0.1:18080/v1"   # 指向 A800 vLLM；本机 SSH 转发时改端口
+model = "models"
+api_key_env = "MEDIA_TAG_AUTODL_API_KEY"
+slots = 128                     # 统一信号量；图片占 1 格，视频拼图占 2 格
+image_slots = 1
+video_slots = 2
+workers = 32                    # 异步请求协程数，避免单个请求阻塞调度
+timeout_seconds = 60.0
+max_retries = 3
+temperature = 0.1
+max_tokens = 512
+max_connections = 200
+max_keepalive_connections = 100
+structured_mode = "json_schema" # json_schema | guided_json | prompt
+schema_path = "../src/media_tag/pipeline/schema/tag_fields.schema.json"
+strict_keys = true
+
+[publish]
+mode = "local_jsonl"            # local_jsonl（默认，写批次目录）| http（批量发布接口）
+endpoint = ""
+batch_min = 50
+batch_max = 100
+batch_wait_seconds = 2.0
+max_retries = 3
+timeout_seconds = 60.0
+
+[state]
+database = "../data/pipeline/state.sqlite"
+output_dir = "../outputs/pipeline"
+
+[queues]
+preprocess = 200
+inference = 512
+publish = 2048
+outstanding_preprocess = 24
+metrics_interval_seconds = 5.0
+progress = true

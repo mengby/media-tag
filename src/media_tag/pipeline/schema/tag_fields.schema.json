@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "用途大类": {"type": ["string", "null"]},
+    "科室": {"type": ["string", "null"]},
+    "器官/系统": {"type": ["string", "null"]},
+    "疾病/症状": {"type": ["string", "null"]},
+    "画面主体": {"type": ["string", "null"]},
+    "过程/状态": {"type": ["string", "null"]},
+    "表现形式": {"type": ["string", "null"]},
+    "中文检索词": {"type": ["string", "null"]},
+    "英文检索词": {"type": ["string", "null"]},
+    "情绪/语气": {"type": ["string", "null"]},
+    "口语化表达": {"type": ["string", "null"]}
+  },
+  "required": [
+    "用途大类",
+    "科室",
+    "器官/系统",
+    "疾病/症状",
+    "画面主体",
+    "过程/状态",
+    "表现形式",
+    "中文检索词",
+    "英文检索词",
+    "情绪/语气",
+    "口语化表达"
+  ],
+  "additionalProperties": false
+}
