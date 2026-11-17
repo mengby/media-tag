@@ -48,12 +48,13 @@ def registrar(batch, base, record, stop):
         stop.wait(2)
 
 
-def follow(batch, base, lines, record, *, trials=(), production_concurrency=1):
+def follow(batch, base, lines, record, *, trials=(), production_concurrency=1, preferred=()):
     """Feed registered videos to publication without waiting for other uploads."""
     feed = SuccessfulTags(base / "tags-progress.jsonl")
     done = {r["digest"] for r in lines(base / "wy-receipts.jsonl") if r["receipt"]["state"] == "indexed"}
     pending = deque()
     seen = set(done)
+    preferred = frozenset(preferred)
     retry = {}
     jobs = {}
     last_refresh = 0
@@ -96,6 +97,10 @@ def follow(batch, base, lines, record, *, trials=(), production_concurrency=1):
                     if digest not in seen and digest in rows:
                         pending.append(digest)
                         seen.add(digest)
+                if preferred and pending:
+                    ordered = sorted(pending, key=lambda digest: digest not in preferred)
+                    pending.clear()
+                    pending.extend(ordered)
                 last_refresh = now
             if now < deadline:
                 for _ in range(len(pending)):

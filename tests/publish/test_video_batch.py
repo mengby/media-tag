@@ -46,6 +46,28 @@ def test_registrar_progresses_while_first_upload_waits(tmp_path):
     assert sum(row.get("status") == "indexed" for _, row in entries) == 2
 
 
+def test_preferred_batch_checks_readiness_then_returns_to_ordinary_queue(tmp_path):
+    keys = ("ordinary", "repair")
+    (tmp_path / "tags-progress.jsonl").write_text(
+        ''.join('{"id":"%s","ok":true}\n' % key for key in keys), encoding="utf-8")
+    delivered = []
+
+    class Batch:
+        groups = dict.fromkeys(keys)
+        reg = {key: key for key in keys}
+
+        def job(self, asset):
+            return asset
+
+        def deliver(self, row, asset, job, timings):
+            assert job == asset == row['id']
+            delivered.append(asset)
+            return {"state": "indexed"}
+
+    follow(Batch(), tmp_path, lambda _: [], lambda *_: None, preferred={"repair"})
+    assert delivered == ["repair", "ordinary"]
+
+
 def test_failed_publication_records_stage_and_elapsed_time(monkeypatch):
     import media_tag.publish.client as client
     ticks = iter([10, 13, 20, 22])
