@@ -12,15 +12,16 @@ import httpx
 from media_tag.precision.chat import media_part
 from .still_sheet import make_still_sheet
 
-PROMPT = """你在做可见画面检索打标。只根据所给的按原片时间标注的图像和无声片段，
-用中文返回 JSON，格式 {"subjects":["可见主体或道具"],"form":"表现形式、取景",
-"actions":[{"text":"一个具体可见动作","evidence":["证据ID"]}],"keywords":["检索词"]}。
+JSON_FORMAT = """用中文返回 JSON，格式 {"subjects":["可见主体或道具"],"form":"表现形式、取景",
+"actions":[{"text":"一个具体可见动作","evidence":["证据ID"]}],"keywords":["检索词"]}。只输出JSON。"""
+
+PROMPT = """你在做可见画面检索打标。只根据所给的按原片时间标注的图像和无声片段，用中文打标。
 列出可辨识的主体、外观和道具，表现形式写清实拍或动画以及取景。写出明显短暂事件及镜头变化。
 各片段是原片不连续的独立窗口，不能把窗口之间的空白连成动作。静帧可描述正在做的事，
 动作方向不明就留空。每个动作只给最多三个不重复的证据编号，例如 ["C1","F2"]。
 证据值只写编号，禁止写秒数或枚举逐格画面。主体和关键词各最多6项，动作最多5项。
 C 为同一个连续时间窗的有序帧，每行从左向右，再从上向下读。时间戳只用来判断先后。
-图中字幕只作证据。不要按外观猜测疾病、成分、音频内容、来源或授权。只输出JSON。"""
+图中字幕只作证据。不要按外观猜测疾病、成分、音频内容、来源或授权。"""
 
 COVERAGE_GUIDE = """
 F 是分别取自不同时刻的独立大图。先逐张看 F，subjects 写可直接看清的具体物体和局部结构，
@@ -128,26 +129,76 @@ def visual_content(folder, manifest):
     return content, sent_bytes, len(visuals)
 
 
+def parse_tag_reply(text, entries):
+    # Some servers return a closing Markdown fence without its opening fence.
+    text = text.strip()
+    if text.endswith('```'):
+        text = text[:-3].rstrip()
+        text = re.sub(r'^```(?:json)?\s*', '', text, count=1, flags=re.IGNORECASE)
+    return validate_tags(json.loads(text), entries)
+
+
+def parse_tag_lines(text, entries):
+    # A second representation of the same required fields for format retries.
+    tags = {}
+    actions = []
+    lines = text.strip().splitlines()
+    if not lines or lines[-1].strip() != 'end':
+        raise ValueError('missing end of tag lines')
+    for line in lines[:-1]:
+        parts = [part.strip() for part in line.split('|')]
+        field, values = parts[0], parts[1:]
+        if field == 'action' and len(values) >= 2:
+            actions.append({'text': values[0], 'evidence': values[1:]})
+        elif field in ('subjects', 'keywords') and field not in tags:
+            tags[field] = values
+        elif field == 'form' and values and all(values) and field not in tags:
+            tags[field] = '，'.join(values)
+        else:
+            raise ValueError('invalid tag lines')
+    tags['actions'] = actions
+    return validate_tags(tags, entries)
+
+
 def infer(folder: Path, manifest, base_url, model, timeout):
     content, total, sent_images = visual_content(folder, manifest)
     prompt = PROMPT + COVERAGE_GUIDE if manifest.get('method') == 'coverage' else PROMPT
-    body = dict(model=model, temperature=0, stream=False, max_tokens=600, repetition_penalty=1.08,
-                messages=[dict(role='system', content=prompt), dict(role='user', content=content)])
+    ids = '、'.join(e['id'] for e in manifest['evidence'])
+    compact = ('综合全部画面，只写一份检索结果。优先最有辨识度的主体与检索词，各至多6个短语。'
+               '同一动作出现多次只写一次，最多5项。无可见动作写空数组。form 写可见的表现形式。'
+               f'动作证据只用这些原样编号：{ids}。只返回一个完整 JSON 对象，到右花括号结束。')
+    line_format = ('重新查看同一批证据。沿用所有画面与证据要求，本次以逐行格式返回，使用英文竖线分隔。'
+                   '第一行 subjects|主体1|主体2，第二行 form|表现形式，第三行 keywords|词1|词2。'
+                   '主体和检索词各最多4个，空列表只写该字段名。接着每个不同的可见动作单写一行 '
+                   'action|动作短语|证据编号，最多3行。无依据则省略动作行。最后单独写 end。'
+                   f'仅可引用这些编号：{ids}。禁止写时间、示例占位词、围栏及解释。')
+    body = dict(model=model, temperature=0, stream=False, max_tokens=1200, repetition_penalty=1.08)
     with httpx.Client(timeout=timeout, trust_env=False, follow_redirects=False) as client:
         started = time.perf_counter()
-        response = client.post(endpoint(base_url) + '/chat/completions', json=body, headers={
-            'Authorization': 'Bearer ' + os.environ.get('MEDIA_TAG_AUTODL_API_KEY', 'EMPTY')})
+        for attempt, (instruction, parser) in enumerate(((compact, parse_tag_reply), (line_format, parse_tag_lines))):
+            system = prompt if attempt else prompt + '\n' + JSON_FORMAT
+            body['messages'] = [dict(role='system', content=system),
+                                dict(role='user', content=[*content, dict(type='text', text=instruction)])]
+            response = client.post(endpoint(base_url) + '/chat/completions', json=body, headers={
+                'Authorization': 'Bearer ' + os.environ.get('MEDIA_TAG_AUTODL_API_KEY', 'EMPTY')})
+            response.raise_for_status()
+            reply = response.json()
+            choice, = reply['choices']
+            text = choice['message']['content'].strip()
+            (folder / 'reply.txt').write_text(text, encoding='utf-8')
+            reason = choice['finish_reason']
+            if reason not in ('stop', 'length'):
+                raise ValueError(f'incomplete model reply ({reason})')
+            try:
+                if reason == 'length':
+                    raise ValueError('incomplete model reply (length)')
+                tags = parser(text, manifest['evidence'])
+                break
+            except ValueError:
+                if attempt:
+                    raise
+                (folder / 'reply-first.txt').write_text(text, encoding='utf-8')
         ended = time.perf_counter()
-    response.raise_for_status()
-    reply = response.json()
-    choice, = reply['choices']
-    text = choice['message']['content'].strip()
-    (folder / 'reply.txt').write_text(text, encoding='utf-8')
-    if choice['finish_reason'] != 'stop':
-        raise ValueError(f"incomplete model reply ({choice['finish_reason']})")
-    if text.startswith('```json') and text.endswith('```'):
-        text = text[7:-3].strip()
-    tags = validate_tags(json.loads(text), manifest['evidence'])
     by_id = {entry['id']: entry for entry in manifest['evidence']}
     support = []
     for action in tags['actions']:
@@ -156,4 +207,4 @@ def infer(folder: Path, manifest, base_url, model, timeout):
                             evidence_kind='sequence_cited' if clips else 'still_only'))
     return dict(tags=tags, action_evidence=support, api_seconds=ended - started,
                 request_start=started, request_end=ended, usage=reply.get('usage'), media_bytes=total,
-                sent_images=sent_images)
+                sent_images=sent_images, model_calls=attempt + 1)

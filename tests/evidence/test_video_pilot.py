@@ -4,11 +4,46 @@ import json
 
 from PIL import Image
 import pytest
+import httpx
 
 from media_tag.video_pilot.__main__ import request_peak
-from media_tag.video_pilot.api import endpoint, validate_tags, visual_content
+from media_tag.video_pilot.api import endpoint, infer, parse_tag_lines, parse_tag_reply, validate_tags, visual_content
 from media_tag.video_pilot.sampling import plan_stills, plan_windows, prepare
 from media_tag.workers.probe import Toolchain
+
+
+def test_reply_wrapper_preserves_single_complete_document():
+    tags = {'subjects': ['主体'], 'form': '实拍', 'actions': [], 'keywords': []}
+    doc = json.dumps(tags)
+    assert parse_tag_reply(doc + '```', []) == tags
+    assert parse_tag_reply('```json\n' + doc + '\n```', []) == tags
+    for invalid in (doc + doc, doc[:-1], doc + ' unrelated explanation'):
+        with pytest.raises(ValueError):
+            parse_tag_reply(invalid, [])
+
+
+def test_retry_format_requires_completion_fields_and_real_evidence():
+    lines = 'subjects|器械\nform|实拍\nkeywords|器械\naction|器械抬起|C1\nend'
+    evidence = [{'id': 'C1'}]
+    assert parse_tag_lines(lines, evidence)['actions'] == [{'text': '器械抬起', 'evidence': ['C1']}]
+    for invalid in (lines[:-3], lines.replace('C1', 'C9'), lines.replace('form|实拍\n', ''),
+                    lines.replace('end', 'unrelated\nend'), lines.replace('end', 'form|动画\nend')):
+        with pytest.raises(ValueError):
+            parse_tag_lines(invalid, evidence)
+
+
+def test_length_finish_retries_even_when_first_json_is_parseable(tmp_path, monkeypatch):
+    first = json.dumps({'subjects': [], 'form': '动画', 'actions': [], 'keywords': []})
+    replies = iter([('length', first), ('stop', 'subjects|人物\nform|实拍|近景\nkeywords|人物\nend')])
+    def respond(request):
+        reason, content = next(replies)
+        return httpx.Response(200, json={'choices': [{'message': {'content': content}, 'finish_reason': reason}]})
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: client)
+    result = infer(tmp_path, {'evidence': []}, 'http://127.0.0.1:18080/v1', 'models', 5)
+    assert result['model_calls'] == 2
+    assert result['tags'] == {'subjects': ['人物'], 'form': '实拍，近景', 'actions': [], 'keywords': ['人物']}
+    assert (tmp_path / 'reply-first.txt').read_text(encoding='utf8') == first
 
 
 def test_plan_keeps_sequences_inside_selected_shots():

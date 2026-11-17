@@ -4,6 +4,8 @@
 
 从项目根目录执行。沿用已经连到 A800 的 SSH 转发和正在服务的 Qwen3-VL-8B。示例输出目录须尚未创建。
 
+视频模型每次最多生成 1,200 个 token。客户端先要求返回一个简短的 JSON 对象。若回复达到长度上限、JSON 无效或标签校验失败，会以相同视觉证据再请求一次，按字段逐行返回。两个格式都须完整结束并通过同一套字段和证据校验。触发重试时，首次回复保存在对应视频的 `reply-first.txt`；`tags.json` 中的 `model_calls` 记录此次打标实际调用数。
+
 ```powershell
 $videos = @('E:\素材\视频一.mp4', 'E:\素材\视频二.mp4')
 .\.venv\Scripts\python.exe -m media_tag.video_pilot --output jobs\video-coverage-01 $videos
