@@ -1,5 +1,6 @@
 """Bounded authenticated publisher; no redirects, ambient proxy or credential logging."""
 from functools import partial
+from contextlib import contextmanager
 from time import monotonic
 from hashlib import sha256
 import json
@@ -19,6 +20,21 @@ class PublishSettings(BaseModel):
     expected_active_release: str | None
     upload_transport: Literal["service", "oss"] = "service"
     ssh_host: str | None = None
+
+
+@contextmanager
+def measure_stage(timings, key):
+    """Accumulate wall time even when one of several object transfers fails."""
+    started = monotonic()
+    try:
+        yield
+    except Exception:
+        if timings is not None:
+            timings['failed_stage'] = key
+        raise
+    finally:
+        if timings is not None:
+            timings[key] = timings.get(key, 0.0) + (monotonic() - started)
 
 
 def push_bundle(bundle, settings, *, item=None, open_original=None, timings=None):
@@ -81,11 +97,11 @@ def push_bundle(bundle, settings, *, item=None, open_original=None, timings=None
                 raise ValueError("publication transport failed") from None
         # A first-time OSS integrity check can take several minutes for a multi-GiB video.
         index_timeout = httpx.Timeout(120, read=1200)
-        started = monotonic()
-        prepared = request("POST", "/internal/releases", content=canonical(manifest),
-                           headers={"Content-Type": "application/json"}, timeout=index_timeout)
         if timings is not None:
-            timings.update(prepare_seconds=monotonic()-started, ticket_seconds=0.0, upload_seconds=0.0)
+            timings.update(prepare_seconds=0.0, ticket_seconds=0.0, upload_seconds=0.0)
+        with measure_stage(timings, 'prepare_seconds'):
+            prepared = request("POST", "/internal/releases", content=canonical(manifest),
+                               headers={"Content-Type": "application/json"}, timeout=index_timeout)
         missing = prepared.get("missing_objects")
         refs = {ref.sha256: ref for ref in manifest.objects}
         if not isinstance(missing, list) or set(missing) - refs.keys():
@@ -95,18 +111,14 @@ def push_bundle(bundle, settings, *, item=None, open_original=None, timings=None
             if settings.upload_transport == "oss" or item is not None:
                 from .oss import upload_object
 
-                started = monotonic()
-                ticket = request("POST", f"/internal/releases/{manifest.release_id}/objects/{object_sha}/upload-url",
-                                 timeout=index_timeout)
-                if timings is not None:
-                    timings['ticket_seconds'] += monotonic()-started
+                with measure_stage(timings, 'ticket_seconds'):
+                    ticket = request("POST", f"/internal/releases/{manifest.release_id}/objects/{object_sha}/upload-url",
+                                     timeout=index_timeout)
                 reader = partial((bundle / "objects" / object_sha).open, "rb")
                 if item is not None and object_sha == item["source_sha256"]:
                     reader = open_original
-                started = monotonic()
-                uploaded += upload_object(ticket, refs[object_sha], reader)
-                if timings is not None:
-                    timings['upload_seconds'] += monotonic()-started
+                with measure_stage(timings, 'upload_seconds'):
+                    uploaded += upload_object(ticket, refs[object_sha], reader)
                 continue
             with (bundle / "objects" / object_sha).open("rb") as stream:
                 def chunks():
@@ -115,13 +127,13 @@ def push_bundle(bundle, settings, *, item=None, open_original=None, timings=None
                 request("PUT", f"/internal/releases/{manifest.release_id}/objects/{object_sha}", content=chunks(), headers={"Content-Type": "application/octet-stream"})
             uploaded += 1
         if item is not None:
-            started = monotonic()
-            receipt = request("POST", f"/internal/releases/{manifest.release_id}/index-item", json=item, timeout=index_timeout)
-            if (receipt.get("state") != "indexed" or receipt.get("release_id") != manifest.release_id
-                    or any(receipt.get(key) != item[key] for key in ("asset_id", "source_sha256", "tag_version"))):
-                raise ValueError("unexpected item receipt")
+            with measure_stage(timings, 'index_rpc_seconds'):
+                receipt = request("POST", f"/internal/releases/{manifest.release_id}/index-item", json=item, timeout=index_timeout)
+                if (receipt.get("state") != "indexed" or receipt.get("release_id") != manifest.release_id
+                        or any(receipt.get(key) != item[key] for key in ("asset_id", "source_sha256", "tag_version"))):
+                    raise ValueError("unexpected item receipt")
             if timings is not None:
-                timings.update(index_rpc_seconds=monotonic()-started, uploaded_objects=uploaded)
+                timings.update(uploaded_objects=uploaded)
             return receipt
         verified = request("POST", f"/internal/releases/{manifest.release_id}/verify", timeout=index_timeout)
         active = request("POST", f"/internal/releases/{manifest.release_id}/activate",
