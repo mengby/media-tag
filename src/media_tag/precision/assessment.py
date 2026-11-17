@@ -3,6 +3,17 @@ from media_tag.analysis.contracts import FieldAssessment, TOPIC_FIELDS, MEDICAL_
 from media_tag.contracts.models import FieldValue
 
 
+def normalized_value(value, definition, policy, candidates=()):
+    if value.state == 'observed':
+        if definition.field_type in ('单选', '多选') and not set(value.values) <= set(policy.options(definition) or ()):
+            candidates = tuple(dict.fromkeys((*candidates, *value.values)))
+            value = FieldValue(state='no_match', reason='candidate_outside_published_options')
+        elif definition.field_type == '文本' and len(value.values) > 1:
+            value = FieldValue(state='observed', values=('；'.join(value.values),))
+    policy.validate(definition, value)
+    return value, candidates
+
+
 def assessments(reply, task, policy, kind, *, layer='precision', evidence_id='precision-content'):
     if layer not in ('precision', 'local_audio'):
         raise ValueError('supported analysis layer required')
@@ -15,18 +26,12 @@ def assessments(reply, task, policy, kind, *, layer='precision', evidence_id='pr
     for item in reply.fields:
         value, candidates = item.value, item.candidates
         definition = policy.asset_fields[item.field]
-        allowed = policy.options(definition)
-        if value.state == 'observed' and definition.field_type in ('单选', '多选') and (allowed is None or not set(value.values) <= set(allowed)):
-            candidates = tuple(dict.fromkeys((*candidates, *value.values)))
-            value = FieldValue(state='no_match', reason='candidate_outside_published_options')
         # Model-proposed applicability is retained verbatim in report.reply. It
         # cannot become a local exemption before independent calibration/review.
         proposed_na = layer == 'local_audio' and value.state == 'not_applicable'
         if proposed_na:
             value = FieldValue(state='unknown', reason='local_audio_applicability_requires_review')
-        if (definition.field_type == '文本' or item.field in policy.tag_fields.guidance) and value.state == 'observed' and len(value.values) > 1:
-            value = FieldValue(state='observed', values=('；'.join(value.values),))
-        policy.validate(definition, value)
+        value, candidates = normalized_value(value, definition, policy, candidates)
         action = ('vocabulary' if candidates or value.state == 'no_match' else
             'none' if value.state in ('observed', 'not_applicable') else 'human')
         reason = 'precision_draft_requires_separate_human_review' if action == 'none' else 'precision_unresolved'

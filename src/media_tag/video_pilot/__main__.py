@@ -9,6 +9,7 @@ import time
 from media_tag.workers.probe import Toolchain
 from .api import endpoint, infer
 from .sampling import prepare, source_still_edge
+from .tags import load_policy
 
 
 def write(path, value):
@@ -17,8 +18,8 @@ def write(path, value):
     tmp.replace(path)
 
 
-def tag(item, folder, manifest, prepare_seconds, base_url, model, timeout, started):
-    reply = infer(folder, manifest, base_url, model, timeout)
+def tag(item, folder, manifest, prepare_seconds, base_url, model, timeout, started, *, policy=None):
+    reply = infer(folder, manifest, base_url, model, timeout, policy=policy)
     request_start = reply.pop('request_start') - started
     request_end = reply.pop('request_end') - started
     write(folder / 'tags.json', {'source_sha256': manifest['source_sha256'], **reply})
@@ -52,11 +53,12 @@ def request_peak(rows):
 
 
 def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *,
-        staged=False, still_sheet_edge=None, still_edge=None):
+        staged=False, still_sheet_edge=None, still_edge=None, policy=None):
     endpoint(base_url)
     if not files or not 1 <= concurrency <= 8:
         raise ValueError('select one or more videos and 1–8 request workers')
     capture_edge = source_still_edge(still_edge, still_sheet_edge)
+    policy = policy or load_policy()
     files = [Path(f).resolve(strict=True) for f in files]
     if len(set(files)) != len(files):
         raise ValueError('duplicate trial input')
@@ -75,7 +77,7 @@ def run(files, out, method, concurrency, base_url, model, timeout, tools=None, *
         sampling_options['still_edge'] = still_edge
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         def submit(work):
-            future = pool.submit(tag, *work, base_url, model, timeout, started)
+            future = pool.submit(tag, *work, base_url, model, timeout, started, policy=policy)
             futures[future] = work[0]
 
         for index, path in enumerate(files, 1):
@@ -132,10 +134,12 @@ def main():
     parser.add_argument('--base-url', default='http://127.0.0.1:18080/v1')
     parser.add_argument('--model', default='models')
     parser.add_argument('--timeout', type=float, default=150)
+    parser.add_argument('--template-dir', type=Path,
+                        help='use these original templates without a runtime taxonomy binding')
     args = parser.parse_args()
     report = run(args.videos, args.output, args.method, args.concurrency,
                  args.base_url, args.model, args.timeout, staged=args.staged,
-                 still_sheet_edge=args.still_sheet_edge, still_edge=args.still_edge)
+                 still_sheet_edge=args.still_sheet_edge, still_edge=args.still_edge, policy=load_policy(args.template_dir))
     print(f"{report['completed']}/{report['expected']}, {report['wall_seconds']:.2f}s, "
           f"{report['videos_per_minute']:.2f} videos/min")
     return 0 if report['completed'] == report['expected'] else 1

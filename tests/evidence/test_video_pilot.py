@@ -6,45 +6,50 @@ from PIL import Image
 import pytest
 import httpx
 
-from media_tag.video_pilot.__main__ import request_peak
+from media_tag.video_pilot.__main__ import request_peak, run
 from media_tag.video_pilot.api import endpoint, infer, parse_tag_lines, parse_tag_reply, validate_tags, visual_content
 from media_tag.video_pilot.sampling import plan_stills, plan_windows, prepare
+from media_tag.video_pilot.tags import ACTION, BASE_FIELDS, VERSION, bind_actions, load_policy
 from media_tag.workers.probe import Toolchain
 
 
 def test_reply_wrapper_preserves_single_complete_document():
-    tags = {'subjects': ['主体'], 'form': '实拍', 'actions': [], 'keywords': []}
+    tags = dict.fromkeys(BASE_FIELDS) | {'画面主体': '主体', ACTION: []}
     doc = json.dumps(tags)
-    assert parse_tag_reply(doc + '```', []) == tags
-    assert parse_tag_reply('```json\n' + doc + '\n```', []) == tags
+    assert parse_tag_reply(doc + '```') == tags
+    assert parse_tag_reply('```json\n' + doc + '\n```') == tags
     for invalid in (doc + doc, doc[:-1], doc + ' unrelated explanation'):
         with pytest.raises(ValueError):
-            parse_tag_reply(invalid, [])
+            parse_tag_reply(invalid)
 
 
-def test_retry_format_requires_completion_fields_and_real_evidence():
-    lines = 'subjects|器械\nform|实拍\nkeywords|器械\naction|器械抬起|C1\nend'
-    evidence = [{'id': 'C1'}]
-    assert parse_tag_lines(lines, evidence)['actions'] == [{'text': '器械抬起', 'evidence': ['C1']}]
-    assert parse_tag_lines(lines.replace('|C1', '|["C1"]'), evidence) == parse_tag_lines(lines, evidence)
-    for invalid in (lines[:-3], lines.replace('C1', 'C9'), lines.replace('form|实拍\n', ''),
-                    lines.replace('end', 'unrelated\nend'), lines.replace('end', 'form|动画\nend'),
-                    lines.replace('C1', '["C9"]'), lines.replace('C1', '[]')):
+def test_retry_format_requires_completion_and_unique_named_fields():
+    lines = '画面主体|"器械"\n画面动作|[]\nend'
+    assert parse_tag_lines(lines) == {'画面主体': '器械', ACTION: []}
+    for invalid in (lines[:-3], lines.replace('end', 'unrelated\nend'),
+                    lines.replace('end', '画面主体|"动画"\nend'), lines.replace('[]', 'not JSON')):
         with pytest.raises(ValueError):
-            parse_tag_lines(invalid, evidence)
+            parse_tag_lines(invalid)
 
 
-def test_length_finish_retries_even_when_first_json_is_parseable(tmp_path, monkeypatch):
-    first = json.dumps({'subjects': [], 'form': '动画', 'actions': [], 'keywords': []})
-    replies = iter([('length', first), ('stop', 'subjects|人物\nform|实拍|近景\nkeywords|人物\nend')])
+@pytest.mark.parametrize('reason,first', [
+    ('length', json.dumps(dict.fromkeys(BASE_FIELDS) | {ACTION: []})),
+    ('stop', '{"subjects":[],"form":"other","actions":[],"keywords":[]}'),
+    ('stop', json.dumps(dict.fromkeys(BASE_FIELDS))),
+])
+def test_retry_requires_all_image_fields_and_actions(tmp_path, monkeypatch, reason, first):
+    tags = dict.fromkeys(BASE_FIELDS) | {'画面主体': '人物', '表现形式': '实拍', ACTION: []}
+    lines = '\n'.join(f'{name}|{json.dumps(value)}' for name, value in tags.items()) + '\nend'
+    replies = iter([(reason, first), ('stop', lines)])
     def respond(request):
         reason, content = next(replies)
         return httpx.Response(200, json={'choices': [{'message': {'content': content}, 'finish_reason': reason}]})
     client = httpx.Client(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(httpx, 'Client', lambda **kwargs: client)
-    result = infer(tmp_path, {'evidence': []}, 'http://127.0.0.1:18080/v1', 'models', 5)
+    result = infer(tmp_path, {'evidence': []}, 'http://127.0.0.1:18080/v1', 'models', 5,
+                   policy=load_policy('asset-index-template'))
     assert result['model_calls'] == 2
-    assert result['tags'] == {'subjects': ['人物'], 'form': '实拍，近景', 'actions': [], 'keywords': ['人物']}
+    assert result['tags'] == tags
     assert (tmp_path / 'reply-first.txt').read_text(encoding='utf8') == first
 
 
@@ -206,3 +211,52 @@ def test_tunnel_evidence_references_and_actual_overlap():
                          dict(ok=True, request_start=1, request_end=3),
                          dict(ok=True, request_start=2, request_end=4),
                          dict(ok=False)]) == 2
+
+
+def test_tag_written_from_sampled_frames(tmp_path, monkeypatch, generated_media):
+    from media_tag.publish.video_draft import VideoDraft
+    policy = load_policy('asset-index-template')
+    source = generated_media.video
+    out = tmp_path / 'batch'
+    action = {'text': '图形移动', 'evidence': [{'id': 'C1', 'first_frame': 1, 'last_frame': 2}]}
+
+    def respond(request):
+        messages = json.loads(request.content)['messages']
+        assert all(name in messages[0]['content'] for name in (*BASE_FIELDS, ACTION))
+        assert any(part['type'] == 'image_url' for part in messages[1]['content'])
+        tags = dict.fromkeys(BASE_FIELDS) | {'画面主体': '图形', '英文检索词': ['moving shapes'],
+            '科室': '未发布分类', '口语化表达': '图形在动', ACTION: [action]}
+        choice = {'message': {'content': json.dumps(tags)}, 'finish_reason': 'stop'}
+        return httpx.Response(200, json={'choices': [choice]})
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: client)
+    summary = run([source], out, 'coverage', 2, 'http://127.0.0.1:18080/v1', 'test', 5, policy=policy)
+    assert summary['completed'] == 1, summary['results']
+    folder = out / 'v01'
+    report = json.loads((folder / 'tags.json').read_bytes())
+    draft = VideoDraft(folder, sha256(source.read_bytes()).hexdigest(), 'test')
+    clip = next(e for e in draft.manifest['evidence'] if e['id'] == 'C1')
+    assert report['schema_version'] == VERSION and set(report['tags']) == {*BASE_FIELDS, ACTION}
+    assert report['tags']['科室'] is None and report['candidates']['科室'] == ['未发布分类']
+    assert report['tags']['口语化表达'] == '图形在动' and report['tags']['英文检索词'] == 'moving shapes'
+    assert draft.actions[0]['evidence'] == [dict(action['evidence'][0], start_seconds=clip['frame_seconds'][0],
+        end_seconds=clip['frame_seconds'][1], sha256=sha256((folder / clip['path']).read_bytes()).hexdigest())]
+
+
+def test_disjoint_intervals_and_invalid_citations():
+    entries = [dict(id='C1', kind='sequence', start=1, end=2, frame_seconds=[1, 1.5, 2], sha256='a'*64),
+               dict(id='C2', kind='sequence', start=8, end=9, frame_seconds=[8, 8.5, 9], sha256='b'*64),
+               dict(id='F1', kind='image')]
+    cite = dict(id='C1', first_frame=1, last_frame=2)
+    def bind(*citations):
+        return bind_actions([dict(text='转动', evidence=list(citations))], entries)
+    bound = bind(cite, dict(cite, id='C2', first_frame=2, last_frame=3))
+    assert [(s['start_seconds'], s['end_seconds']) for s in bound[0]['evidence']] == [(1, 1.5), (8.5, 9)]
+    for invalid in (dict(cite, id='F1'), dict(cite, id='C9'), dict(cite, first_frame=2),
+                    dict(cite, last_frame=4), dict(cite, first_frame=True)):
+        with pytest.raises(ValueError):
+            bind(invalid)
+    bound[0]['evidence'][0]['end_seconds'] = 8.5
+    with pytest.raises(ValueError, match='differs from manifest'):
+        bind_actions(bound, entries, stored=True)

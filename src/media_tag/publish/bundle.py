@@ -172,7 +172,8 @@ def build_bundle(settings, destination, *, item=None, video_draft=None):
                     metadata = item_metadata(view, files, connection, row, detail, principal, item)
                 else:
                     metadata, video_fields, video_evidence = video_draft.export(
-                        files, connection, row, detail, principal, item, save, save_json)
+                        files, connection, row, detail, principal, item, save, save_json,
+                        policy=getattr(catalog, 'review_policy', None))
                 for evidence in metadata.pop("_artifacts", ()):
                     if evidence.sha256 != row["blob_sha256"] and evidence.sha256 not in output_refs:
                         with workspace.open_read(evidence.ref) as stream:
