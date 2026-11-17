@@ -38,6 +38,7 @@ class Router:
         # Trusted bootstrap assigns a private I/O slot only to workers with a restricted task filter.
         self.dedicated_worker_filters = {}
         self.worker_intake_scopes = {}
+        self.worker_registration_requests = {}
         self.legacy_image_topics = False
         self.upload_configured_fields = False
         self.options = options or RouterOptions()
@@ -274,9 +275,14 @@ class Router:
                 owner, requests = intake_scope
                 scope_sql += """AND router_jobs.owner_id=? AND router_jobs.asset_id IN (
                     SELECT asset_id FROM uploads WHERE owner_id=? AND state='completed'
-                    AND request_id IN (SELECT value FROM json_each(?)))
-                    AND json_extract(spec_json,'$.limits.gpu_slots')=0"""
+                    AND request_id IN (SELECT value FROM json_each(?))"""
                 scope_params += (owner, owner, requests)
+                registrations = self.worker_registration_requests.get(principal.actor_id)
+                if registrations:
+                    scope_sql += """ UNION ALL SELECT asset_id FROM registrations WHERE owner_id=?
+                        AND request_id IN (SELECT value FROM json_each(?))"""
+                    scope_params += (owner, registrations)
+                scope_sql += ") AND json_extract(spec_json,'$.limits.gpu_slots')=0"
             rows = connection.execute(f"""SELECT router_tasks.*, owner_id AS job_owner, priority AS job_priority
                 FROM router_tasks JOIN router_jobs USING(job_id)
                 WHERE active=1 AND state IN ('queued','retry_wait') AND ready_at<=? AND paused=0 AND cancelled=0 {scope_sql}

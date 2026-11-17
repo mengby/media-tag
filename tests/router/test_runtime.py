@@ -16,6 +16,21 @@ from media_tag.workers.probe import Toolchain, file_sha256
 from .conftest import result, step, submit
 
 
+def test_preprocessing_can_claim_an_explicit_catalog_registration(env):
+    import json
+    router = env.router
+    lane = env.workers[0]
+    submit(env)
+    router.worker_intake_scopes[lane.actor_id] = (env.owner.actor_id, '[]')
+    router.worker_registration_requests[lane.actor_id] = json.dumps(['different'])
+    assert router.claim(principal=lane) is None
+    router.worker_registration_requests[lane.actor_id] = json.dumps(['source'])
+    router.worker_intake_scopes[lane.actor_id] = ('different-owner', '[]')
+    assert router.claim(principal=lane) is None
+    router.worker_intake_scopes[lane.actor_id] = (env.owner.actor_id, '[]')
+    assert router.claim(principal=lane) is not None
+
+
 def test_preprocessing_requires_selected_owner_completed_upload_and_free_cpu_slot(env):
     import json
     from media_tag.contracts.models import TaskLimits

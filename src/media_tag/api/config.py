@@ -71,6 +71,7 @@ class LocalConfig(ContractModel):
     credentials: dict[Sha256, Principal]
     workers: tuple[Identifier, ...]
     preprocess_batch: PreprocessBatch | None = None
+    preprocess_registration_requests: Annotated[tuple[Identifier, ...], Field(max_length=10000)] = ()
     options: RouterOptions = RouterOptions()
     tool_dir: str | None = None
     upload_options: UploadOptions = UploadOptions()
@@ -204,6 +205,8 @@ def load_application(path: Path):
                     if identity in config.workers or any(p.actor_id == identity for p in config.credentials.values()):
                         raise ValueError('private preprocessing worker identity already assigned')
                     router.worker_intake_scopes[identity] = scope
+                    if config.preprocess_registration_requests:
+                        router.worker_registration_requests[identity] = json.dumps(config.preprocess_registration_requests)
                     connection.execute("""INSERT INTO router_workers VALUES(?,?,1) ON CONFLICT(worker_id)
                         DO UPDATE SET stages_json=excluded.stages_json,enabled=1""", (identity, json.dumps(stages)))
             if config.precision.enabled:
