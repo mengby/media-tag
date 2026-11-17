@@ -149,7 +149,10 @@ def parse_tag_lines(text, entries):
         parts = [part.strip() for part in line.split('|')]
         field, values = parts[0], parts[1:]
         if field == 'action' and len(values) >= 2:
-            actions.append({'text': values[0], 'evidence': values[1:]})
+            evidence = values[1:]
+            if len(evidence) == 1 and evidence[0].startswith('['):
+                evidence = json.loads(evidence[0])
+            actions.append({'text': values[0], 'evidence': evidence})
         elif field in ('subjects', 'keywords') and field not in tags:
             tags[field] = values
         elif field == 'form' and values and all(values) and field not in tags:

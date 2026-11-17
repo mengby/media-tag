@@ -26,8 +26,10 @@ def test_retry_format_requires_completion_fields_and_real_evidence():
     lines = 'subjects|器械\nform|实拍\nkeywords|器械\naction|器械抬起|C1\nend'
     evidence = [{'id': 'C1'}]
     assert parse_tag_lines(lines, evidence)['actions'] == [{'text': '器械抬起', 'evidence': ['C1']}]
+    assert parse_tag_lines(lines.replace('|C1', '|["C1"]'), evidence) == parse_tag_lines(lines, evidence)
     for invalid in (lines[:-3], lines.replace('C1', 'C9'), lines.replace('form|实拍\n', ''),
-                    lines.replace('end', 'unrelated\nend'), lines.replace('end', 'form|动画\nend')):
+                    lines.replace('end', 'unrelated\nend'), lines.replace('end', 'form|动画\nend'),
+                    lines.replace('C1', '["C9"]'), lines.replace('C1', '[]')):
         with pytest.raises(ValueError):
             parse_tag_lines(invalid, evidence)
 
